@@ -18,8 +18,6 @@ function cleanup() {
             if mountpoint -q "$dir" ; then umount "$dir" ; fi
             sync
         done
-        mountpoint -q "$machinedir"/usr/src/zfsbuild/proc && umount "$machinedir"/usr/src/zfsbuild/proc || true
-        mountpoint -q "$machinedir"/usr/src/zfsbuild && umount "$machinedir"/usr/src/zfsbuild || true
         mountpoint -q "$machinedir" && umount "$machinedir" || true
         sync
     fi
@@ -154,48 +152,36 @@ test -n "$SKIPSETUP" || {
     echo "GRUB_PRELOAD_MODULES='part_msdos ext2'" >> "$machinedir"/etc/default/grub
     sed -i 's/.*GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX=/' "$machinedir"/etc/default/grub
 
-    zfs list -t all "$machinepoolname"/ROOT/os@zfsbuild > /dev/null || zfs snapshot "$machinepoolname"/ROOT/os@zfsbuild
-    zfs list "$machinepoolname"/ROOT/zfsbuild > /dev/null || {
-        zfs clone "$machinepoolname"/ROOT/os@zfsbuild "$machinepoolname"/ROOT/zfsbuild
-        zfs set mountpoint=none "$machinepoolname"/ROOT/zfsbuild
-    }
-    mkdir -p "$machinedir"/usr/src/zfsbuild
-    mountpoint "$machinedir"/usr/src/zfsbuild > /dev/null || mount -t zfs -o zfsutil "$machinepoolname"/ROOT/zfsbuild "$machinedir"/usr/src/zfsbuild
-    chroot "$machinedir" mount --bind /proc /usr/src/zfsbuild/proc
-
     # deploy ZFS now
     packages="dkms kernel-devel libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc"
-    chroot "$machinedir" chroot /usr/src/zfsbuild rpm -q $packages > /dev/null  || chroot "$machinedir" chroot /usr/src/zfsbuild yum install -y $packages
+    chroot "$machinedir" rpm -q $packages > /dev/null  || chroot "$machinedir" yum install -y $packages
 
-    test -d "$machinedir"/usr/src/zfsbuild/usr/src/zfs || \
-    chroot "$machinedir" chroot /usr/src/zfsbuild bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/spl && git clone http://github.com/Rudd-O/zfs'
+    test -d "$machinedir"/usr/src/zfs || \
+    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/spl && git clone http://github.com/Rudd-O/zfs'
 
-    files=`echo "$machinedir"/usr/src/zfsbuild/usr/src/spl/*.rpm`
-    if [ "$files" == "$machinedir/usr/src/zfsbuild/usr/src/spl/*.rpm" ] ; then
-        chroot "$machinedir" chroot /usr/src/zfsbuild bash -c 'cd /usr/src/spl && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
+    files=`echo "$machinedir"/usr/src/spl/*.rpm`
+    if [ "$files" == "$machinedir/usr/src/spl/*.rpm" ] ; then
+        chroot "$machinedir" bash -c 'cd /usr/src/spl && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
     fi
 
     chroot "$machinedir" rpm -q spl spl-modules-dkms > /dev/null || \
-    chroot "$machinedir" rpm -ivh /usr/src/zfsbuild/usr/src/spl/spl-*`arch`*.rpm /usr/src/zfsbuild/usr/src/spl/spl-*noarch*.rpm
+    chroot "$machinedir" rpm -ivh /usr/src/spl/spl-*`arch`*.rpm /usr/src/spl/spl-*noarch*.rpm
 
-    files=`echo "$machinedir"/usr/src/zfsbuild/usr/src/zfs/*.rpm`
-    if [ "$files" == "$machinedir/usr/src/zfsbuild/usr/src/zfs*.rpm" ] ; then
-        chroot "$machinedir" chroot /usr/src/zfsbuild bash -c 'cd /usr/src/zfs && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
+    files=`echo "$machinedir"/usr/src/zfs/*.rpm`
+    if [ "$files" == "$machinedir/usr/src/zfs*.rpm" ] ; then
+        chroot "$machinedir" bash -c 'cd /usr/src/zfs && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
     fi
 
     chroot "$machinedir" rpm -q zfs zfs-systemd zfs-dracut > /dev/null || \
-    chroot "$machinedir" rpm -ivh /usr/src/zfsbuild/usr/src/zfs/zfs-*`arch`*.rpm /usr/src/zfsbuild/usr/src/zfs/zfs-*noarch*.rpm
+    chroot "$machinedir" rpm -ivh /usr/src/zfs/zfs-*`arch`*.rpm /usr/src/zfs/zfs-*noarch*.rpm
 
     grep -q zfs "$machinedir"/sbin/grub2-mkconfig || {
         chroot "$machinedir" bash -c "test -f /sbin/grub2-mkconfig.orig && cp /sbin/grub2-mkconfig.orig /sbin/grub2-mkconfig || true"
         chroot "$machinedir" cp /sbin/grub2-mkconfig /sbin/grub2-mkconfig.orig
-        chroot "$machinedir" mv /sbin/grub2-mkconfig /usr/src/zfsbuild/usr/src/zfs/grub2/grub-mkconfig.in
-        chroot "$machinedir" bash -c 'cd /usr/src/zfsbuild/usr/src/zfs/grub2 && patch -p2 < grub-mkconfig-zfs-support.diff > /dev/null'
-        chroot "$machinedir" mv /usr/src/zfsbuild/usr/src/zfs/grub2/grub-mkconfig.in /sbin/grub2-mkconfig
+        chroot "$machinedir" mv /sbin/grub2-mkconfig /usr/src/zfs/grub2/grub-mkconfig.in
+        chroot "$machinedir" bash -c 'cd /usr/src/zfs/grub2 && patch -p2 < grub-mkconfig-zfs-support.diff > /dev/null'
+        chroot "$machinedir" mv /usr/src/zfs/grub2/grub-mkconfig.in /sbin/grub2-mkconfig
     }
-
-    umount "$machinedir"/usr/src/zfsbuild/proc
-    umount "$machinedir"/usr/src/zfsbuild
 
     cat > "$machinedir"/installbootloader <<EOF
 #!/bin/bash -xe
