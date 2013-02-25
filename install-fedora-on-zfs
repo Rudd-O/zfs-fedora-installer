@@ -3,6 +3,7 @@
 vol="$1"
 hostname="$2"
 machinepoolname=`echo "$hostname" | sed 's/\..*//'`
+machinedir=`mktemp -d`
 
 if [ -z "$vol" -o -z "$hostname" ] ; then
     echo -- "$0: installs a minimal Fedora inside a ZFS pool within a disk image or device" >> /dev/stderr
@@ -19,6 +20,7 @@ function cleanup() {
             sync
         done
         mountpoint -q "$machinedir" && umount "$machinedir" || true
+        rm -rf "$machinedir"
         sync
     fi
     if [ -n "$machinepoolname" ] ; then
@@ -97,10 +99,8 @@ zfs list "$machinepoolname"/ROOT/swap > /dev/null || {
     mkswap /dev/zvol/"$machinepoolname"/ROOT/swap
 }
 
-machinedir=/var/tmp/"$machinepoolname"
 mp=`zfs get mountpoint "$machinepoolname"/ROOT/os -H | awk -F "\t" ' { print $3 } '`
 test "$mp" == "/" || zfs set mountpoint=/ "$machinepoolname"/ROOT/os || true
-test -d "$machinedir" || mkdir "$machinedir"
 mountpoint -q "$machinedir" || mount -t zfs -o zfsutil "$machinepoolname"/ROOT/os "$machinedir"
 
 test -d "$machinedir"/boot || mkdir "$machinedir"/boot
