@@ -5,8 +5,8 @@ hostname="$2"
 machinepoolname=`echo "$hostname" | sed 's/\..*//'`
 
 if [ -z "$vol" -o -z "$hostname" ] ; then
-    echo "$0": installs a minimal Fedora inside a ZFS pool within a disk image or device" >> /dev/stderr
-    echo usage: "$0" "<disk or device file>" "<hostname>" >> /dev/stderr
+    echo -- "$0: installs a minimal Fedora inside a ZFS pool within a disk image or device" >> /dev/stderr
+    echo -- usage: "$0" "<disk or device file>" "<hostname>" >> /dev/stderr
     exit 64
 fi
 
