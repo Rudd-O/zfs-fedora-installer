@@ -4,17 +4,30 @@ vol="$1"
 hostname="$2"
 machinepoolname=`echo "$hostname" | sed 's/\..*//'`
 
+if [ -z "$vol" -o -z "$hostname" ] ; then
+    echo usage: "$0" "<disk or device file>" "<hostname>" >> /dev/stderr
+    exit 64
+fi
+
 function cleanup() {
-for dir in "$machinedir"/{proc,sys,boot} ; do
-    if mountpoint -q "$dir" ; then umount "$dir" ; fi
-    sync
-done
-mountpoint -q "$machinedir" && umount "$machinedir" || true
-sync
-zpool export "$machinepoolname"
-sync
-[ "$lodeved" == "true" ] && losetup -d "$lodev" || true
-sync
+
+    if [ -n "$machinedir" ] ; then
+        for dir in "$machinedir"/{proc,sys,boot} ; do
+            if mountpoint -q "$dir" ; then umount "$dir" ; fi
+            sync
+        done
+        mountpoint -q "$machinedir" && umount "$machinedir" || true
+        sync
+    fi
+    if [ -n "$machinepoolname" ] ; then
+        zpool export "$machinepoolname"
+        sync
+    fi
+    if [ "$lodeved" == "true" ] ; then
+        losetup -d "$lodev"
+        sync
+    fi
+
 }
 
 trap cleanup ERR
