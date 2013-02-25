@@ -7,7 +7,7 @@ If a device file is specified, then the device file will be used instead.
 
 Usage:
 
-    install-fedora-on-zfs <path to regular or device file> <host name> <root password>
+    install-fedora-on-zfs <path to regular or device file> <host name> [root password]
 
 After setup is done, you can use `dd` to transfer the image to the appropriate media (perhaps an USB drive) for booting.
 
@@ -47,6 +47,8 @@ Notes / known issues
 --------------------
 
 This script only works on Fedora hosts.
+
+If you leave the root password empty, it will default to `password`.
 
 License
 -------
