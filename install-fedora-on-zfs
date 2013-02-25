@@ -137,7 +137,7 @@ test -n "$SKIPSETUP" || {
     chroot "$machinedir" rpm -q $packages > /dev/null || \
     yum install -y --installroot="$machinedir" --nogpgcheck --releasever=18 $packages
 
-    echo "$password" | chroot "$machinedir" passwd --stdin
+    echo "$password" | chroot "$machinedir" passwd --stdin root
 
     # install grub2 packages
     packages="grub2 grub2-tools"
