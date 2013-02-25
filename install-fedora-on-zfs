@@ -2,12 +2,14 @@
 
 vol="$1"
 hostname="$2"
+password="$3"
 machinepoolname=`echo "$hostname" | sed 's/\..*//'`
 machinedir=`mktemp -d`
 
 if [ -z "$vol" -o -z "$hostname" ] ; then
     echo -- "$0: installs a minimal Fedora inside a ZFS pool within a disk image or device" >> /dev/stderr
-    echo -- usage: "$0" "<disk or device file>" "<hostname>" >> /dev/stderr
+    echo -- usage: "$0" "<disk or device file>" "<hostname> [root password]" >> /dev/stderr
+    echo -- "If the root password is not specified, it will default to empty." >> /dev/stderr
     exit 64
 fi
 
@@ -134,6 +136,8 @@ test -n "$SKIPSETUP" || {
     packages="basesystem bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs"
     chroot "$machinedir" rpm -q $packages > /dev/null || \
     yum install -y --installroot="$machinedir" --nogpgcheck --releasever=18 $packages
+
+    echo "$password" | chroot "$machinedir" passwd --stdin
 
     # install grub2 packages
     packages="grub2 grub2-tools"
