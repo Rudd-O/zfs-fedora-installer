@@ -1,0 +1,186 @@
+#!/bin/bash -e 
+
+vol="$1"
+hostname="$2"
+machinepoolname=`echo "$hostname" | sed 's/\..*//'`
+
+if test -b "$vol" ; then
+    true
+elif test -f "$vol" ; then
+    true
+elif test -e "$vol" ; then
+    echo "error: $vol must be a file or block special" >> /dev/stderr
+    exit 4
+else
+    dd if=/dev/zero of="$vol" bs=1K count=0 seek=$((1000 * 1000 * 4))
+fi
+
+lodeved=
+if test -b "$vol" ; then
+    lodev="$vol"
+elif test -f "$vol" ; then
+    lodev=`losetup -j "$vol"`
+    test -n "$lodev" || {
+        losetup -P --find --show "$vol" > /dev/null
+    }
+    lodev=`losetup -j "$vol" | cut -d : -f 1`
+    lodeved=true
+else
+    echo "error: assert not reached" >> /dev/stderr
+    exit 6
+fi
+
+test -e "$lodev"-part1 && lodevp1="$lodev"-part1 || lodevp1="$lodev"p1
+test -e "$lodev"-part2 && lodevp2="$lodev"-part2 || lodevp2="$lodev"p2
+
+fdisk "$lodev" < /dev/null 2>&1 | grep -q recognized && {
+    echo \
+"n
+p
+1
+
++256M
+
+n
+p
+2
+
+
+p
+w
+" | fdisk "$lodev"
+    sleep 1
+    mkfs.ext4 -L boot "$lodevp1"
+    zpool create -m none -o ashift=12 "$machinepoolname" -O compression=on -O atime=off "$lodevp2"
+} || true
+
+zfs list "$machinepoolname" > /dev/null 2>&1 || zpool import -fN "$machinepoolname"
+zfs list "$machinepoolname"/ROOT > /dev/null || zfs create "$machinepoolname"/ROOT
+zfs list "$machinepoolname"/ROOT/os > /dev/null || zfs create "$machinepoolname"/ROOT/os
+zfs list "$machinepoolname"/ROOT/swap > /dev/null || {
+    zfs create "$machinepoolname"/ROOT/swap -V 1G
+    mkswap /dev/zvol/"$machinepoolname"/ROOT/swap
+}
+
+machinedir=/var/tmp/"$machinepoolname"
+mp=`zfs get mountpoint "$machinepoolname"/ROOT/os -H | awk -F "\t" ' { print $3 } '`
+test "$mp" == "/" || zfs set mountpoint=/ "$machinepoolname"/ROOT/os || true
+test -d "$machinedir" || mkdir "$machinedir"
+mountpoint -q "$machinedir" || mount -t zfs -o zfsutil "$machinepoolname"/ROOT/os "$machinedir"
+
+test -d "$machinedir"/boot || mkdir "$machinedir"/boot
+test -d "$machinedir"/sys || mkdir "$machinedir"/sys
+test -d "$machinedir"/proc || mkdir "$machinedir"/proc
+test -d "$machinedir"/dev || mkdir "$machinedir"/dev
+test -d "$machinedir"/etc || mkdir "$machinedir"/etc
+
+mountpoint -q "$machinedir"/boot || mount "$lodevp1" "$machinedir"/boot
+mountpoint -q "$machinedir"/sys || mount -t sysfs sysfs "$machinedir"/sys
+mountpoint -q "$machinedir"/proc || mount -t proc proc "$machinedir"/proc
+rm -rf "$machinedir"/dev/ ; mkdir -p "$machinedir"/dev/
+rsync -ax --numeric-ids --delete /dev/ "$machinedir"/dev/
+
+test -n "$SKIPSETUP" || {
+
+    echo "$machinepoolname/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0" > "$machinedir"/etc/fstab
+    echo "LABEL=boot /boot ext4 noatime 0 1" >> "$machinedir"/etc/fstab
+    echo "/dev/zvol/$machinepoolname/ROOT/swap swap swap discard 0 0" >> "$machinedir"/etc/fstab
+    ln -fs ../proc/self/mounts "$machinedir"/etc/mtab
+    test -f "$machinedir"/etc/resolv.conf || cp -R /etc/resolv.conf "$machinedir"/etc/resolv.conf
+    echo "$hostname" > "$machinedir"/etc/hostname
+    test -f "$machinedir"/etc/hostid || dd if=/dev/urandom of="$machinedir"/etc/hostid bs=4 count=1
+    hostid=`python -c 'import sys ; m = file("/dev/stdin").read().encode("hex") ; print "%s%s%s%s"%(m[6:8],m[4:6],m[2:4],m[0:2])' < "$machinedir"/etc/hostid`
+
+    packages="basesystem bash nano kernel binutils yum rsync NetworkManager rpm grub2 grub2-tools vim-minimal"
+    chroot "$machinedir" rpm -q $packages > /dev/null || \
+    yum install -y --installroot="$machinedir" --nogpgcheck --releasever=18 $packages
+
+    # deploy ZFS now
+    packages="dkms kernel-devel libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc e2fsprogs"
+    chroot "$machinedir" rpm -q $packages > /dev/null  || chroot "$machinedir" yum install -y $packages
+
+    test -d "$machinedir"/usr/src/zfs || \
+    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/spl && git clone http://github.com/Rudd-O/zfs'
+
+    files=`echo "$machinedir"/usr/src/spl/*.rpm`
+    if [ "$files" == "$machinedir/usr/src/spl/*.rpm" ] ; then
+        chroot "$machinedir" bash -c 'cd /usr/src/spl && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
+    fi
+
+    chroot "$machinedir" rpm -q spl spl-modules-dkms > /dev/null || \
+    chroot "$machinedir" rpm -ivh /usr/src/spl/spl-*`arch`*.rpm /usr/src/spl/spl-*noarch*.rpm
+
+    files=`echo "$machinedir"/usr/src/zfs/*.rpm`
+    if [ "$files" == "$machinedir/usr/src/zfs/*.rpm" ] ; then
+        chroot "$machinedir" bash -c 'cd /usr/src/zfs && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
+    fi
+
+    chroot "$machinedir" rpm -q zfs zfs-systemd zfs-dracut > /dev/null || \
+    chroot "$machinedir" rpm -ivh /usr/src/zfs/zfs-*`arch`*.rpm /usr/src/zfs/zfs-*noarch*.rpm
+
+    # fix block devices here
+    rm -rf "$machinedir"/dev/zvol "$machinedir"/dev/disk "$machinedir"/dev/sd*  "$machinedir"/dev/zd* "$machinedir"/dev/mapper
+
+    # write grub config
+    rsync -a /etc/default/grub "$machinedir"/etc/default/grub
+    echo "" >> "$machinedir"/etc/default/grub2
+    echo "GRUB_DISABLE_LINUX_UUID=true" >> "$machinedir"/etc/default/grub
+    echo "GRUB_PRELOAD_MODULES='part_msdos ext2'" >> "$machinedir"/etc/default/grub
+    sed -i 's/.*GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX=/' "$machinedir"/etc/default/grub
+
+    grep -q zfs "$machinedir"/sbin/grub2-mkconfig || {
+        chroot "$machinedir" bash -c "test -f /sbin/grub2-mkconfig.orig && cp /sbin/grub2-mkconfig.orig /sbin/grub2-mkconfig || true"
+        chroot "$machinedir" cp /sbin/grub2-mkconfig /sbin/grub2-mkconfig.orig
+        chroot "$machinedir" mv /sbin/grub2-mkconfig /usr/src/zfs/grub2/grub-mkconfig.in
+        chroot "$machinedir" bash -c 'cd /usr/src/zfs/grub2 && patch -p2 < grub-mkconfig-zfs-support.diff > /dev/null'
+        chroot "$machinedir" mv /usr/src/zfs/grub2/grub-mkconfig.in /sbin/grub2-mkconfig
+    }
+
+    grep -Fxq "exclude=grub2" < "$machinedir"/etc/yum.conf || {
+        echo "" >> "$machinedir"/etc/yum.conf
+        echo "exclude=grub2" >> "$machinedir"/etc/yum.conf
+    }
+
+    cat > "$machinedir"/installbootloader <<EOF
+#!/bin/bash -xe
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+mount /boot
+grub2-install /dev/sda
+grub2-mkconfig > /boot/grub2/grub.cfg
+dd if=/dev/zero of=/tempzfs bs=64M count=1
+zpool create -m none trsaenasrentiarntianstieemppool /tempzfs
+zpool destroy trsaenasrentiarntianstieemppool
+rm -f /tempzfs
+dracut -f /boot/initramfs-\`uname -r\`.img \`uname -r\`
+umount /boot
+rm -f /installbootloader
+sync
+sync
+echo 1 > /proc/sys/kernel/sysrq
+echo b > /proc/sysrq-trigger
+EOF
+    chmod +x "$machinedir"/installbootloader
+
+}
+
+[ "$UMOUNT" == "false" ] || {
+sync
+tmpdir=`mktemp -d`
+cp "$machinedir"/boot/vmlinuz* "$machinedir"/boot/initramfs* "$tmpdir"/
+for dir in "$machinedir"/{proc,sys,boot} ; do
+    if mountpoint -q "$dir" ; then umount "$dir" ; fi
+    sync
+done
+mountpoint -q "$machinedir" && umount "$machinedir" || true
+sync
+zpool export "$machinepoolname"
+sync
+[ "$lodeved" == "true" ] && losetup -d "$lodev" || true
+sync
+
+uuidgen > /dev/null
+/usr/bin/qemu-kvm -name "$hostname" -M pc-1.2 -enable-kvm -no-reboot -m 1024 -uuid `uuidgen` -kernel "$tmpdir"/vmlinuz-* -initrd "$tmpdir"/initramfs-* -append root=ZFS="$machinepoolname"/ROOT/os\ ro\ init=/installbootloader\ spl_hostid="$hostid" -drive file="$vol",if=none,id=drive-ide0-0-0,format=raw -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
+
+rm -rf "$tmpdir"
+
+}
