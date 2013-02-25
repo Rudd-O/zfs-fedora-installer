@@ -91,7 +91,7 @@ w
 " | fdisk "$lodev"
     sleep 1
     mkfs.ext4 -L boot "$lodevp1"
-    zpool create -m none -o ashift=12 "$machinepoolname" -O compression=on -O atime=off "$lodevp2"
+    zpool create -m none -o ashift=12 "$machinepoolname" -O compression=on -O atime=off -O com.sun:auto-snapshot=false "$lodevp2"
 } || true
 
 zfs list "$machinepoolname" > /dev/null 2>&1 || zpool import -fN "$machinepoolname"
@@ -217,6 +217,7 @@ EOF
 sync
 tmpdir=`mktemp -d`
 cp "$machinedir"/boot/vmlinuz* "$machinedir"/boot/initramfs* "$tmpdir"/
+zfs inherit com.sun:auto-snapshot "$machinepoolname"
 cleanup
 
 uuidgen > /dev/null
