@@ -12,7 +12,7 @@ elif test -e "$vol" ; then
     echo "error: $vol must be a file or block special" >> /dev/stderr
     exit 4
 else
-    dd if=/dev/zero of="$vol" bs=1000 count=0 seek=$((1000 * 1000 * 4))
+    dd if=/dev/zero of="$vol" bs=1000 count=0 seek=$((1000 * 1000 * 8))
 fi
 
 lodeved=
