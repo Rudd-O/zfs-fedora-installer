@@ -156,8 +156,11 @@ test -n "$SKIPSETUP" || {
     packages="dkms kernel-devel libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc"
     chroot "$machinedir" rpm -q $packages > /dev/null  || chroot "$machinedir" yum install -y $packages
 
+    test -d "$machinedir"/usr/src/spl || \
+    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/spl'
+
     test -d "$machinedir"/usr/src/zfs || \
-    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/spl && git clone http://github.com/Rudd-O/zfs'
+    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/zfs'
 
     files=`echo "$machinedir"/usr/src/spl/*.rpm`
     if [ "$files" == "$machinedir/usr/src/spl/*.rpm" ] ; then
@@ -165,7 +168,7 @@ test -n "$SKIPSETUP" || {
     fi
 
     chroot "$machinedir" rpm -q spl spl-modules-dkms > /dev/null || \
-    chroot "$machinedir" rpm -ivh /usr/src/spl/spl-*`arch`*.rpm /usr/src/spl/spl-*noarch*.rpm
+    chroot "$machinedir" rpm -ivh --replacefiles --replacepkgs /usr/src/spl/spl-*`arch`*.rpm /usr/src/spl/spl-*noarch*.rpm
 
     files=`echo "$machinedir"/usr/src/zfs/*.rpm`
     if [ "$files" == "$machinedir/usr/src/zfs/*.rpm" ] ; then
@@ -173,7 +176,7 @@ test -n "$SKIPSETUP" || {
     fi
 
     chroot "$machinedir" rpm -q zfs zfs-systemd zfs-dracut > /dev/null || \
-    chroot "$machinedir" rpm -ivh /usr/src/zfs/zfs-*`arch`*.rpm /usr/src/zfs/zfs-*noarch*.rpm
+    chroot "$machinedir" rpm -ivh --replacefiles --replacepkgs /usr/src/zfs/zfs-*`arch`*.rpm /usr/src/zfs/zfs-*noarch*.rpm
 
     grep -q zfs "$machinedir"/sbin/grub2-mkconfig || {
         chroot "$machinedir" bash -c "test -f /sbin/grub2-mkconfig.orig && cp /sbin/grub2-mkconfig.orig /sbin/grub2-mkconfig || true"
