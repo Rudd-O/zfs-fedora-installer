@@ -134,7 +134,7 @@ test -n "$SKIPSETUP" || {
     hostid=`python -c 'import sys ; m = file("/dev/stdin").read().encode("hex") ; print "%s%s%s%s"%(m[6:8],m[4:6],m[2:4],m[0:2])' < "$machinedir"/etc/hostid`
 
     # install base packages
-    packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam"
+    packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools"
     chroot "$machinedir" rpm -q $packages > /dev/null || \
     yum install -y --installroot="$machinedir" --nogpgcheck --releasever=18 $packages
 
