@@ -212,7 +212,7 @@ cp "$machinedir"/boot/vmlinuz* "$machinedir"/boot/initramfs* "$tmpdir"/
 cleanup
 
 uuidgen > /dev/null
-/usr/bin/qemu-kvm -name "$hostname" -M pc-1.2 -enable-kvm -no-reboot -m 1024 -uuid `uuidgen` -kernel "$tmpdir"/vmlinuz-* -initrd "$tmpdir"/initramfs-* -append root=ZFS="$machinepoolname"/ROOT/os\ ro\ init=/installbootloader\ spl_hostid="$hostid" -drive file="$vol",if=none,id=drive-ide0-0-0,format=raw -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
+/usr/bin/qemu-kvm -name "$hostname" -M pc-1.2 -enable-kvm -no-reboot -m 1024 -uuid `uuidgen` -kernel "$tmpdir"/vmlinuz-* -initrd "$tmpdir"/initramfs-* -append root=ZFS="$machinepoolname"/ROOT/os\ ro\ init=/installbootloader\ zfs_not_by_id=1 -drive file="$vol",if=none,id=drive-ide0-0-0,format=raw -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
 
 rm -rf "$tmpdir"
 
