@@ -168,7 +168,7 @@ test -n "$SKIPSETUP" || {
     chroot "$machinedir" rpm -ivh /usr/src/spl/spl-*`arch`*.rpm /usr/src/spl/spl-*noarch*.rpm
 
     files=`echo "$machinedir"/usr/src/zfs/*.rpm`
-    if [ "$files" == "$machinedir/usr/src/zfs*.rpm" ] ; then
+    if [ "$files" == "$machinedir/usr/src/zfs/*.rpm" ] ; then
         chroot "$machinedir" bash -c 'cd /usr/src/zfs && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
     fi
 
