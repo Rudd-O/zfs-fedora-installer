@@ -1,6 +1,11 @@
 Fedora on ZFS root installer
 ============================
 
+| Donate to support free software |
+|:------------------------------------:|
+| <img width="164" height="164" title="" alt="" src="doc/bitcoin.png" /> |
+| [1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V](bitcoin:1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V) |
+
 This script will create a 8 GB image file containing a fresh, minimal Fedora 18 installation on a ZFS pool that can be booted on a QEMU / virt-manager virtual machine, or written to a block device (after which you can grow the last partition to make ZFS use the extra space).
 
 If a device file is specified, then the device file will be used instead.
