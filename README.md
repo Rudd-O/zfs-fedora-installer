@@ -1,7 +1,7 @@
 Fedora on ZFS root installer
 ============================
 
-| Donate to support free software |
+| Donate to support this free software |
 |:------------------------------------:|
 | <img width="164" height="164" title="" alt="" src="doc/bitcoin.png" /> |
 | [1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V](bitcoin:1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V) |
