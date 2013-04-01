@@ -6,9 +6,7 @@ Fedora on ZFS root installer
 | <img width="164" height="164" title="" alt="" src="doc/bitcoin.png" /> |
 | [1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V](bitcoin:1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V) |
 
-This script will create a 8 GB image file containing a fresh, minimal Fedora 18 installation on a ZFS pool that can be booted on a QEMU / virt-manager virtual machine, or written to a block device (after which you can grow the last partition to make ZFS use the extra space).
-
-If a device file is specified, then the device file will be used instead.
+This script will create an image file containing a fresh, minimal Fedora 18 installation on a ZFS pool that can be booted on a QEMU / virt-manager virtual machine, or written to a block device (after which you can grow the last partition to make ZFS use the extra space).  If a device file is specified, then the device file will be used instead.  The resulting image is bootable and portable.
 
 Usage:
 
@@ -79,12 +77,29 @@ These are the programs you need to execute this script
 * mkswap
 * cryptsetup
 
+Transferring the images to media
+--------------------------------
+
+You can transfer the resulting disk images to larger media afterward.  The usual `dd if=/path/to/root/image of=/dev/path/to/disk/device` advice works fine.
+
+You can also tell ZFS (and LUKS) to use the newly available space, if the target media is larger than the images.
+
+If you used the default single volume mode:
+
+1. Alter the partition table so the last partition ends on the last sector.
+2. Reread the partition table (might require a reboot).
+3. (If you used encryption) tell LUKS to resize the volume via `cryptsetup resize /dev/mapper/luks-<encrypted device UUID>`.
+4. `zpool online -e <pool name> <path to partition or encrypted device>` to have ZFS recognize the full partition size.
+
+If you used the boot-on-separate-device mode:
+
+3. (If you used encryption) tell LUKS to resize the volume via `cryptsetup resize /dev/mapper/luks-<encrypted device UUID>`.
+4. `zpool online -e <pool name> <path to whole disk or encrypted device>` to have ZFS recognize the full partition size.
+
 Notes / known issues
 --------------------
 
 This script only works on Fedora hosts.
-
-If you leave the root password empty, it will default to `password`.
 
 License
 -------
