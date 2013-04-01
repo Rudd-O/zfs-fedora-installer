@@ -1,229 +1,501 @@
-#!/bin/bash -e 
+#!/usr/bin/env python
 
-vol="$1"
-hostname="$2"
-password="$3"
-if [ "$password" == "" ] ; then password=password ; fi
-machinepoolname=`echo "$hostname" | sed 's/\..*//'`
-machinedir=`mktemp -d`
+import sys
+import os
+import argparse
+import subprocess
+import stat
+import time
+from os.path import join as j
+import shutil
+import glob
+import platform
+import tempfile
+import logging
+import uuid
 
-if [ -z "$vol" -o -z "$hostname" ] ; then
-    echo -- "$0: installs a minimal Fedora inside a ZFS pool within a disk image or device" >> /dev/stderr
-    echo -- usage: "$0" "<disk or device file>" "<hostname> [root password]" >> /dev/stderr
-    echo -- "If the root password is not specified, it will default to 'password'." >> /dev/stderr
-    exit 64
-fi
+def get_parser():
+    parser = argparse.ArgumentParser(
+        description="Install a minimal Fedora system inside a ZFS pool within a disk image or device"
+    )
+    parser.add_argument(
+        "voldev", metavar="VOLDEV", type=str, nargs=1,
+        help="path to volume (device to use or regular file to create)"
+    )
+    parser.add_argument(
+        "--vol-size", dest="volsize", metavar="VOLSIZE", type=int,
+        action="store", default=8000, help="volume size in MiB (default 7000)"
+    )
+    parser.add_argument(
+        "--separate-boot", dest="bootdev", metavar="BOOTDEV", type=str,
+        action="store", default=None, help="place /boot in a separate volume"
+    )
+    parser.add_argument(
+        "--boot-size", dest="bootsize", metavar="BOOTSIZE", type=int,
+        action="store", default=256, help="boot partition size in MiB, or boot volume size in MiB, when --separate-boot is specified (default 256)"
+    )
+    parser.add_argument(
+        "--pool-name", dest="poolname", metavar="POOLNAME", type=str,
+        action="store", default="tank", help="pool name (default tank)"
+    )
+    parser.add_argument(
+        "--host-name", dest="hostname", metavar="HOSTNAME", type=str,
+        action="store", default="localhost.localdomain", help="host name (default localhost.localdomain)"
+    )
+    parser.add_argument(
+        "--root-password", dest="rootpassword", metavar="ROOTPASSWORD", type=str,
+        action="store", default="tank", help="root password (default password)"
+    )
+    parser.add_argument(
+        "--swap-size", dest="swapsize", metavar="SWAPSIZE", type=int,
+        action="store", default=1024, help="swap volume size in MiB (default 1024)"
+    )
+    parser.add_argument(
+        "--releasever", dest="releasever", metavar="VER", type=int,
+        action="store", default=18, help="Fedora release version (default 18)"
+    )
+    parser.add_argument(
+        "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
+        action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption)"
+    )
+    return parser
 
-function cleanup() {
-    trap - ERR
+def check_call(*args,**kwargs):
+    cwd = kwargs.get("cwd", os.getcwd())
+    logging.debug("Running %r in cwd %r", args[0], cwd)
+    return subprocess.check_call(*args,**kwargs)
 
-    if [ -n "$machinedir" ] ; then
-        for dir in "$machinedir"/{proc,sys,boot} ; do
-            if mountpoint -q "$dir" ; then umount "$dir" ; fi
-            sync
-        done
-        mountpoint -q "$machinedir" && umount "$machinedir" || true
-        rm -rf "$machinedir"
-        sync
-    fi
-    if [ -n "$machinepoolname" ] ; then
-        zpool export "$machinepoolname"
-        sync
-    fi
-    if [ "$lodeved" == "true" ] ; then
-        losetup -d "$lodev" || true
-        sync
-    fi
+def filetype(dev):
+    '''returns 'file' or 'blockdev' or 'doesntexist' for dev'''
+    try:
+        s = os.stat(dev)
+    except OSError, e:
+        if e.errno == 2: return 'doesntexist'
+        raise
+    if stat.S_ISBLK(s.st_mode): return 'blockdev'
+    if stat.S_ISREG(s.st_mode): return 'file'
+    assert 0, 'specified path %r is not a block device or a file'
 
-}
+def get_associated_lodev(path):
+    output = ":".join(subprocess.check_output(
+        ["losetup", "-j",path]
+    ).rstrip().split(":")[:-2])
+    if output: return output
+    return None
 
-function cleanupandexit() {
-    cleanup
-    exit 10
-}
+def losetup(path):
+    check_call(
+        ["losetup", "-P", "--find", "--show", path]
+    )
+    return get_associated_lodev(path)
 
-trap cleanupandexit ERR
+def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
+                   poolname='tank', hostname='localhost.localdomain',
+                   rootpassword='password', swapsize=1024,
+                   releasever=18, lukspassword=None):
 
-if test -b "$vol" ; then
-    true
-elif test -f "$vol" ; then
-    true
-elif test -e "$vol" ; then
-    echo "error: $vol must be a file or block special" >> /dev/stderr
-    exit 4
-else
-    dd if=/dev/zero of="$vol" bs=1000 count=0 seek=$((1000 * 1000 * 8))
-fi
+    original_voldev = voldev
+    original_bootdev = bootdev
 
-lodeved=
-if test -b "$vol" ; then
-    lodev="$vol"
-elif test -f "$vol" ; then
-    lodev=`losetup -j "$vol"`
-    test -n "$lodev" || {
-        losetup -P --find --show "$vol" > /dev/null
-    }
-    lodev=`losetup -j "$vol" | cut -d : -f 1`
-    lodeved=true
-else
-    echo "error: assert not reached" >> /dev/stderr
-    exit 6
-fi
+    to_un_losetup = []
+    to_luks_close = []
+    to_export = []
+    to_unmount = []
 
-test -e "$lodev"-part1 && lodevp1="$lodev"-part1 || lodevp1="$lodev"p1
-test -e "$lodev"-part2 && lodevp2="$lodev"-part2 || lodevp2="$lodev"p2
+    def cleanup():
+        for fs in to_unmount:
+            check_call(["umount", fs])
+        for pool in to_export:
+            check_call(["zpool", "export", pool])
+        for luksdev in to_luks_close:
+            check_call(["cryptsetup", "luksClose", luksdev])
+        for bdev in to_un_losetup:
+            check_call(["losetup", "-d", bdev])
 
-fdisk "$lodev" < /dev/null 2>&1 | grep -q recognized && {
-    echo \
-"n
-p
-1
+    try:
+        voltype = filetype(voldev)
+        if bootdev: boottype = filetype(bootdev)
 
-+256M
+        if voltype == 'doesntexist':
+            check_call(
+                ["dd", "if=/dev/zero", "of=%s"%voldev, "bs=%d"%(1024*1024), "count=0", "seek=%s"%(volsize)]
+            )
+            voltype = 'file'
 
-n
-p
-2
+        if bootdev and boottype == 'doesntexist':
+            check_call(
+                ["dd", "if=/dev/zero", "of=%s"%bootdev, "bs=%d"%(1024*1024), "count=0", "seek=%s"%(bootsize)]
+            )
+            boottype = 'file'
+
+        if voltype == 'file':
+            if get_associated_lodev(voldev):
+                voldev = get_associated_lodev(voldev)
+            else:
+                voldev = losetup(voldev)
+            to_un_losetup.append(voldev)
+            voltype = 'blockdev'
+
+        if bootdev and boottype == 'file':
+            if get_associated_lodev(bootdev):
+                bootdev = get_associated_lodev(bootdev)
+            else:
+                bootdev = losetup(bootdev)
+            to_un_losetup.append(bootdev)
+            boottype = 'blockdev'
+
+        if bootdev:
+            bootpart = bootdev + "-part1"
+            if not os.path.exists(bootpart):
+                bootpart = bootpart = bootdev + "p1"
+            if not os.path.exists(bootpart):
+                bootpart = None
+            rootpart = voldev
+
+            if not bootpart:
+                cmd = ["fdisk", bootdev]
+                p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                p.communicate(
+    '''n
+    p
+    1
 
 
-p
-w
-" | fdisk "$lodev"
-    sleep 1
-    mkfs.ext4 -L boot "$lodevp1"
-    zpool create -m none -o ashift=12 "$machinepoolname" -O compression=on -O atime=off -O com.sun:auto-snapshot=false "$lodevp2"
-} || true
 
-zfs list "$machinepoolname" > /dev/null 2>&1 || zpool import -fN "$machinepoolname"
-zfs list "$machinepoolname"/ROOT > /dev/null || zfs create "$machinepoolname"/ROOT
-zfs list "$machinepoolname"/ROOT/os > /dev/null || zfs create "$machinepoolname"/ROOT/os
-zfs list "$machinepoolname"/ROOT/swap > /dev/null || {
-    zfs create "$machinepoolname"/ROOT/swap -V 1G
-    mkswap /dev/zvol/"$machinepoolname"/ROOT/swap
-}
+    p
+    w
+    '''
+                )
+                retcode = p.wait()
+                if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
+                time.sleep(2)
 
-mp=`zfs get mountpoint "$machinepoolname"/ROOT/os -H | awk -F "\t" ' { print $3 } '`
-test "$mp" == "/" || zfs set mountpoint=/ "$machinepoolname"/ROOT/os || true
-mountpoint -q "$machinedir" || mount -t zfs -o zfsutil "$machinepoolname"/ROOT/os "$machinedir"
+            bootpart = bootdev + "-part1"
+            if not os.path.exists(bootpart):
+                bootpart = bootpart = bootdev + "p1"
+            if not os.path.exists(bootpart):
+                assert 0, "partition 1 in device %r failed to be created"%bootdev
 
-test -d "$machinedir"/boot || mkdir "$machinedir"/boot
-test -d "$machinedir"/sys || mkdir "$machinedir"/sys
-test -d "$machinedir"/proc || mkdir "$machinedir"/proc
-test -d "$machinedir"/dev || mkdir "$machinedir"/dev
-test -d "$machinedir"/etc || mkdir "$machinedir"/etc
+        else:
+            bootpart = voldev + "-part1"
+            if not os.path.exists(bootpart):
+                bootpart = bootpart = voldev + "p1"
+            if not os.path.exists(bootpart):
+                bootpart = None
+            rootpart = voldev + "-part2"
+            if not os.path.exists(rootpart):
+                rootpart = rootpart = voldev + "p2"
+            if not os.path.exists(rootpart):
+                rootpart = None
 
-mountpoint -q "$machinedir"/boot || mount "$lodevp1" "$machinedir"/boot
-mountpoint -q "$machinedir"/sys || mount -t sysfs sysfs "$machinedir"/sys
-mountpoint -q "$machinedir"/proc || mount -t proc proc "$machinedir"/proc
+            assert (not bootpart and not rootpart) or (bootpart and rootpart), "weird shit"
 
-test -n "$SKIPSETUP" || {
+            if not rootpart and not bootpart:
+                cmd = ["fdisk", voldev]
+                p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                p.communicate(
+    '''n
+    p
+    1
 
-    # fix block devices here
-    rm -rf "$machinedir"/dev/ ; mkdir -p "$machinedir"/dev/
-    rsync -ax --numeric-ids --delete /dev/ "$machinedir"/dev/
-    rm -rf "$machinedir"/dev/zvol "$machinedir"/dev/disk "$machinedir"/dev/sd*  "$machinedir"/dev/zd* "$machinedir"/dev/mapper
+    +%dM
 
-    # write fstab, hostname and hostid, along with resolv.conf
-    echo "$machinepoolname/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0" > "$machinedir"/etc/fstab
-    echo "LABEL=boot /boot ext4 noatime 0 1" >> "$machinedir"/etc/fstab
-    echo "/dev/zvol/$machinepoolname/ROOT/swap swap swap discard 0 0" >> "$machinedir"/etc/fstab
-    ln -fs ../proc/self/mounts "$machinedir"/etc/mtab
-    test -f "$machinedir"/etc/resolv.conf || cp -R /etc/resolv.conf "$machinedir"/etc/resolv.conf
-    echo "$hostname" > "$machinedir"/etc/hostname
-    test -f "$machinedir"/etc/hostid || dd if=/dev/urandom of="$machinedir"/etc/hostid bs=4 count=1
-    hostid=`python -c 'import sys ; m = file("/dev/stdin").read().encode("hex") ; print "%s%s%s%s"%(m[6:8],m[4:6],m[2:4],m[0:2])' < "$machinedir"/etc/hostid`
+    n
+    p
+    2
 
-    # install base packages
-    packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools"
-    chroot "$machinedir" rpm -q $packages > /dev/null || \
-    yum install -y --installroot="$machinedir" --nogpgcheck --releasever=18 $packages
 
-    echo "$password" | chroot "$machinedir" passwd --stdin root
+    p
+    w
+    '''%bootsize
+                )
+                retcode = p.wait()
+                if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
+                time.sleep(2)
 
-    # install grub2 packages
-    packages="grub2 grub2-tools"
-    chroot "$machinedir" rpm -q $packages > /dev/null || \
-    chroot "$machinedir" yum install -y $packages
+            bootpart = voldev + "-part1"
+            if not os.path.exists(bootpart):
+                bootpart = bootpart = voldev + "p1"
+            if not os.path.exists(bootpart):
+                assert 0, "partition 1 in device %r failed to be created"%voldev
+            rootpart = voldev + "-part2"
+            if not os.path.exists(rootpart):
+                rootpart = rootpart = voldev + "p2"
+            if not os.path.exists(rootpart):
+                assert 0, "partition 2 in device %r failed to be created"%voldev
 
-    grep -Fxq "exclude=grub2" < "$machinedir"/etc/yum.conf || {
-        echo "" >> "$machinedir"/etc/yum.conf
-        echo "exclude=grub2" >> "$machinedir"/etc/yum.conf
-    }
+        try: output = subprocess.check_output(["blkid", "-c", "/dev/null", bootpart])
+        except subprocess.CalledProcessError: output = ""
+        if 'TYPE="ext4"' not in output:
+            check_call(["mkfs.ext4", "-L", "boot", bootpart])
 
-    # write grub config
-    rsync -a /etc/default/grub "$machinedir"/etc/default/grub
-    echo "" >> "$machinedir"/etc/default/grub2
-    echo "GRUB_DISABLE_LINUX_UUID=true" >> "$machinedir"/etc/default/grub
-    echo "GRUB_PRELOAD_MODULES='part_msdos ext2'" >> "$machinedir"/etc/default/grub
-    sed -i 's/.*GRUB_CMDLINE_LINUX=.*/GRUB_CMDLINE_LINUX=/' "$machinedir"/etc/default/grub
+        if lukspassword:
+            raise NotImplementedError, "LUKS encryption not done yet"
+            # check_call(["cryptsetup", "-y", "-v", "luksFormat", bootpart])
 
-    # deploy ZFS now
-    packages="dkms kernel-devel libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc"
-    chroot "$machinedir" rpm -q $packages > /dev/null  || chroot "$machinedir" yum install -y $packages
+        rootmountpoint = j("/mnt",poolname)
+        try:
+            check_call(["zfs", "list", "-H", "-o", "name", poolname],
+                                stdout=file(os.devnull,"w"))
+        except subprocess.CalledProcessError, e:
+            try:
+                check_call(["zpool", "import", "-f",
+                                    "-R", rootmountpoint,
+                                    poolname])
+            except subprocess.CalledProcessError, e:
+                check_call(["zpool", "create", "-m", "none",
+                                    "-o", "ashift=12",
+                                    "-O", "compression=on",
+                                    "-O", "atime=off",
+                                    "-O", "com.sun:auto-snapshot=false",
+                                    "-R", rootmountpoint,
+                                    poolname, rootpart])
+        to_export.append(poolname)
 
-    test -d "$machinedir"/usr/src/spl || \
-    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/spl'
+        try:
+            check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
+                                stdout=file(os.devnull,"w"))
+        except subprocess.CalledProcessError, e:
+            check_call(["zfs", "create", j(poolname, "ROOT")])
 
-    test -d "$machinedir"/usr/src/zfs || \
-    chroot "$machinedir" bash -c 'cd /usr/src && git clone http://github.com/Rudd-O/zfs'
+        try:
+            check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT", "os")],
+                                stdout=file(os.devnull,"w"))
+        except subprocess.CalledProcessError, e:
+            check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
 
-    files=`echo "$machinedir"/usr/src/spl/*.rpm`
-    if [ "$files" == "$machinedir/usr/src/spl/*.rpm" ] ; then
-        chroot "$machinedir" bash -c 'cd /usr/src/spl && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
-    fi
+        try:
+            check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
+                                stdout=file(os.devnull,"w"))
+        except subprocess.CalledProcessError, e:
+            check_call(["zfs", "create", "-V", "%dM"%swapsize, j(poolname, "swap")])
+        swappart = os.path.join("/dev/zvol", poolname, "swap")
 
-    chroot "$machinedir" rpm -q spl spl-modules-dkms > /dev/null || \
-    chroot "$machinedir" rpm -ivh --replacefiles --replacepkgs /usr/src/spl/spl-*`arch`*.rpm /usr/src/spl/spl-*noarch*.rpm
+        try: output = subprocess.check_output(["blkid", "-c", "/dev/null", swappart])
+        except subprocess.CalledProcessError: output = ""
+        if 'TYPE="swap"' not in output:
+            check_call(["mkswap", swappart])
 
-    files=`echo "$machinedir"/usr/src/zfs/*.rpm`
-    if [ "$files" == "$machinedir/usr/src/zfs/*.rpm" ] ; then
-        chroot "$machinedir" bash -c 'cd /usr/src/zfs && ./autogen.sh && ./configure && make rpm-utils rpm-dkms'
-    fi
+        p = lambda _: j(rootmountpoint,_)
 
-    chroot "$machinedir" rpm -q zfs zfs-systemd zfs-dracut > /dev/null || \
-    chroot "$machinedir" rpm -ivh --replacefiles --replacepkgs /usr/src/zfs/zfs-*`arch`*.rpm /usr/src/zfs/zfs-*noarch*.rpm
+        # mount virtual file systems, creating their mount points as necessary
+        for m in "boot sys proc etc".split():
+            if not os.path.isdir(p(m)): os.mkdir(p(m))
 
-    grep -q zfs "$machinedir"/sbin/grub2-mkconfig || {
-        chroot "$machinedir" bash -c "test -f /sbin/grub2-mkconfig.orig && cp /sbin/grub2-mkconfig.orig /sbin/grub2-mkconfig || true"
-        chroot "$machinedir" cp /sbin/grub2-mkconfig /sbin/grub2-mkconfig.orig
-        chroot "$machinedir" mv /sbin/grub2-mkconfig /usr/src/zfs/grub2/grub-mkconfig.in
-        chroot "$machinedir" bash -c 'cd /usr/src/zfs/grub2 && patch -p2 < grub-mkconfig-zfs-support.diff > /dev/null'
-        chroot "$machinedir" mv /usr/src/zfs/grub2/grub-mkconfig.in /sbin/grub2-mkconfig
-    }
+        if not os.path.ismount(p("boot")):
+            check_call(["mount", bootpart, p("boot")])
+        to_unmount.append(p("boot"))
 
-    cat > "$machinedir"/installbootloader <<EOF
-#!/bin/bash -xe
-export PATH=/sbin:/usr/sbin:/bin:/usr/bin
-mount /boot
-ln -sf /proc/self/mounts /etc/mtab
-grub2-install /dev/sda
-grub2-mkconfig > /boot/grub2/grub.cfg
-dd if=/dev/zero of=/tempzfs bs=64M count=1
-zpool create -m none trsaenasrentiarntianstieemppool /tempzfs
-zpool destroy trsaenasrentiarntianstieemppool
-rm -f /tempzfs
-dracut -f /boot/initramfs-\`uname -r\`.img \`uname -r\`
-umount /boot
-rm -f /installbootloader
-sync
-sync
-echo 1 > /proc/sys/kernel/sysrq
-echo b > /proc/sysrq-trigger
-EOF
-    chmod +x "$machinedir"/installbootloader
+        if not os.path.ismount(p("sys")):
+            check_call(["mount", "-t", "sysfs", "sysfs", p("sys")])
+        to_unmount.append(p("sys"))
 
-}
+        if not os.path.ismount(p("proc")):
+            check_call(["mount", "-t", "proc", "proc", p("proc")])
+        to_unmount.append(p("proc"))
 
-[ "$UMOUNT" == "false" ] || {
-sync
-tmpdir=`mktemp -d`
-cp "$machinedir"/boot/vmlinuz* "$machinedir"/boot/initramfs* "$tmpdir"/
-zfs inherit com.sun:auto-snapshot "$machinepoolname"
-cleanup
+        # sync device files
+        check_call(["rsync", "-ax", "--numeric-ids",
+                            "--exclude=mapper",
+                            "--exclude=zvol",
+                            "--exclude=disk",
+                            "--exclude=sd*",
+                            "--exclude=zd*",
+                            "--delete", "--delete-excluded",
+                            "/dev/", p("dev/")])
 
-uuidgen > /dev/null
-/usr/bin/qemu-kvm -name "$hostname" -M pc-1.2 -enable-kvm -no-reboot -m 1024 -uuid `uuidgen` -kernel "$tmpdir"/vmlinuz-* -initrd "$tmpdir"/initramfs-* -append root=ZFS="$machinepoolname"/ROOT/os\ ro\ init=/installbootloader\ zfs_not_by_id=1 -drive file="$vol",if=none,id=drive-ide0-0-0,format=raw -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
+        # make up a nice fstab file
+        fstab = \
+    '''%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
+    LABEL=boot /boot ext4 noatime 0 1
+    /dev/zvol/%s/swap swap swap discard 0 0
+    '''%(poolname, poolname)
+        file(p(j("etc", "fstab")),"w").write(fstab)
+        if not os.path.exists(p(j("etc", "mtab"))):
+            os.symlink("../proc/self/mounts", p(j("etc", "mtab")))
+        if not os.path.isfile(p(j("etc", "resolv.conf"))):
+            file(p(j("etc", "resolv.conf")),"w").write(file(j("/etc", "resolv.conf")).read())
+        if not os.path.exists(p(j("etc", "hostname"))):
+            file(p(j("etc", "hostname")),"w").write(hostname)
+        if not os.path.exists(p(j("etc", "hostid"))):
+            randomness = file("/dev/urandom").read(4)
+            file(p(j("etc", "hostid")),"w").write(randomness)
+        hostid = file(p(j("etc", "hostid"))).read().encode("hex")
+        hostid = "%s%s%s%s"%(hostid[6:8],hostid[4:6],hostid[2:4],hostid[0:2])
 
-rm -rf "$tmpdir"
+        def in_chroot(lst):
+            return ["chroot", rootmountpoint] + lst
 
-}
+        # install base packages
+        packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools".split()
+        try:
+            check_call(in_chroot(["rpm", "-q"] + packages),
+                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            check_call(['yum', 'install', '-y', '--installroot=%s'%rootmountpoint,
+                                    '--nogpgcheck', '--releasever=%d'%releasever] + packages)
+
+        # install base packages
+        packages="grub2 grub2-tools".split()
+        try:
+            check_call(in_chroot(["rpm", "-q"] + packages),
+                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            check_call(in_chroot(['yum', 'install', '-y'] + packages))
+
+        # prevent future grub updates
+        yumconf = file(p(j("etc","yum.conf"))).readlines()
+        excludegrubset = bool([ l for l in yumconf if l.startswith("exclude=grub2") ])
+        if not excludegrubset:
+            yumconf.append("\nexclude=grub2\n")
+            file(p(j("etc","yum.conf")),"w").writelines(yumconf)
+
+        # set password
+        pwfile = file(p(j("etc","shadow"))).readlines()
+        pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
+        if pwnotset:
+            cmd = in_chroot(["passwd", "--stdin", "root"])
+            pw = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+            pw.communicate(rootpassword + "\n")
+            retcode = pw.wait()
+            if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
+
+        # write grub config
+        grubconfig = file(j("/etc","default","grub")).readlines()
+        grubconfig.append("GRUB_DISABLE_LINUX_UUID=true\n")
+        grubconfig.append("GRUB_PRELOAD_MODULES='part_msdos ext2'\n")
+        for n,l in enumerate(list(grubconfig)):
+            if l.strip().startswith("GRUB_CMDLINE_LINUX="):
+                grubconfig[n] = "GRUB_CMDLINE_LINUX=\n"
+        file(p(j("etc","default","grub")),"w").writelines(grubconfig)
+
+        # deploy ZFS now
+        packages="dkms kernel-devel libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc".split()
+        try:
+            check_call(in_chroot(["rpm", "-q"] + packages),
+                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            check_call(in_chroot(['yum', 'install', '-y'] + packages))
+
+        arch = platform.machine()
+        for project in "spl zfs".split():
+            project_dir = p(j("usr","src",project))
+
+            if not os.path.isdir(project_dir):
+                cmd = ["git", "clone", "https://github.com/Rudd-O/%s"%project, project_dir]
+                check_call(cmd)
+
+            try:
+                check_call(in_chroot(["rpm", "-q"] + [project, "%s-modules-dkms"%project]),
+                                    stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError:
+                def getrpms():
+                    return glob.glob(j(project_dir,"%s-*%s*.rpm"%(project, arch))) + \
+                        glob.glob(j(project_dir,"%s-*%s*.rpm"%(project, "noarch")))
+
+                files_to_install = getrpms()
+                if not files_to_install:
+                    cmd = in_chroot(["bash", "-c",
+                        "cd /usr/src/%s && ./autogen.sh && ./configure && make rpm-utils rpm-dkms"%project])
+                    check_call(cmd)
+                    files_to_install = getrpms()
+
+                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
+                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install
+                check_call(cmd)
+
+        # patch grub mkconfig
+        if "zfs" not in file(p(j("sbin","grub2-mkconfig"))).read():
+            tempdir = tempfile.mkdtemp()
+            try:
+                if not os.path.isfile(p(j("sbin","grub2-mkconfig.orig"))):
+                    shutil.copy2(p(j("sbin","grub2-mkconfig")), p(j("sbin","grub2-mkconfig.orig")))
+                shutil.copy2(p(j("sbin","grub2-mkconfig.orig")), j(tempdir,"grub-mkconfig.in"))
+                patchfile = file(p(j("usr","src","zfs","grub2","grub-mkconfig-zfs-support.diff")))
+                check_call(["patch", "-p2"], stdin=patchfile, cwd=tempdir)
+                patchfile.close()
+                shutil.copy2(j(tempdir,"grub-mkconfig.in"), p(j("sbin","grub2-mkconfig")))
+            finally:
+                shutil.rmtree(tempdir)
+
+        # create bootloader installer
+        bootloadertext = \
+    '''#!/bin/bash -xe
+    export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+    mount /boot
+    ln -sf /proc/self/mounts /etc/mtab
+    grub2-install /dev/sda
+    grub2-mkconfig > /boot/grub2/grub.cfg
+    zfs inherit com.sun:auto-snapshot "%s"
+    zpool reguid "%s"
+    dracut -f /boot/initramfs-`uname -r`.img `uname -r`
+    umount /boot
+    rm -f /installbootloader
+    sync
+    sync
+    echo 1 > /proc/sys/kernel/sysrq
+    echo b > /proc/sysrq-trigger
+    '''%(poolname, poolname)
+        bootloaderpath = p("installbootloader")
+        bootloader = file(bootloaderpath,"w")
+        bootloader.write(bootloadertext)
+        bootloader.close()
+        os.chmod(bootloaderpath, 0755)
+
+        # copy necessary boot files to a temp dir
+        try:
+            kernel = glob.glob(p(j("boot","vmlinuz-*")))
+            initrd = glob.glob(p(j("boot","initramfs-*")))
+            kerneltempdir = tempfile.mkdtemp()
+            shutil.copy2(kernel[0], kerneltempdir)
+            shutil.copy2(initrd[0], kerneltempdir)
+        except (KeyboardInterrupt, Exception):
+            shutil.rmtree(kerneltempdir)
+            raise
+
+    # end operating with the devices
+    finally:
+        cleanup()
+
+    # install bootloader using qemu
+    vmuuid = str(uuid.uuid1())
+    cmd = [
+        "qemu-kvm",
+        "-name", hostname,
+        "-M", "pc-1.2",
+        "-enable-kvm", "-no-reboot",
+        '-m', '1024',
+        '-uuid', vmuuid,
+        "-kernel", glob.glob(j(kerneltempdir,"vmlinuz-*"))[0],
+        '-initrd', glob.glob(j(kerneltempdir,"initramfs-*"))[0],
+        '-append', 'root=ZFS=%s/ROOT/os ro init=/installbootloader zfs_not_by_id=1'%poolname,
+    ]
+    if original_bootdev:
+        cmd.extend([
+            '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%original_bootdev,
+            '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
+            '-drive', 'file=%s,if=none,id=drive-ide0-1-0,format=raw'%original_voldev,
+            '-device', 'ide-hd,bus=ide.1,unit=0,drive=drive-ide0-1-0,id=ide0-1-0,bootindex=2',
+        ])
+    else:
+        cmd.extend([
+            '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%original_voldev,
+            '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
+        ])
+    try:
+        subprocess.check_call(cmd)
+    finally:
+        shutil.rmtree(kerneltempdir)
+
+def main():
+    logging.basicConfig(level=logging.DEBUG)
+    args = get_parser().parse_args()
+    install_fedora(
+        args.voldev[0], args.volsize, args.bootdev, args.bootsize,
+        args.poolname, args.hostname, args.rootpassword,
+        args.swapsize, args.releasever, args.lukspassword
+    )
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
