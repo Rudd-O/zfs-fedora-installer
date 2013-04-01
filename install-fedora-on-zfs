@@ -70,6 +70,16 @@ def check_call(*args,**kwargs):
     logging.debug("Running %r in cwd %r", args[0], cwd)
     return subprocess.check_call(*args,**kwargs)
 
+def check_output(*args,**kwargs):
+    cwd = kwargs.get("cwd", os.getcwd())
+    logging.debug("Running %r in cwd %r", args[0], cwd)
+    return subprocess.check_output(*args,**kwargs)
+
+def Popen(*args,**kwargs):
+    cwd = kwargs.get("cwd", os.getcwd())
+    logging.debug("Running %r in cwd %r", args[0], cwd)
+    return subprocess.Popen(*args,**kwargs)
+
 def filetype(dev):
     '''returns 'file' or 'blockdev' or 'doesntexist' for dev'''
     try:
@@ -82,7 +92,7 @@ def filetype(dev):
     assert 0, 'specified path %r is not a block device or a file'
 
 def get_associated_lodev(path):
-    output = ":".join(subprocess.check_output(
+    output = ":".join(check_output(
         ["losetup", "-j",path]
     ).rstrip().split(":")[:-2])
     if output: return output
@@ -159,7 +169,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
 
             if not bootpart:
                 cmd = ["fdisk", bootdev]
-                p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                p = Popen(cmd, stdin=subprocess.PIPE)
                 p.communicate(
     '''n
     p
@@ -197,7 +207,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
 
             if not rootpart and not bootpart:
                 cmd = ["fdisk", voldev]
-                p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                p = Popen(cmd, stdin=subprocess.PIPE)
                 p.communicate(
     '''n
     p
@@ -229,33 +239,29 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             if not os.path.exists(rootpart):
                 assert 0, "partition 2 in device %r failed to be created"%voldev
 
-        try: output = subprocess.check_output(["blkid", "-c", "/dev/null", bootpart])
+        try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
             check_call(["mkfs.ext4", "-L", "boot", bootpart])
 
         if lukspassword:
             try:
-                output = subprocess.check_output(["blkid", "-c", "/dev/null", rootpart])
+                output = check_output(["blkid", "-c", "/dev/null", rootpart])
                 rootuuid = re.findall('UUID="(.*?)"', output)[0]
                 luksuuid = "luks-" + rootuuid
             except subprocess.CalledProcessError, e:
                 if e.returncode != 2: raise
-                tmpfd, tmpfile = tempfile.mkstemp()
-                tmpfo = os.open(tmpfd, "w")
-                try:
-                    tmpfo.write(lukspassword)
-                    tmpfo.flush()
-                    subprocess.check_call(["cryptsetup", "-y", "-v", "luksFormat", rootpart, tmpfile])
-                finally:
-                    tmpfo.close()
-                    os.unlink(tmpfile)
-                output = subprocess.check_output(["blkid", "-c", "/dev/null", rootpart])
+                cmd = ["cryptsetup", "-y", "-v", "luksFormat", rootpart, '-']
+                proc = Popen(cmd, stdin=subprocess.PIPE)
+                proc.communicate(lukspassword)
+                retcode = proc.wait()
+                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
+                output = check_output(["blkid", "-c", "/dev/null", rootpart])
                 rootuuid = re.findall('UUID="(.*?)"', output)[0]
                 luksuuid = "luks-" + rootuuid
             if not os.path.exists(j("/dev","mapper",luksuuid)):
                 cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
-                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                proc = Popen(cmd, stdin=subprocess.PIPE)
                 proc.communicate(lukspassword)
                 retcode = proc.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
@@ -300,7 +306,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             check_call(["zfs", "create", "-V", "%dM"%swapsize, j(poolname, "swap")])
         swappart = os.path.join("/dev/zvol", poolname, "swap")
 
-        try: output = subprocess.check_output(["blkid", "-c", "/dev/null", swappart])
+        try: output = check_output(["blkid", "-c", "/dev/null", swappart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="swap"' not in output:
             check_call(["mkswap", swappart])
@@ -393,7 +399,7 @@ LABEL=boot /boot ext4 noatime 0 1
         pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
         if pwnotset:
             cmd = in_chroot(["passwd", "--stdin", "root"])
-            pw = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+            pw = Popen(cmd, stdin=subprocess.PIPE)
             pw.communicate(rootpassword + "\n")
             retcode = pw.wait()
             if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])

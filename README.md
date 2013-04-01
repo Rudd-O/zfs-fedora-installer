@@ -52,12 +52,12 @@ Details
 -------
 
 1. The specified device(s) / file(s) will be prepared for the ZFS installation.  If you specified a separate boot device, then it will be partitioned with a `/boot` partition, and the main device will be entirely used for a ZFS pool.  Otherwise, the main device will be partitioned between a `/boot` partition and a ZFS pool.
-2. If you requested encryption, the main device is encrypted using LUKS, and the soon-to-be-done system is set up to use LUKS encryption on boot.
+2. If you requested encryption, the main device is encrypted using LUKS, and the soon-to-be-done system is set up to use LUKS encryption on boot.  Be ware that you will be prompted for this password interactively at a later point.
 3. Essential core packages (`yum`, `bash`, `basesystem`, `vim-minimal`, `nano`, `kernel`, `grub2`) will be installed on the system.
 4. Within the freshly installed OS, my git repositories for ZFS will be cloned and built as RPMs.
 5. The RPMs built will be installed in the OS root file system.
 6. `grub2-mkconfig` will be patched so it works with ZFS on root.  Yum will be configured to ignore grub updates.
-7. QEMU will be executed, booting the newly-created image with specific instructions to install the bootloader and perform other janitorial tasks.
+7. QEMU will be executed, booting the newly-created image with specific instructions to install the bootloader and perform other janitorial tasks.  At this point, if you requested LUKS encryption, you will be prompted for the LUKS password.
 8. Everything the script did will be cleaned up, leaving the file / block device ready to be booted off a QEMU virtual machine, or whatever device you write the image to.
 
 Requirements
