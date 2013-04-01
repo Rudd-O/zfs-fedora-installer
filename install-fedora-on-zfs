@@ -25,7 +25,7 @@ def get_parser():
     )
     parser.add_argument(
         "--vol-size", dest="volsize", metavar="VOLSIZE", type=int,
-        action="store", default=8000, help="volume size in MiB (default 7000)"
+        action="store", default=7000, help="volume size in MiB (default 7000)"
     )
     parser.add_argument(
         "--separate-boot", dest="bootdev", metavar="BOOTDEV", type=str,
@@ -304,6 +304,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                                 stdout=file(os.devnull,"w"))
         except subprocess.CalledProcessError, e:
             check_call(["zfs", "create", "-V", "%dM"%swapsize, j(poolname, "swap")])
+            check_call(["zfs", "set", "compression", "gzip-9", j(poolname, "swap")])
         swappart = os.path.join("/dev/zvol", poolname, "swap")
 
         try: output = check_output(["blkid", "-c", "/dev/null", swappart])
