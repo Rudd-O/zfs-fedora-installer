@@ -12,22 +12,53 @@ If a device file is specified, then the device file will be used instead.
 
 Usage:
 
-    install-fedora-on-zfs <path to regular or device file> <host name> [root password]
+    ./install-fedora-on-zfs --help
+    usage: install-fedora-on-zfs [-h] [--vol-size VOLSIZE]
+                                [--separate-boot BOOTDEV] [--boot-size BOOTSIZE]
+                                [--pool-name POOLNAME] [--host-name HOSTNAME]
+                                [--root-password ROOTPASSWORD]
+                                [--swap-size SWAPSIZE] [--releasever VER]
+                                [--luks-password LUKSPASSWORD] [--no-cleanup]
+                                VOLDEV
 
-After setup is done, you can use `dd` to transfer the image to the appropriate media (perhaps an USB drive) for booting.
+    Install a minimal Fedora system inside a ZFS pool within a disk image or
+    device
+
+    positional arguments:
+    VOLDEV                path to volume (device to use or regular file to
+                            create)
+
+    optional arguments:
+    -h, --help            show this help message and exit
+    --vol-size VOLSIZE    volume size in MiB (default 7000)
+    --separate-boot BOOTDEV
+                            place /boot in a separate volume
+    --boot-size BOOTSIZE  boot partition size in MiB, or boot volume size in
+                            MiB, when --separate-boot is specified (default 256)
+    --pool-name POOLNAME  pool name (default tank)
+    --host-name HOSTNAME  host name (default localhost.localdomain)
+    --root-password ROOTPASSWORD
+                            root password (default password)
+    --swap-size SWAPSIZE  swap volume size in MiB (default 1024)
+    --releasever VER      Fedora release version (default 18)
+    --luks-password LUKSPASSWORD
+                            LUKS password to encrypt the ZFS volume with (default
+                            no encryption)
+    --no-cleanup          if an error occurs, do not clean up working volumes
+
+After setup is done, you can use `dd` to transfer the image(s) to the appropriate media (perhaps an USB drive) for booting.
 
 Details
 -------
 
-1. A file (8 GB in size) for the volume, will be created (unless a device file was specified).
-2. The file (if not block device) will be made into a loopback device and partitioned with a MBR partition into a 256 MiB partition for `/boot`, and the rest for a ZFS pool, named after the first component of the host name you specified.
-3. A pool will be created in the second partition (holding the root and the swap file systems), and an ext4 file system in the first.
-4. Essential core packages (`yum`, `bash`, `basesystem`, `vim-minimal`, `nano`, `kernel`, `grub2`) will be installed on the system.
-5. Within the freshly installed OS, my git repositories for ZFS will be cloned and built as RPMs.
-6. The RPMs built will be installed in the OS root file system.
-7. `grub2-mkconfig` will be patched so it works with ZFS on root.  Yum will be configured to ignore grub updates.
-8. QEMU will be executed, booting the newly-created image with specific instructions to install the bootloader and perform other janitorial tasks.
-9. Everything the script did will be cleaned up, leaving the file / block device ready to be booted off a QEMU virtual machine, or whatever device you write the image to.
+1. The specified device(s) / file(s) will be prepared for the ZFS installation.  If you specified a separate boot device, then it will be partitioned with a `/boot` partition, and the main device will be entirely used for a ZFS pool.  Otherwise, the main device will be partitioned between a `/boot` partition and a ZFS pool.
+2. If you requested encryption, the main device is encrypted using LUKS, and the soon-to-be-done system is set up to use LUKS encryption on boot.
+3. Essential core packages (`yum`, `bash`, `basesystem`, `vim-minimal`, `nano`, `kernel`, `grub2`) will be installed on the system.
+4. Within the freshly installed OS, my git repositories for ZFS will be cloned and built as RPMs.
+5. The RPMs built will be installed in the OS root file system.
+6. `grub2-mkconfig` will be patched so it works with ZFS on root.  Yum will be configured to ignore grub updates.
+7. QEMU will be executed, booting the newly-created image with specific instructions to install the bootloader and perform other janitorial tasks.
+8. Everything the script did will be cleaned up, leaving the file / block device ready to be booted off a QEMU virtual machine, or whatever device you write the image to.
 
 Requirements
 ------------
@@ -35,7 +66,6 @@ Requirements
 These are the programs you need to execute this script
 
 * python
-* uuidgen
 * qemu-kvm
 * ZFS already installed
   * https://github.com/Rudd-O/spl
@@ -47,6 +77,7 @@ These are the programs you need to execute this script
 * yum
 * dracut
 * mkswap
+* cryptsetup
 
 Notes / known issues
 --------------------

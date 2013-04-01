@@ -13,6 +13,7 @@ import platform
 import tempfile
 import logging
 import uuid
+import re
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -234,8 +235,32 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             check_call(["mkfs.ext4", "-L", "boot", bootpart])
 
         if lukspassword:
-            raise NotImplementedError, "LUKS encryption not done yet"
-            # check_call(["cryptsetup", "-y", "-v", "luksFormat", bootpart])
+            try:
+                output = subprocess.check_output(["blkid", "-c", "/dev/null", rootpart])
+                rootuuid = re.findall('UUID="(.*?)"', output)[0]
+                luksuuid = "luks-" + rootuuid
+            except subprocess.CalledProcessError, e:
+                if e.returncode != 2: raise
+                tmpfd, tmpfile = tempfile.mkstemp()
+                tmpfo = os.open(tmpfd, "w")
+                try:
+                    tmpfo.write(lukspassword)
+                    tmpfo.flush()
+                    subprocess.check_call(["cryptsetup", "-y", "-v", "luksFormat", rootpart, tmpfile])
+                finally:
+                    tmpfo.close()
+                    os.unlink(tmpfile)
+                output = subprocess.check_output(["blkid", "-c", "/dev/null", rootpart])
+                rootuuid = re.findall('UUID="(.*?)"', output)[0]
+                luksuuid = "luks-" + rootuuid
+            if not os.path.exists(j("/dev","mapper",luksuuid)):
+                cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                proc.communicate(lukspassword)
+                retcode = proc.wait()
+                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
+            to_luks_close.append(luksuuid)
+            rootpart = j("/dev","mapper",luksuuid)
 
         rootmountpoint = j("/mnt",poolname)
         try:
@@ -329,6 +354,13 @@ LABEL=boot /boot ext4 noatime 0 1
         hostid = file(p(j("etc", "hostid"))).read().encode("hex")
         hostid = "%s%s%s%s"%(hostid[6:8],hostid[4:6],hostid[2:4],hostid[0:2])
 
+        if lukspassword:
+            crypttab = \
+'''%s UUID=%s none
+'''%(luksuuid,rootuuid)
+            file(p(j("etc", "crypttab")),"w").write(crypttab)
+            os.chmod(p(j("etc", "crypttab")), 0600)
+
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
 
@@ -370,9 +402,12 @@ LABEL=boot /boot ext4 noatime 0 1
         grubconfig = file(j("/etc","default","grub")).readlines()
         grubconfig.append("GRUB_DISABLE_LINUX_UUID=true\n")
         grubconfig.append("GRUB_PRELOAD_MODULES='part_msdos ext2'\n")
+        withluksuuid = ''
+        if lukspassword:
+            withluksuuid = ' rd.luks.allow-discards rd.luks.uuid=%s'%luksuuid
         for n,l in enumerate(list(grubconfig)):
             if l.strip().startswith("GRUB_CMDLINE_LINUX="):
-                grubconfig[n] = "GRUB_CMDLINE_LINUX=\n"
+                grubconfig[n] = 'GRUB_CMDLINE_LINUX="%s"\n'%withluksuuid
         file(p(j("etc","default","grub")),"w").writelines(grubconfig)
 
         # deploy ZFS now
