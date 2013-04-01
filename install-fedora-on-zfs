@@ -304,7 +304,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                                 stdout=file(os.devnull,"w"))
         except subprocess.CalledProcessError, e:
             check_call(["zfs", "create", "-V", "%dM"%swapsize, j(poolname, "swap")])
-            check_call(["zfs", "set", "compression", "gzip-9", j(poolname, "swap")])
+            check_call(["zfs", "set", "compression=gzip-9", j(poolname, "swap")])
+            check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
         swappart = os.path.join("/dev/zvol", poolname, "swap")
 
         try: output = check_output(["blkid", "-c", "/dev/null", swappart])
