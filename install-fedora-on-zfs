@@ -365,7 +365,7 @@ LABEL=boot /boot ext4 noatime 0 1
             return ["chroot", rootmountpoint] + lst
 
         # install base packages
-        packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools".split()
+        packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
@@ -513,7 +513,7 @@ LABEL=boot /boot ext4 noatime 0 1
         '-uuid', vmuuid,
         "-kernel", glob.glob(j(kerneltempdir,"vmlinuz-*"))[0],
         '-initrd', glob.glob(j(kerneltempdir,"initramfs-*"))[0],
-        '-append', 'root=ZFS=%s/ROOT/os ro init=/installbootloader zfs_not_by_id=1'%poolname,
+        '-append', 'root=ZFS=%s/ROOT/os ro init=/installbootloader zfs_not_by_id=1%s'%(poolname,withluksuuid),
     ]
     if original_bootdev:
         cmd.extend([
