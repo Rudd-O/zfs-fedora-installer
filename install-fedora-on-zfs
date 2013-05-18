@@ -164,6 +164,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             if not os.path.exists(bootpart):
                 bootpart = bootpart = bootdev + "p1"
             if not os.path.exists(bootpart):
+                bootpart = bootpart = bootdev + "1"
+            if not os.path.exists(bootpart):
                 bootpart = None
             rootpart = voldev
 
@@ -189,6 +191,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             if not os.path.exists(bootpart):
                 bootpart = bootpart = bootdev + "p1"
             if not os.path.exists(bootpart):
+                bootpart = bootpart = bootdev + "1"
+            if not os.path.exists(bootpart):
                 assert 0, "partition 1 in device %r failed to be created"%bootdev
 
         else:
@@ -196,10 +200,14 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             if not os.path.exists(bootpart):
                 bootpart = bootpart = voldev + "p1"
             if not os.path.exists(bootpart):
+                bootpart = bootpart = voldev + "1"
+            if not os.path.exists(bootpart):
                 bootpart = None
             rootpart = voldev + "-part2"
             if not os.path.exists(rootpart):
                 rootpart = rootpart = voldev + "p2"
+            if not os.path.exists(rootpart):
+                rootpart = rootpart = voldev + "2"
             if not os.path.exists(rootpart):
                 rootpart = None
 
@@ -232,10 +240,14 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             if not os.path.exists(bootpart):
                 bootpart = voldev + "p1"
             if not os.path.exists(bootpart):
+                bootpart = voldev + "1"
+            if not os.path.exists(bootpart):
                 assert 0, "partition 1 in device %r failed to be created"%voldev
             rootpart = voldev + "-part2"
             if not os.path.exists(rootpart):
                 rootpart = rootpart = voldev + "p2"
+            if not os.path.exists(rootpart):
+                rootpart = rootpart = voldev + "2"
             if not os.path.exists(rootpart):
                 assert 0, "partition 2 in device %r failed to be created"%voldev
 
