@@ -45,7 +45,7 @@ def get_parser():
     )
     parser.add_argument(
         "--root-password", dest="rootpassword", metavar="ROOTPASSWORD", type=str,
-        action="store", default="tank", help="root password (default password)"
+        action="store", default="password", help="root password (default password)"
     )
     parser.add_argument(
         "--swap-size", dest="swapsize", metavar="SWAPSIZE", type=int,
