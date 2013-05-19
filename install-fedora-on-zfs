@@ -211,7 +211,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             if not os.path.exists(rootpart):
                 rootpart = None
 
-            assert (not bootpart and not rootpart) or (bootpart and rootpart), "weird shit"
+            assert (not bootpart and not rootpart) or (bootpart and rootpart), "weird shit bootpart %s rootpart %s\nYou might want to nuke the partition table on the device/file you specified first." %(bootpart, rootpart)
 
             if not rootpart and not bootpart:
                 cmd = ["fdisk", voldev]
@@ -524,17 +524,28 @@ LABEL=boot /boot ext4 noatime 0 1
 
     # install bootloader using qemu
     vmuuid = str(uuid.uuid1())
+    def cpuinfo(): return file("/proc/cpuinfo").read()
+    def qemu_kvm_available():
+        try: check_call(["which", "qemu-kvm"])
+        except Exception: return False
+        return True
+    emucmd = "qemu-system-x86_64"
+    emuopts = []
+    if ( "vmx" in cpuinfo() or "svm" in cpuinfo() ) and qemu_kvm_available():
+       emucmd = "qemu-kvm"
+       emuopts = ['-enable-kvm']
     cmd = [
-        "qemu-kvm",
+        emucmd,
         "-name", hostname,
         "-M", "pc-1.2",
-        "-enable-kvm", "-no-reboot",
+        "-no-reboot",
         '-m', '1024',
         '-uuid', vmuuid,
         "-kernel", glob.glob(j(kerneltempdir,"vmlinuz-*"))[0],
         '-initrd', glob.glob(j(kerneltempdir,"initramfs-*"))[0],
         '-append', 'root=ZFS=%s/ROOT/os ro init=/installbootloader zfs_not_by_id=1%s'%(poolname,withluksuuid),
     ]
+    cmd = cmd + emuopts
     if original_bootdev:
         cmd.extend([
             '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%original_bootdev,
@@ -548,7 +559,7 @@ LABEL=boot /boot ext4 noatime 0 1
             '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
         ])
     try:
-        subprocess.check_call(cmd)
+        check_call(cmd)
     finally:
         shutil.rmtree(kerneltempdir)
 
