@@ -489,7 +489,7 @@ LABEL=boot /boot ext4 noatime 0 1
     grub2-mkconfig > /boot/grub2/grub.cfg
     zfs inherit com.sun:auto-snapshot "%s"
     zpool reguid "%s"
-    dracut -f /boot/initramfs-`uname -r`.img `uname -r`
+    dracut -v -f /boot/initramfs-`uname -r`.img `uname -r`
     umount /boot
     rm -f /installbootloader
     sync
