@@ -461,9 +461,13 @@ LABEL=boot /boot ext4 noatime 0 1
                     check_call(cmd)
                     files_to_install = getrpms()
 
-                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
-                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install
+                files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" not in f ]
+                files_to_install_2 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" in f ]
+                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_1
                 check_call(cmd)
+                if files_to_install_2:
+                    cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_2
+                    check_call(cmd)
 
         # patch grub mkconfig
         if "zfs" not in file(p(j("sbin","grub2-mkconfig"))).read():
