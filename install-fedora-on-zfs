@@ -255,6 +255,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
             check_call(["mkfs.ext4", "-L", "boot", bootpart])
+        bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"])
 
         if lukspassword:
             try:
@@ -356,9 +357,9 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         # make up a nice fstab file
         fstab = \
 '''%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
-LABEL=boot /boot ext4 noatime 0 1
+UUID=%s /boot ext4 noatime 0 1
 /dev/zvol/%s/swap swap swap discard 0 0
-'''%(poolname, poolname)
+'''%(poolname, bootpartuuid, poolname)
         file(p(j("etc", "fstab")),"w").write(fstab)
 
         # create a number of important files
