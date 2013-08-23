@@ -104,6 +104,10 @@ def losetup(path):
     )
     return get_associated_lodev(path)
 
+
+class ZFSMalfunction(Exception): pass
+
+
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
@@ -324,7 +328,10 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         try: output = check_output(["blkid", "-c", "/dev/null", swappart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="swap"' not in output:
-            check_call(["mkswap", swappart])
+            try:
+                check_call(["mkswap", '-f', swappart])
+            except CalledProcessError, e:
+                raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
 
         p = lambda _: j(rootmountpoint,_)
 
@@ -522,7 +529,9 @@ UUID=%s /boot ext4 noatime 0 1
 
     # end operating with the devices
     except BaseException:
+        print >> sys.stderr, "Unexpected error"
         if do_cleanup:
+            print >> sys.stderr, "Cleaning up now"
             cleanup()
         raise
 
@@ -569,15 +578,45 @@ UUID=%s /boot ext4 noatime 0 1
     finally:
         shutil.rmtree(kerneltempdir)
 
+def test_zfs():
+    try: subprocess.check_call(["zfs"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    except subprocess.CalledProcessError, e:
+        if e.returncode == 2: return True
+        return False
+    except OSError, e:
+        if e.errno == 2: return False
+        raise
+    return True
+
+def test_yum():
+    try: subprocess.check_call(["yum"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    except subprocess.CalledProcessError, e:
+        if e.returncode == 1: return True
+        return False
+    except OSError, e:
+        if e.errno == 2: return False
+        raise
+    return True
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     args = get_parser().parse_args()
     cleanup = not args.nocleanup
-    install_fedora(
-        args.voldev[0], args.volsize, args.bootdev, args.bootsize,
-        args.poolname, args.hostname, args.rootpassword,
-        args.swapsize, args.releasever, args.lukspassword, cleanup
-    )
+    if not test_zfs():
+        print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/spl and then https://github.com/Rudd-O/zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        return 5
+    if not test_yum():
+        print >> sys.stderr, "error: yum is not installed properly. Please use your package manager to install yum."
+        return 5
+    try:
+        install_fedora(
+            args.voldev[0], args.volsize, args.bootdev, args.bootsize,
+            args.poolname, args.hostname, args.rootpassword,
+            args.swapsize, args.releasever, args.lukspassword, cleanup
+        )
+    except ZFSMalfunction, e:
+        print >> sys.stderr, "error:", e
+        return 9
     return 0
 
 if __name__ == "__main__":
