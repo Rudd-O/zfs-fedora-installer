@@ -116,6 +116,20 @@ def losetup(path):
     )
     return get_associated_lodev(path)
 
+def get_file_size(filename):
+    "Get the file size by seeking at end"
+    fd= os.open(filename, os.O_RDONLY)
+    try:
+        return os.lseek(fd, 0, os.SEEK_END)
+    finally:
+        os.close(fd)
+
+def create_file(filename, sizebytes):
+    f = file(filename, "wb")
+    f.seek(sizebytes-1)
+    f.write("\0")
+    f.close()
+
 
 class ZFSMalfunction(Exception): pass
 
@@ -147,16 +161,12 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         voltype = filetype(voldev)
         if bootdev: boottype = filetype(bootdev)
 
-        if voltype == 'doesntexist':
-            check_call(
-                ["dd", "if=/dev/zero", "of=%s"%voldev, "bs=%d"%(1024*1024), "count=0", "seek=%s"%(volsize)]
-            )
+        if voltype == 'doesntexist':  # FIXME use truncate directly with python.  no need to dick around.
+            create_file(voldev, volsize*1024*1024)
             voltype = 'file'
 
         if bootdev and boottype == 'doesntexist':
-            check_call(
-                ["dd", "if=/dev/zero", "of=%s"%bootdev, "bs=%d"%(1024*1024), "count=0", "seek=%s"%(bootsize)]
-            )
+            create_file(voldev, bootsize*1024*1024)
             boottype = 'file'
 
         if voltype == 'file':
