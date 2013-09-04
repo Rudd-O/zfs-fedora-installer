@@ -435,7 +435,7 @@ UUID=%s /boot ext4 noatime 0 1
             withluksuuid = ' rd.luks.allow-discards rd.luks.uuid=%s'%luksuuid
         for n,l in enumerate(list(grubconfig)):
             if l.strip().startswith("GRUB_CMDLINE_LINUX="):
-                grubconfig[n] = 'GRUB_CMDLINE_LINUX="zfs_force=ifnocache%s"\n'%withluksuuid
+                grubconfig[n] = 'GRUB_CMDLINE_LINUX="%s"\n'%withluksuuid
         file(p(j("etc","default","grub")),"w").writelines(grubconfig)
 
         # deploy ZFS now
@@ -558,7 +558,7 @@ UUID=%s /boot ext4 noatime 0 1
         '-uuid', vmuuid,
         "-kernel", glob.glob(j(kerneltempdir,"vmlinuz-*"))[0],
         '-initrd', glob.glob(j(kerneltempdir,"initramfs-*"))[0],
-        '-append', 'root=ZFS=%s/ROOT/os ro init=/installbootloader zfs_force=1%s'%(poolname,withluksuuid),
+        '-append', 'root=ZFS=%s/ROOT/os ro init=/installbootloader %s'%(poolname,withluksuuid),
     ]
     cmd = cmd + emuopts
     if original_bootdev:
