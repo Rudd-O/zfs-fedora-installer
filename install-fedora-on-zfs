@@ -539,16 +539,7 @@ UUID=%s /boot ext4 noatime 0 1
 
     # install bootloader using qemu
     vmuuid = str(uuid.uuid1())
-    def cpuinfo(): return file("/proc/cpuinfo").read()
-    def qemu_kvm_available():
-        try: check_call(["which", "qemu-kvm"])
-        except Exception: return False
-        return True
-    emucmd = "qemu-system-x86_64"
-    emuopts = []
-    if ( "vmx" in cpuinfo() or "svm" in cpuinfo() ) and qemu_kvm_available():
-       emucmd = "qemu-kvm"
-       emuopts = ['-enable-kvm']
+    emucmd, emuopts = detect_qemu()
     cmd = [
         emucmd,
         "-curses",
@@ -599,11 +590,21 @@ def test_yum():
         raise
     return True
 
+def cpuinfo(): return file("/proc/cpuinfo").read()
+
+def detect_qemu():
+    emucmd = "qemu-system-x86_64"
+    emuopts = []
+    if ( "vmx" in cpuinfo() or "svm" in cpuinfo() ):
+       emucmd = "qemu-kvm"
+       emuopts = ['-enable-kvm']
+    return emucmd, emuopts
+
 def test_qemu():
-    try: subprocess.check_call(["qemu-system-x86_64"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    try: subprocess.check_call([detect_qemu()[0], "--help"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
     except subprocess.CalledProcessError, e:
-        if e.returncode == 1: return True
-        return False
+        if e.returncode == 0: return True
+        raise
     except OSError, e:
         if e.errno == 2: return False
         raise
