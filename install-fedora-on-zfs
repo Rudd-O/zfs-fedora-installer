@@ -239,24 +239,28 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
 
             assert (not bootpart and not rootpart) or (bootpart and rootpart), "weird shit bootpart %s rootpart %s\nYou might want to nuke the partition table on the device/file you specified first." %(bootpart, rootpart)
 
+            bootstartsector = 2048
+            bootendsector = bootstartsector + ( bootsize * 1024 * 1024 / 512 ) - 1
+            rootstartsector = bootendsector + 1
+            rootendsector = ( get_file_size(voldev) / 512 ) - 1 - ( 16 * 1024 * 1024 / 512 )
             if not rootpart and not bootpart:
                 cmd = ["fdisk", voldev]
                 p = Popen(cmd, stdin=subprocess.PIPE)
                 p.communicate(
     '''n
-    p
-    1
+p
+1
+%d
+%d
 
-    +%dM
-
-    n
-    p
-    2
-
-
-    p
-    w
-    '''%bootsize
+n
+p
+2
+%d
+%d
+p
+w
+'''%(bootstartsector, bootendsector, rootstartsector, rootendsector)
                 )
                 retcode = p.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
