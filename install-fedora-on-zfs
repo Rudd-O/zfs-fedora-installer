@@ -598,6 +598,16 @@ def test_yum():
         raise
     return True
 
+def test_qemu():
+    try: subprocess.check_call(["qemu-system-x86_64"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    except subprocess.CalledProcessError, e:
+        if e.returncode == 1: return True
+        return False
+    except OSError, e:
+        if e.errno == 2: return False
+        raise
+    return True
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     args = get_parser().parse_args()
@@ -607,6 +617,9 @@ def main():
         return 5
     if not test_yum():
         print >> sys.stderr, "error: yum is not installed properly. Please use your package manager to install yum."
+        return 5
+    if not test_qemu():
+        print >> sys.stderr, "error: qemu-system-x86_64 is not installed properly. Please use your package manager to install QEMU (specifically, qemu-system-x86)."
         return 5
     try:
         install_fedora(
