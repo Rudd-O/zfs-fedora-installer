@@ -67,17 +67,29 @@ def get_parser():
 
 def check_call(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
-    logging.debug("Running %r in cwd %r", args[0], cwd)
+    cmd = args[0]
+    cmdstr = " ".join(["%r"%r for r in cmd])
+    logging.debug("Check calling %s in cwd %r", cmdstr, cwd)
     return subprocess.check_call(*args,**kwargs)
 
 def check_output(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
-    logging.debug("Running %r in cwd %r", args[0], cwd)
-    return subprocess.check_output(*args,**kwargs)
+    cmd = args[0]
+    cmdstr = " ".join(["%r"%r for r in cmd])
+    logging.debug("Check outputting %s in cwd %r", cmdstr, cwd)
+    output = subprocess.check_output(*args,**kwargs)
+    if output:
+        firstline=output.splitlines()[0].strip()
+        logging.debug("First line of output from command: %s", firstline)
+    else:
+        logging.debug("No output from command")
+    return output
 
 def Popen(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
-    logging.debug("Running %r in cwd %r", args[0], cwd)
+    cmd = args[0]
+    cmdstr = " ".join(["%r"%r for r in cmd])
+    logging.debug("Popening %s in cwd %r", cmdstr, cwd)
     return subprocess.Popen(*args,**kwargs)
 
 def filetype(dev):
