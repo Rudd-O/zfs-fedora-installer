@@ -551,6 +551,7 @@ UUID=%s /boot ext4 noatime 0 1
        emuopts = ['-enable-kvm']
     cmd = [
         emucmd,
+        "-curses",
         "-name", hostname,
         "-M", "pc-1.2",
         "-no-reboot",
