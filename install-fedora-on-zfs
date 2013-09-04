@@ -534,7 +534,7 @@ UUID=%s /boot ext4 noatime 0 1
     sync
     sync
     echo 1 > /proc/sys/kernel/sysrq
-    echo b > /proc/sysrq-trigger
+    echo o > /proc/sysrq-trigger
     '''%(poolname, poolname)
         bootloaderpath = p("installbootloader")
         bootloader = file(bootloaderpath,"w")
