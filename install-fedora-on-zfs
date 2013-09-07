@@ -541,6 +541,10 @@ UUID=%s /boot ext4 noatime 0 1
     sync
     echo 1 > /proc/sys/kernel/sysrq
     echo o > /proc/sysrq-trigger
+    sleep 5
+    echo b > /proc/sysrq-trigger
+    sleep 5
+    echo cannot power off VM.  Please kill qemu.
     '''%(poolname, poolname)
         bootloaderpath = p("installbootloader")
         bootloader = file(bootloaderpath,"w")
