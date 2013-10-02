@@ -416,7 +416,7 @@ UUID=%s /boot ext4 noatime 0 1
 
         if lukspassword:
             crypttab = \
-'''%s UUID=%s none
+'''%s UUID=%s none allow-discards
 '''%(luksuuid,rootuuid)
             file(p(j("etc", "crypttab")),"w").write(crypttab)
             os.chmod(p(j("etc", "crypttab")), 0600)
@@ -462,12 +462,9 @@ UUID=%s /boot ext4 noatime 0 1
         grubconfig = file(j("/etc","default","grub")).readlines()
         grubconfig.append("GRUB_DISABLE_LINUX_UUID=true\n")
         grubconfig.append("GRUB_PRELOAD_MODULES='part_msdos ext2'\n")
-        withluksuuid = ''
-        if lukspassword:
-            withluksuuid = ' rd.luks.allow-discards rd.luks.uuid=%s'%luksuuid
         for n,l in enumerate(list(grubconfig)):
             if l.strip().startswith("GRUB_CMDLINE_LINUX="):
-                grubconfig[n] = 'GRUB_CMDLINE_LINUX="%s"\n'%withluksuuid
+                grubconfig[n] = 'GRUB_CMDLINE_LINUX=""\n'
         file(p(j("etc","default","grub")),"w").writelines(grubconfig)
 
         # deploy ZFS now
@@ -592,7 +589,7 @@ UUID=%s /boot ext4 noatime 0 1
         '-uuid', vmuuid,
         "-kernel", glob.glob(j(kerneltempdir,"vmlinuz-*"))[0],
         '-initrd', glob.glob(j(kerneltempdir,"initramfs-*"))[0],
-        '-append', '%sroot=ZFS=%s/ROOT/os ro init=/installbootloader %s'%(console_cmdline,poolname,withluksuuid),
+        '-append', '%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(console_cmdline,poolname),
     ]
     cmd = cmd + emuopts
     if original_bootdev:
