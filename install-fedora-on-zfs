@@ -411,6 +411,8 @@ UUID=%s /boot ext4 noatime 0 1
         if not os.path.exists(p(j("etc", "hostid"))):
             randomness = file("/dev/urandom").read(4)
             file(p(j("etc", "hostid")),"w").write(randomness)
+        if not os.path.exists(p(j("etc", "locale.conf"))):
+            file(p(j("etc", "locale.conf")),"w").write("LANG=en_US.UTF-8\n")
         hostid = file(p(j("etc", "hostid"))).read().encode("hex")
         hostid = "%s%s%s%s"%(hostid[6:8],hostid[4:6],hostid[2:4],hostid[0:2])
 
