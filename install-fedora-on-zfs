@@ -294,19 +294,24 @@ w
         bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
 
         if lukspassword:
+            needsdoing = False
             try:
                 output = check_output(["blkid", "-c", "/dev/null", rootpart])
-                rootuuid = re.findall('UUID="(.*?)"', output)[0]
+                rootuuid = re.findall(' UUID="(.*?)"', output)[0]
                 luksuuid = "luks-" + rootuuid
+            except IndexError:
+                needsdoing = True
             except subprocess.CalledProcessError, e:
                 if e.returncode != 2: raise
+                needsdoing = True
+            if needsdoing:
                 cmd = ["cryptsetup", "-y", "-v", "luksFormat", rootpart, '-']
                 proc = Popen(cmd, stdin=subprocess.PIPE)
                 proc.communicate(lukspassword)
                 retcode = proc.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
                 output = check_output(["blkid", "-c", "/dev/null", rootpart])
-                rootuuid = re.findall('UUID="(.*?)"', output)[0]
+                rootuuid = re.findall(' UUID="(.*?)"', output)[0]
                 luksuuid = "luks-" + rootuuid
             if not os.path.exists(j("/dev","mapper",luksuuid)):
                 cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
@@ -362,7 +367,7 @@ w
         if 'TYPE="swap"' not in output:
             try:
                 check_call(["mkswap", '-f', swappart])
-            except CalledProcessError, e:
+            except subprocess.CalledProcessError, e:
                 raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
 
         p = lambda _: j(rootmountpoint,_)
