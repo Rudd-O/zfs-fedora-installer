@@ -398,6 +398,12 @@ w
                             "--delete", "--delete-excluded",
                             "/dev/", p("dev/")])
 
+        # make up a nice locale.conf file. neutral. international
+        localeconf = \
+'''LANG="en_US.UTF-8"
+'''
+        file(p(j("etc", "locale.conf")),"w").write(localeconf)
+
         # make up a nice fstab file
         fstab = \
 '''%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
@@ -432,7 +438,7 @@ UUID=%s /boot ext4 noatime 0 1
             return ["chroot", rootmountpoint] + lst
 
         # install base packages
-        packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup".split()
+        packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
