@@ -466,7 +466,19 @@ UUID=%s /boot ext4 noatime 0 1
             if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
 
         # write grub config
-        grubconfig = file(j("/etc","default","grub")).readlines()
+        try:
+            grubconfig = file(j("/etc","default","grub")).readlines()
+        except (IOError, OSError):
+            grubconfig = """GRUB_TIMEOUT=0
+GRUB_HIDDEN_TIMEOUT=3
+GRUB_HIDDEN_TIMEOUT_QUIET=true
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true"
+GRUB_DISABLE_RECOVERY="true"
+GRUB_GFXPAYLOAD_LINUX="keep"
+GRUB_TERMINAL_OUTPUT="vga_text"
+""".splitlines()
         grubconfig.append("GRUB_DISABLE_LINUX_UUID=true\n")
         grubconfig.append("GRUB_PRELOAD_MODULES='part_msdos ext2'\n")
         for n,l in enumerate(list(grubconfig)):
