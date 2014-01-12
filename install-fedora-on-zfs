@@ -601,19 +601,17 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 shutil.copy2(kernel[0], kerneltempdir)
                 shutil.copy2(initrd[0], kerneltempdir)
             if lukspassword:
-                keyfile = file(j(kerneltempdir, "key"), "w")
+                create_file(j(kerneltempdir, "keydev.img"), 1024)
+                check_call(["mkfs.ext4", j(kerneltempdir, "keydev.img")])
+                if not os.path.isdir(j(kerneltempdir, "keydev")):
+                    mkdir(j(kerneltempdir, "keydev"))
+                if not os.path.ismount(j(kerneltempdir, "keydev.img")):
+                    check_call(["mount", j(kerneltempdir, "keydev.img"), j(kerneltempdir, "keydev")])
+                    to_unmount.append(j(kerneltempdir, "keydev"))
+                keyfile = file(j(kerneltempdir, "keydev", "key"), "w")
                 keyfile.write(lukspassword)
                 keyfile.flush()
                 keyfile.close()
-                compressed_initrd = j(kerneltempdir, os.path.basename(initrd[0]))
-                uncompressed_initrd = compressed_initrd + ".uncompressed"
-                check_call(['gunzip'], stdin=file(compressed_initrd), stdout=file(uncompressed_initrd, "w"))
-                cmd = ['cpio', '-c', '-o', '-A', '-O', uncompressed_initrd]
-                p = Popen(cmd, stdin=subprocess.PIPE, cwd=kerneltempdir)
-                p.communicate("key\n")
-                retcode = p.wait()
-                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-                check_call(['gzip', '-9'], stdin=file(uncompressed_initrd), stdout=file(compressed_initrd, "w"))
         except (KeyboardInterrupt, Exception):
             shutil.rmtree(kerneltempdir)
             raise
@@ -665,6 +663,11 @@ GRUB_TERMINAL_OUTPUT="vga_text"
         cmd.extend([
             '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%original_voldev,
             '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
+        ])
+    if lukspassword:
+        cmd.extend([
+            '-drive', 'file=%s,if=none,id=drive-ide1-0-0,format=raw'%j(kerneltempdir,"keydev.img"),
+            '-device', 'ide-hd,bus=ide.1,unit=0,drive=drive-ide1-0-0,id=ide1-0-0,bootindex=3',
         ])
     try:
         check_call(cmd)
