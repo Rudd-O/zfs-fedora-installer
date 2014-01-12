@@ -604,6 +604,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
     zpool set cachefile=/etc/zfs/zpool.cache "%s"
     rm -f /etc/zfs/zpool.cache
     dracut --regenerate-all -fv
+    dracut -fv /boot/initramfs-`uname -r`.img `uname -r`
     umount /boot
     rm -f /installbootloader
     sync
