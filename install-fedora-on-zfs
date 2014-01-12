@@ -600,22 +600,22 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 initrd = glob.glob(p(j("boot","initramfs-*")))
                 shutil.copy2(kernel[0], kerneltempdir)
                 shutil.copy2(initrd[0], kerneltempdir)
+            if lukspassword:
+                keyfile = file(j(kerneltempdir, "key"), "w")
+                keyfile.write(lukspassword)
+                keyfile.flush()
+                keyfile.close()
+                compressed_initrd = j(kerneltempdir, os.path.basename(initrd[0]))
+                uncompressed_initrd = compressed_initrd + ".uncompressed"
+                check_call(['gunzip'], stdin=file(compressed_initrd), stdout=file(uncompressed_initrd, "w"))
+                p = Popen(['cpio', '-Aov', '-F', uncompressed_initrd], stdin=subprocess.PIPE, cwd=kerneltempdir)
+                p.communicate("key\n")
+                retcode = p.wait()
+                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
+                check_call(['gzip', '-9'], stdin=file(uncompressed_initrd), stdout=file(compressed_initrd, "w"))
         except (KeyboardInterrupt, Exception):
             shutil.rmtree(kerneltempdir)
             raise
-        if lukspassword:
-            keyfile = file(j(kerneltempdir, "key"), "w")
-            keyfile.write(lukspassword)
-            keyfile.flush()
-            keyfile.close()
-            compressed_initrd = j(kerneltempdir, os.path.basename(initrd[0]))
-            uncompressed_initrd = compressed_initrd + ".uncompressed"
-            check_call(['gunzip'], stdin=file(compressed_initrd), stdout=file(uncompressed_initrd, "w"))
-            p = Popen(['cpio', '-Aov', '-F', uncompressed_initrd], stdin=PIPE, cwd=kerneltempdir)
-            p.communicate("key\n")
-            retcode = p.wait()
-            if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-            check_call(['gzip', '-9'], stdin=file(uncompressed_initrd), stdout=file(compressed_initrd, "w"))
 
     # end operating with the devices
     except BaseException:
