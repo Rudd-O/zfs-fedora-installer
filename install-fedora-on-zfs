@@ -463,6 +463,28 @@ UUID=%s /boot ext4 noatime 0 1
         except subprocess.CalledProcessError:
             check_call(in_chroot(['yum', 'install', '-y'] + packages))
 
+        # write grub config
+        grubconfig = """GRUB_TIMEOUT=0
+GRUB_HIDDEN_TIMEOUT=3
+GRUB_HIDDEN_TIMEOUT_QUIET=true
+GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
+GRUB_DEFAULT=saved
+GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true"
+GRUB_DISABLE_RECOVERY="true"
+GRUB_GFXPAYLOAD_LINUX="keep"
+GRUB_TERMINAL_OUTPUT="vga_text"
+GRUB_DISABLE_LINUX_UUID=true
+GRUB_PRELOAD_MODULES='part_msdos ext2'
+"""
+        file(p(j("etc","default","grub")),"w").write(grubconfig)
+
+        # write kernel command line
+        if not os.path.isdir(p(j("etc","kernel"))):
+            os.mkdir(p(j("etc","kernel")))
+        grubconfig = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true
+"""%(poolname,)
+        file(p(j("etc","kernel","cmdline")),"w").write(grubconfig)
+
         # prevent future grub updates
         yumconf = file(p(j("etc","yum.conf"))).readlines()
         excludegrubset = bool([ l for l in yumconf if l.startswith("exclude=grub2") ])
@@ -488,35 +510,6 @@ UUID=%s /boot ext4 noatime 0 1
             pw.communicate(rootpassword + "\n")
             retcode = pw.wait()
             if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
-
-        # write grub config
-        try:
-            grubconfig = file(j("/etc","default","grub")).readlines()
-        except (IOError, OSError):
-            grubconfig = """GRUB_TIMEOUT=0
-GRUB_HIDDEN_TIMEOUT=3
-GRUB_HIDDEN_TIMEOUT_QUIET=true
-GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
-GRUB_DEFAULT=saved
-GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true"
-GRUB_DISABLE_RECOVERY="true"
-GRUB_GFXPAYLOAD_LINUX="keep"
-GRUB_TERMINAL_OUTPUT="vga_text"
-""".splitlines()
-        grubconfig.append("GRUB_DISABLE_LINUX_UUID=true\n")
-        grubconfig.append("GRUB_PRELOAD_MODULES='part_msdos ext2'\n")
-        for n,l in enumerate(list(grubconfig)):
-            if l.strip().startswith("GRUB_CMDLINE_LINUX="):
-                grubconfig[n] = 'GRUB_CMDLINE_LINUX=""\n'
-        file(p(j("etc","default","grub")),"w").writelines(grubconfig)
-
-        # write kernel command line
-        try:
-            grubconfig = file(j("/etc","kernel","cmdline")).readlines()
-        except (IOError, OSError):
-            grubconfig = """rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true
-""".splitlines()
-        file(p(j("etc","kernel","cmdline")),"w").writelines(grubconfig)
 
         # deploy ZFS now
         packages="dkms libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc".split()
