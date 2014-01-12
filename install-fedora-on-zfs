@@ -397,11 +397,11 @@ w
 
         # sync device files
         check_call(["rsync", "-ax", "--numeric-ids",
-                            "--exclude=mapper",
+#                            "--exclude=mapper",
                             "--exclude=zvol",
                             "--exclude=disk",
                             "--exclude=sd*",
-                            "--exclude=zd*",
+#                            "--exclude=zd*",
                             "--delete", "--delete-excluded",
                             "/dev/", p("dev/")])
 
@@ -454,7 +454,7 @@ UUID=%s /boot ext4 noatime 0 1
                                     '--nogpgcheck', '--releasever=%d'%releasever] + packages)
 
         # install base packages
-        packages="grub2 grub2-tools".split()
+        packages="grub2 grub2-tools grubby".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
@@ -552,6 +552,9 @@ GRUB_TERMINAL_OUTPUT="vga_text"
             finally:
                 shutil.rmtree(tempdir)
 
+        # regenerate initramfs
+        check_call(in_chroot(["dracut", "-fv", "--regenerate-all"]))
+
         # create bootloader installer
         bootloadertext = \
     '''#!/bin/bash -xe
@@ -563,7 +566,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
     zfs inherit com.sun:auto-snapshot "%s"
     zpool set cachefile=/etc/zfs/zpool.cache "%s"
     rm -f /etc/zfs/zpool.cache
-    dracut -v -f /boot/initramfs-`uname -r`.img `uname -r`
+    dracut --regenerate-all -fv
     umount /boot
     rm -f /installbootloader
     sync
@@ -583,11 +586,17 @@ GRUB_TERMINAL_OUTPUT="vga_text"
 
         # copy necessary boot files to a temp dir
         try:
-            kernel = glob.glob(p(j("boot","vmlinuz-*")))
-            initrd = glob.glob(p(j("boot","initramfs-*")))
             kerneltempdir = tempfile.mkdtemp()
-            shutil.copy2(kernel[0], kerneltempdir)
-            shutil.copy2(initrd[0], kerneltempdir)
+            if os.path.isdir(p(j("boot","loader"))):
+                kernel = glob.glob(p(j("boot","*","*","linux")))
+                initrd = glob.glob(p(j("boot","*","*","initrd")))
+                shutil.copy2(kernel[0], kerneltempdir)
+                shutil.copy2(initrd[0], kerneltempdir)
+            else:
+                kernel = glob.glob(p(j("boot","vmlinuz-*")))
+                initrd = glob.glob(p(j("boot","initramfs-*")))
+                shutil.copy2(kernel[0], kerneltempdir)
+                shutil.copy2(initrd[0], kerneltempdir)
         except (KeyboardInterrupt, Exception):
             shutil.rmtree(kerneltempdir)
             raise
@@ -619,8 +628,8 @@ GRUB_TERMINAL_OUTPUT="vga_text"
         "-no-reboot",
         '-m', '1024',
         '-uuid', vmuuid,
-        "-kernel", glob.glob(j(kerneltempdir,"vmlinuz-*"))[0],
-        '-initrd', glob.glob(j(kerneltempdir,"initramfs-*"))[0],
+        "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
+        '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
         '-append', '%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(console_cmdline,poolname),
     ]
     cmd = cmd + emuopts
