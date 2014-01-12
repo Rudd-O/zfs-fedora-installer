@@ -586,7 +586,10 @@ GRUB_TERMINAL_OUTPUT="vga_text"
 
         # copy necessary boot files to a temp dir
         try:
-            kerneltempdir = tempfile.mkdtemp()
+            if os.path.ismount("/dev/shm"):
+                kerneltempdir = tempfile.mkdtemp(dir="/dev/shm")
+            else:
+                kerneltempdir = tempfile.mkdtemp()
             if os.path.isdir(p(j("boot","loader"))):
                 kernel = glob.glob(p(j("boot","*","*","linux")))
                 initrd = glob.glob(p(j("boot","*","*","initrd")))
@@ -600,6 +603,19 @@ GRUB_TERMINAL_OUTPUT="vga_text"
         except (KeyboardInterrupt, Exception):
             shutil.rmtree(kerneltempdir)
             raise
+        if lukspassword:
+            keyfile = file(j(kerneltempdir, "key"), "w")
+            keyfile.write(lukspassword)
+            keyfile.flush()
+            keyfile.close()
+            compressed_initrd = j(kerneltempdir, os.path.basename(initrd[0]))
+            uncompressed_initrd = compressed_initrd + ".uncompressed"
+            check_call(['gunzip'], stdin=file(compressed_initrd), stdout=file(uncompressed_initrd, "w"))
+            p = Popen(['cpio', '-Aov', '-F', uncompressed_initrd], stdin=PIPE, cwd=kerneltempdir)
+            p.communicate("key\n")
+            retcode = p.wait()
+            if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
+            check_call(['gzip', '-9'], stdin=file(uncompressed_initrd), stdout=file(compressed_initrd, "w"))
 
     # end operating with the devices
     except BaseException:
@@ -620,6 +636,10 @@ GRUB_TERMINAL_OUTPUT="vga_text"
     else:
         screenmode = [ "-nographic", "-serial", "/dev/stdout" ]
         console_cmdline = "console=ttyS0 "
+    if lukspassword:
+        luks_cmdline = "rd.luks.key=/key "
+    else:
+        luks_cmdline = ""
     cmd = [
         emucmd,
         ] + screenmode + [
@@ -630,7 +650,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
         '-uuid', vmuuid,
         "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
         '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
-        '-append', '%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(console_cmdline,poolname),
+        '-append', '%s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(luks_cmdline,console_cmdline,poolname),
     ]
     cmd = cmd + emuopts
     if original_bootdev:
