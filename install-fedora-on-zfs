@@ -399,7 +399,7 @@ w
         check_call(["rsync", "-ax", "--numeric-ids",
 #                            "--exclude=mapper",
                             "--exclude=zvol",
-                            "--exclude=disk",
+#                            "--exclude=disk",
                             "--exclude=sd*",
 #                            "--exclude=zd*",
                             "--delete", "--delete-excluded",
