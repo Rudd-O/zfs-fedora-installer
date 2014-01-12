@@ -438,7 +438,7 @@ UUID=%s /boot ext4 noatime 0 1
 
         if lukspassword:
             crypttab = \
-'''%s UUID=%s none allow-discards
+'''%s UUID=%s none discard
 '''%(luksuuid,rootuuid)
             file(p(j("etc", "crypttab")),"w").write(crypttab)
             os.chmod(p(j("etc", "crypttab")), 0600)
