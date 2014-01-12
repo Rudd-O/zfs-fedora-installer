@@ -602,10 +602,10 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 shutil.copy2(kernel[0], kerneltempdir)
                 shutil.copy2(initrd[0], kerneltempdir)
             if lukspassword:
-                create_file(j(kerneltempdir, "keydev.img"), 1024*20)
-                check_call(["mkfs.ext2", '-F', j(kerneltempdir, "keydev.img")])
+                create_file(j(kerneltempdir, "keydev.img"), 1024*100)
+                check_call(["mkfs.ext4", '-F', j(kerneltempdir, "keydev.img")])
                 if not os.path.isdir(j(kerneltempdir, "keydev")):
-                    mkdir(j(kerneltempdir, "keydev"))
+                    os.mkdir(j(kerneltempdir, "keydev"))
                 if not os.path.ismount(j(kerneltempdir, "keydev.img")):
                     check_call(["mount", j(kerneltempdir, "keydev.img"), j(kerneltempdir, "keydev")])
                     to_unmount.append(j(kerneltempdir, "keydev"))
