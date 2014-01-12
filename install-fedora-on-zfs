@@ -60,6 +60,10 @@ def get_parser():
         action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption)"
     )
     parser.add_argument(
+        "--luks-options", dest="luksoptions", metavar="LUKSOPTIONS", type=str,
+        action="store", default=None, help="space-separated list of options to pass to cryptsetup luksFormat (default %default)"
+    )
+    parser.add_argument(
         "--no-cleanup", dest="nocleanup",
         action="store_true", default=False, help="if an error occurs, do not clean up working volumes"
     )
@@ -141,8 +145,10 @@ class ZFSMalfunction(Exception): pass
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
-                   releasever=18, lukspassword=None, do_cleanup=True,
+                   releasever=18, lukspassword=None,
+                   do_cleanup=True,
                    interactive_qemu=False,
+                   luksoptions=None,
     ):
 
     original_voldev = voldev
@@ -305,7 +311,8 @@ w
                 if e.returncode != 2: raise
                 needsdoing = True
             if needsdoing:
-                cmd = ["cryptsetup", "-y", "-v", "luksFormat", rootpart, '-']
+                luksopts = shlex.split(luksoptions) if luksoptions else []
+                cmd = ["cryptsetup", "-y", "-v", "luksFormat"] + luksopts + [rootpart, '-']
                 proc = Popen(cmd, stdin=subprocess.PIPE)
                 proc.communicate(lukspassword)
                 retcode = proc.wait()
@@ -693,6 +700,7 @@ def main():
             args.poolname, args.hostname, args.rootpassword,
             args.swapsize, args.releasever, args.lukspassword, cleanup,
             args.interactive_qemu,
+            args.luksoptions,
         )
     except ZFSMalfunction, e:
         print >> sys.stderr, "error:", e
