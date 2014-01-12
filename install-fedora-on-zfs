@@ -160,6 +160,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     to_unmount = []
 
     def cleanup():
+        check_call(['sync'])
         for fs in to_unmount:
             check_call(["umount", fs])
         for pool in to_export:
@@ -602,7 +603,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 shutil.copy2(initrd[0], kerneltempdir)
             if lukspassword:
                 create_file(j(kerneltempdir, "keydev.img"), 1024)
-                check_call(["mkfs.ext4", j(kerneltempdir, "keydev.img")])
+                check_call(["mkfs.ext2", '-F', j(kerneltempdir, "keydev.img")])
                 if not os.path.isdir(j(kerneltempdir, "keydev")):
                     mkdir(j(kerneltempdir, "keydev"))
                 if not os.path.ismount(j(kerneltempdir, "keydev.img")):
