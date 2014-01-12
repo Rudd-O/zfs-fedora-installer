@@ -608,7 +608,8 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 compressed_initrd = j(kerneltempdir, os.path.basename(initrd[0]))
                 uncompressed_initrd = compressed_initrd + ".uncompressed"
                 check_call(['gunzip'], stdin=file(compressed_initrd), stdout=file(uncompressed_initrd, "w"))
-                p = Popen(['cpio', '-Aov', '-F', uncompressed_initrd], stdin=subprocess.PIPE, cwd=kerneltempdir)
+                cmd = ['cpio', '-Aov', '-F', uncompressed_initrd]
+                p = Popen(cmd, stdin=subprocess.PIPE, cwd=kerneltempdir)
                 p.communicate("key\n")
                 retcode = p.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
