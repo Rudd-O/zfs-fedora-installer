@@ -550,6 +550,13 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_2
                     check_call(cmd)
 
+        # patch grub 10_linux
+        if 'LINUX_ROOT_DEVICE="ZFS=${fs}"' not in file(p(j("etc","grub.d","10_linux"))).read():
+            tempdir = tempfile.mkdtemp()
+            patchfile = file(p(j("usr","src","zfs","grub2","10_linux.diff")))
+            check_call(["patch", "-p0"], stdin=patchfile, cwd=p(j("etc","grub.d")))
+            patchfile.close()
+
         # patch grub mkconfig
         if "zfs" not in file(p(j("sbin","grub2-mkconfig"))).read():
             tempdir = tempfile.mkdtemp()
