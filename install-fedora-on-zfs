@@ -447,7 +447,7 @@ UUID=%s /boot ext4 noatime 0 1
             return ["chroot", rootmountpoint] + lst
 
         # install base packages
-        packages="basesystem rootfiles bash nano kernel binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc".split()
+        packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
@@ -455,7 +455,7 @@ UUID=%s /boot ext4 noatime 0 1
             check_call(['yum', 'install', '-y', '--installroot=%s'%rootmountpoint,
                                     '--nogpgcheck', '--releasever=%d'%releasever] + packages)
 
-        # install base packages
+        # install boot packages
         packages="grub2 grub2-tools grubby".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
@@ -469,6 +469,15 @@ UUID=%s /boot ext4 noatime 0 1
         if not excludegrubset:
             yumconf.append("\nexclude=grub2\n")
             file(p(j("etc","yum.conf")),"w").writelines(yumconf)
+
+        # install kernel packages
+        packages="kernel kernel-devel".split()
+        try:
+            check_call(in_chroot(["rpm", "-q"] + packages),
+                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            check_call(['yum', 'install', '-y', '--installroot=%s'%rootmountpoint,
+                                    '--nogpgcheck', '--releasever=%d'%releasever] + packages)
 
         # set password
         pwfile = file(p(j("etc","shadow"))).readlines()
@@ -510,7 +519,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
         file(p(j("etc","kernel","cmdline")),"w").writelines(grubconfig)
 
         # deploy ZFS now
-        packages="dkms kernel-devel libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc".split()
+        packages="dkms libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
