@@ -602,7 +602,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 shutil.copy2(kernel[0], kerneltempdir)
                 shutil.copy2(initrd[0], kerneltempdir)
             if lukspassword:
-                create_file(j(kerneltempdir, "keydev.img"), 1024)
+                create_file(j(kerneltempdir, "keydev.img"), 10240)
                 check_call(["mkfs.ext2", '-F', j(kerneltempdir, "keydev.img")])
                 if not os.path.isdir(j(kerneltempdir, "keydev")):
                     mkdir(j(kerneltempdir, "keydev"))
