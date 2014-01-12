@@ -554,7 +554,7 @@ GRUB_TERMINAL_OUTPUT="vga_text"
                 shutil.rmtree(tempdir)
 
         # regenerate initramfs
-        check_call(in_chroot(["dracut", "-fv", "--regenerate-all"]))
+        check_call(in_chroot(["dracut", "-fv", "--regenerate-all", '-o', 'systemd']))
 
         # create bootloader installer
         bootloadertext = \
