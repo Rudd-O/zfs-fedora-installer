@@ -579,6 +579,10 @@ GRUB_TERMINAL_OUTPUT="vga_text"
 
         # regenerate initramfs
         check_call(in_chroot(["dracut", "-fv", "--regenerate-all", '-o', 'systemd']))
+        for kernelfile in glob.glob(p(j("boot","vmlinuz-*"))):
+            kernelver = kernelfile[len(rootmountpoint)+14:]
+            initramfsfile = "/boot/initramfs-" + kernelver + ".img"
+            check_call(in_chroot(["dracut", "-fv", initramfsfile, kernelver, '-o', 'systemd']))
 
         # create bootloader installer
         bootloadertext = \
