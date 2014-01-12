@@ -11,7 +11,7 @@ This script will create an image file containing a fresh, minimal Fedora 19+ ins
 * be booted on a QEMU / virt-manager virtual machine, or
 * be written to a block device, after which you can grow the last partition to make ZFS use the extra space.
 
-If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers.
+If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers, until the next time dracut regenerates the initial RAM disks, after which the initial RAM disks will be tailored to the specific hardware of the machine where it ran.
 
 Usage:
 

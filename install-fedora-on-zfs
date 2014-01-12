@@ -463,26 +463,31 @@ UUID=%s /boot ext4 noatime 0 1
         except subprocess.CalledProcessError:
             check_call(in_chroot(['yum', 'install', '-y'] + packages))
 
+        if lukspassword:
+            luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards"%(rootuuid,)
+        else:
+            luksstuff = ""
+
         # write grub config
         grubconfig = """GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=3
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
 GRUB_DEFAULT=saved
-GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true"
+GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true%s"
 GRUB_DISABLE_RECOVERY="true"
 GRUB_GFXPAYLOAD_LINUX="keep"
 GRUB_TERMINAL_OUTPUT="vga_text"
 GRUB_DISABLE_LINUX_UUID=true
 GRUB_PRELOAD_MODULES='part_msdos ext2'
-"""
+"""%(luksstuff,)
         file(p(j("etc","default","grub")),"w").write(grubconfig)
 
         # write kernel command line
         if not os.path.isdir(p(j("etc","kernel"))):
             os.mkdir(p(j("etc","kernel")))
-        grubconfig = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true
-"""%(poolname,)
+        grubconfig = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
+"""%(poolname,luksstuff,)
         file(p(j("etc","kernel","cmdline")),"w").write(grubconfig)
 
         # prevent future grub updates
@@ -595,11 +600,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         to_unmount.append(p("proc"))
 
         # regenerate initramfs
-        check_call(in_chroot(["dracut", "-fv", "--regenerate-all", '-o', 'systemd']))
+        check_call(in_chroot(["dracut", '--no-hostonly', "-fv", "--regenerate-all", '-o', 'systemd']))
         for kernelfile in glob.glob(p(j("boot","vmlinuz-*"))):
             kernelver = kernelfile[len(rootmountpoint)+14:]
             initramfsfile = "/boot/initramfs-" + kernelver + ".img"
-            check_call(in_chroot(["dracut", "-fv", initramfsfile, kernelver, '-o', 'systemd']))
+            check_call(in_chroot(["dracut", '--no-hostonly', "-fv", initramfsfile, kernelver, '-o', 'systemd']))
 
         # create bootloader installer
         bootloadertext = \
@@ -612,8 +617,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     zfs inherit com.sun:auto-snapshot "%s"
     zpool set cachefile=/etc/zfs/zpool.cache "%s"
     rm -f /etc/zfs/zpool.cache
-    dracut --regenerate-all -fv
-    dracut -fv /boot/initramfs-`uname -r`.img `uname -r`
+    dracut --no-hostonly --regenerate-all -fv
+    dracut --no-hostonly -fv /boot/initramfs-`uname -r`.img `uname -r`
     umount /boot
     rm -f /installbootloader
     sync
@@ -683,7 +688,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         screenmode = [ "-nographic", "-serial", "/dev/stdout" ]
         console_cmdline = "console=ttyS0 "
     if lukspassword:
-        luks_cmdline = "rd.luks.key=/key "
+        luks_cmdline = "rd.luks.uuid=%s rd.luks.key=/key "%(rootuuid,)
     else:
         luks_cmdline = ""
     cmd = [
