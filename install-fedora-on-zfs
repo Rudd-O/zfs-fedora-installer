@@ -53,7 +53,7 @@ def get_parser():
     )
     parser.add_argument(
         "--releasever", dest="releasever", metavar="VER", type=int,
-        action="store", default=18, help="Fedora release version (default 18)"
+        action="store", default=19, help="Fedora release version (default %default)"
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
@@ -145,7 +145,7 @@ class ZFSMalfunction(Exception): pass
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
-                   releasever=18, lukspassword=None,
+                   releasever=19, lukspassword=None,
                    do_cleanup=True,
                    interactive_qemu=False,
                    luksoptions=None,

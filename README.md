@@ -6,7 +6,7 @@ Fedora on ZFS root installer
 | <img width="164" height="164" title="" alt="" src="doc/bitcoin.png" /> |
 | [1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V](bitcoin:1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V) |
 
-This script will create an image file containing a fresh, minimal Fedora 18 installation on a ZFS pool.  This pool can:
+This script will create an image file containing a fresh, minimal Fedora 19+ installation on a ZFS pool.  This pool can:
 
 * be booted on a QEMU / virt-manager virtual machine, or
 * be written to a block device, after which you can grow the last partition to make ZFS use the extra space.
@@ -43,7 +43,7 @@ Usage:
     --root-password ROOTPASSWORD
                             root password (default password)
     --swap-size SWAPSIZE  swap volume size in MiB (default 1024)
-    --releasever VER      Fedora release version (default 18)
+    --releasever VER      Fedora release version (default 19)
     --luks-password LUKSPASSWORD
                             LUKS password to encrypt the ZFS volume with (default
                             no encryption)
