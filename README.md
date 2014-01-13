@@ -13,7 +13,10 @@ This script will create an image file containing a fresh, minimal Fedora 19+ ins
 
 If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers, until the next time dracut regenerates the initial RAM disks, after which the initial RAM disks will be tailored to the specific hardware of the machine where it ran.
 
-Usage:
+See below for setup instructions.
+
+Usage
+-----
 
     ./install-fedora-on-zfs --help
     usage: install-fedora-on-zfs [-h] [--vol-size VOLSIZE]
@@ -66,13 +69,11 @@ Details about the installation process
 Requirements
 ------------
 
-These are the programs you need to execute this script
+These are the programs you need to execute this script:
 
 * python
 * qemu-kvm
-* ZFS already installed
-  * https://github.com/Rudd-O/spl
-  * https://github.com/Rudd-O/zfs
+* ZFS already installed (see below)
 * losetup
 * mkfs.ext4
 * grub2
@@ -81,6 +82,27 @@ These are the programs you need to execute this script
 * dracut
 * mkswap
 * cryptsetup
+
+Getting ZFS installed on your machine
+-------------------------------------
+
+Before using this program in your computer, you need to have a functioning copy of ZFS in it.  Follow these steps:
+
+Obtain the source to ZFS and this program:
+
+* git clone https://github.com/Rudd-O/spl ~/spl
+* git clone https://github.com/Rudd-O/zfs ~/zfs
+* git clone https://github.com/Rudd-O/zfs-fedora-installer ~/zfs-fedora-installer
+
+Install ZFS:
+
+    pushd ~/spl ; ./autogen.sh && ./configure --prefix=/usr && make -j2 && sudo make install ; popd
+    pushd ~/zfs ; ./autogen.sh && ./configure --prefix=/usr --with-udevdir=/lib/udev && make -j2 && sudo make install ; popd
+    sudo depmod -a
+    sudo modprobe zfs
+    sudo udevadm control --reload-rules
+
+Now you can verify that the `zfs` command works.  If it does, then you are ready to run this program.
 
 Transferring the images to media
 --------------------------------
