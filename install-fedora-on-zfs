@@ -541,7 +541,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         if prebuilt_rpms_path:
             packages += " libuuid-devel zlib-devel git rpm-build"
         try:
-            check_call(in_chroot(["rpm", "-q"] + packages),
+            check_call(in_chroot(["rpm", "-q"] + packages.split()),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             check_call(in_chroot(['yum', 'install', '-y'] + packages))
