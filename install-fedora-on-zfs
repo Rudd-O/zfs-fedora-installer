@@ -415,9 +415,11 @@ w
         # sync RPM GPG keys
         for m in "etc/pki etc/pki/rpm-gpg".split():
             if not os.path.isdir(p(m)): os.mkdir(p(m))
-        check_call(["rsync", "-ax", "--numeric-ids",
-                            "--delete", "--delete-excluded",
-                            "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*", p("etc/pki/rpm-gpg/")])
+        check_call(
+            ["rsync", "-ax", "--numeric-ids"] + \
+            glob.glob("/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*") + \
+            ["/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*", p("etc/pki/rpm-gpg/")]
+        )
 
         # make up a nice locale.conf file. neutral. international
         localeconf = \
