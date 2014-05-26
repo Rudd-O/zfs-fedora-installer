@@ -25,7 +25,7 @@ Usage
                                 [--root-password ROOTPASSWORD]
                                 [--swap-size SWAPSIZE] [--releasever VER]
                                 [--luks-password LUKSPASSWORD] [--no-cleanup]
-                                VOLDEV
+                                [--use-prebuilt-rpms DIR] VOLDEV
 
     Install a minimal Fedora system inside a ZFS pool within a disk image or
     device
@@ -51,6 +51,10 @@ Usage
                             LUKS password to encrypt the ZFS volume with (default
                             no encryption)
     --no-cleanup          if an error occurs, do not clean up working volumes
+    --use-prebuilt-rpms DIR
+                            use the pre-built (DKMS/tools) SPL and ZFS RPMs in
+                            this directory (default: build SPL and ZFS RPMs
+                            within the chroot)
 
 After setup is done, you can use `dd` to transfer the image(s) to the appropriate media (perhaps an USB drive) for booting.  See below for examples and more information.
 

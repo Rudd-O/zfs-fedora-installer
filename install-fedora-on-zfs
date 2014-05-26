@@ -58,7 +58,7 @@ def get_parser():
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
-        action="store", default=None, help="Use the pre-built (DKMS/tools) SPL and ZFS RPMs in this directory (default: build SPL and ZFS RPMs within the chroot)"
+        action="store", default=None, help="use the pre-built (DKMS/tools) SPL and ZFS RPMs in this directory (default: build SPL and ZFS RPMs within the chroot)"
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
