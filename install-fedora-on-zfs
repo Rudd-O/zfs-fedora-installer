@@ -145,6 +145,7 @@ def create_file(filename, sizebytes):
 
 
 class ZFSMalfunction(Exception): pass
+class ZFSBuildFailure(Exception): pass
 
 
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
@@ -550,7 +551,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
             if not os.path.isdir(target_rpms_path):
                 os.mkdir(target_rpms_path)
-            check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
+            if not os.path.ismount(target_rpms_path):
+                check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
             to_unmount.append(target_rpms_path)
 
         arch = platform.machine()
@@ -586,6 +588,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 if files_to_install_2:
                     cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_2
                     check_call(cmd)
+
+        modules_dir = p(j("usr","lib","modules","*","*","zfs.ko"))
+        modules_files = glob.glob(modules_dir)
+        if not modules_files:
+            raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?"%modules_dir)
 
         # patch grub 10_linux
         if 'LINUX_ROOT_DEVICE="ZFS=${fs}"' not in file(p(j("etc","grub.d","10_linux"))).read():
@@ -833,7 +840,7 @@ def main():
             args.luksoptions,
             args.prebuiltrpms,
         )
-    except ZFSMalfunction, e:
+    except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
         return 9
     return 0
