@@ -387,7 +387,7 @@ w
         p = lambda _: j(rootmountpoint,_)
 
         # mount virtual file systems, creating their mount points as necessary
-        for m in "boot sys proc etc etc/pki/rpm-gpg".split():
+        for m in "boot sys proc etc".split():
             if not os.path.isdir(p(m)): os.mkdir(p(m))
 
         if not os.path.ismount(p("boot")):
@@ -413,6 +413,8 @@ w
                             "/dev/", p("dev/")])
 
         # sync RPM GPG keys
+        for m in "etc/pki etc/pki/rpm-gpg".split():
+            if not os.path.isdir(p(m)): os.mkdir(p(m))
         check_call(["rsync", "-ax", "--numeric-ids",
                             "--delete", "--delete-excluded",
                             "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*", p("etc/pki/rpm-gpg/")])
