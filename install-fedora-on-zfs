@@ -418,7 +418,7 @@ w
         check_call(
             ["rsync", "-ax", "--numeric-ids"] + \
             glob.glob("/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*") + \
-            ["/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*", p("etc/pki/rpm-gpg/")]
+            [p("etc/pki/rpm-gpg/")]
         )
 
         # make up a nice locale.conf file. neutral. international
