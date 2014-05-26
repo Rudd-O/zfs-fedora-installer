@@ -759,6 +759,16 @@ def test_zfs():
         raise
     return True
 
+def test_rsync():
+    try: subprocess.check_call(["rsync"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    except subprocess.CalledProcessError, e:
+        if e.returncode == 1: return True
+        return False
+    except OSError, e:
+        if e.errno == 2: return False
+        raise
+    return True
+
 def test_yum():
     try: subprocess.check_call(["yum"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
     except subprocess.CalledProcessError, e:
