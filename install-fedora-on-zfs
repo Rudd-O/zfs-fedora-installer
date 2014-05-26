@@ -57,6 +57,10 @@ def get_parser():
         action="store", default=19, help="Fedora release version (default %default)"
     )
     parser.add_argument(
+        "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
+        action="store", default=None, help="Use the pre-built (DKMS/tools) SPL and ZFS RPMs in this directory (default: build SPL and ZFS RPMs within the chroot)"
+    )
+    parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
         action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption)"
     )
@@ -150,6 +154,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    do_cleanup=True,
                    interactive_qemu=False,
                    luksoptions=None,
+                   prebuilt_rpms_path=None,
     ):
 
     original_voldev = voldev
@@ -517,16 +522,26 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
 
         # deploy ZFS now
-        packages="dkms libuuid-devel zlib-devel make autoconf automake gcc git libtool rpm-build mdadm parted lsscsi bc".split()
+        packages = "dkms make autoconf automake gcc libtool mdadm parted lsscsi bc"
+        if prebuilt_rpms_path:
+            packages += " libuuid-devel zlib-devel git rpm-build"
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             check_call(in_chroot(['yum', 'install', '-y'] + packages))
 
+        if prebuilt_rpms_path:
+            target_rpms_path = p(j("usr","src","prebuilt"))
+            check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
+            to_unmount.append(target_rpms_path)
+
         arch = platform.machine()
         for project in "spl zfs".split():
-            project_dir = p(j("usr","src",project))
+            if prebuilt_rpms_path:
+                project_dir = target_rpms_path
+            else:
+                project_dir = p(j("usr","src",project))
 
             if not os.path.isdir(project_dir):
                 cmd = ["git", "clone", "https://github.com/Rudd-O/%s"%project, project_dir]
@@ -786,6 +801,7 @@ def main():
             args.swapsize, args.releasever, args.lukspassword, cleanup,
             args.interactive_qemu,
             args.luksoptions,
+            args.prebuiltrpms,
         )
     except ZFSMalfunction, e:
         print >> sys.stderr, "error:", e
