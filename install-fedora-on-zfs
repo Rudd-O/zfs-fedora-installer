@@ -185,7 +185,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             voltype = 'file'
 
         if bootdev and boottype == 'doesntexist':
-            create_file(voldev, bootsize*1024*1024)
+            create_file(bootdev, bootsize*1024*1024)
             boottype = 'file'
 
         if voltype == 'file':
