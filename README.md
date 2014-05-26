@@ -46,7 +46,8 @@ Usage
     --root-password ROOTPASSWORD
                             root password (default password)
     --swap-size SWAPSIZE  swap volume size in MiB (default 1024)
-    --releasever VER      Fedora release version (default 19)
+    --releasever VER      Fedora release version (default the same as the
+                          computer you are installing on)
     --luks-password LUKSPASSWORD
                             LUKS password to encrypt the ZFS volume with (default
                             no encryption)

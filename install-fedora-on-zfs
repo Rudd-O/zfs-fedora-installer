@@ -54,7 +54,7 @@ def get_parser():
     )
     parser.add_argument(
         "--releasever", dest="releasever", metavar="VER", type=int,
-        action="store", default=19, help="Fedora release version (default %default)"
+        action="store", default=None, help="Fedora release version (default the same as the computer you are installing on)"
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
@@ -66,7 +66,7 @@ def get_parser():
     )
     parser.add_argument(
         "--luks-options", dest="luksoptions", metavar="LUKSOPTIONS", type=str,
-        action="store", default=None, help="space-separated list of options to pass to cryptsetup luksFormat (default %default)"
+        action="store", default=None, help="space-separated list of options to pass to cryptsetup luksFormat (default no options)"
     )
     parser.add_argument(
         "--no-cleanup", dest="nocleanup",
@@ -150,7 +150,7 @@ class ZFSMalfunction(Exception): pass
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
-                   releasever=19, lukspassword=None,
+                   releasever=None, lukspassword=None,
                    do_cleanup=True,
                    interactive_qemu=False,
                    luksoptions=None,
@@ -175,6 +175,9 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             check_call(["cryptsetup", "luksClose", luksdev])
         for bdev in to_un_losetup:
             check_call(["losetup", "-d", bdev])
+
+    if not releasever:
+        releasever = int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
 
     try:
         voltype = filetype(voldev)
