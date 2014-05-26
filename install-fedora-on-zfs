@@ -387,7 +387,7 @@ w
         p = lambda _: j(rootmountpoint,_)
 
         # mount virtual file systems, creating their mount points as necessary
-        for m in "boot sys proc etc".split():
+        for m in "boot sys proc etc etc/pki/rpm-gpg".split():
             if not os.path.isdir(p(m)): os.mkdir(p(m))
 
         if not os.path.ismount(p("boot")):
@@ -411,6 +411,11 @@ w
 #                            "--exclude=zd*",
                             "--delete", "--delete-excluded",
                             "/dev/", p("dev/")])
+
+        # sync RPM GPG keys
+        check_call(["rsync", "-ax", "--numeric-ids",
+                            "--delete", "--delete-excluded",
+                            "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*", p("etc/pki/rpm-gpg/")])
 
         # make up a nice locale.conf file. neutral. international
         localeconf = \
@@ -788,6 +793,9 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
     args = get_parser().parse_args()
     cleanup = not args.nocleanup
+    if not test_rsync():
+        print >> sys.stderr, "error: rsync is not available. Please use your package manager to install rsync."
+        return 5
     if not test_zfs():
         print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/spl and then https://github.com/Rudd-O/zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
         return 5
