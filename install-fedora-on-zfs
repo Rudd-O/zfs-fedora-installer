@@ -458,7 +458,10 @@ UUID=%s /boot ext4 noatime 0 1
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             check_call(['yum', 'install', '-y', '--installroot=%s'%rootmountpoint,
-                                    '--nogpgcheck', '--releasever=%d'%releasever] + packages)
+                                    '--disablerepo=*',
+                                    '--enablerepo=fedora',
+                                    '--enablerepo=fedora-updates',
+                                    '--releasever=%d'%releasever] + packages)
 
         # install boot packages
         packages="grub2 grub2-tools grubby".split()
