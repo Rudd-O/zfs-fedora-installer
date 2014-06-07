@@ -680,12 +680,28 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                                     stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError:
                 # build and deploy SPL / ZFS now
-                packages = "make autoconf automake gcc libtool git rpm-build yum-utils dkms zlib-devel libuuid-devel"
+                packages = [
+                    "make",
+                    "autoconf",
+                    "automake",
+                    "gcc",
+                    "libtool",
+                    "git",
+                    "rpm-build",
+                    "yum-utils",
+                    "dkms",
+                    "zlib-devel",
+                    "libuuid-devel",
+                    "bc",
+                    "lsscsi",
+                    "mdadm",
+                    "parted"
+                ]
                 try:
-                    check_call(in_chroot(["rpm", "-q"] + packages.split()),
+                    check_call(in_chroot(["rpm", "-q"] + packages),
                                         stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
                 except subprocess.CalledProcessError:
-                    cmd = in_chroot(["yum", 'install', '-y'] + packages.split())
+                    cmd = in_chroot(["yum", 'install', '-y'] + packages)
                     if tempyumconfig_insidechroot:
                         cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
                     check_call(cmd)
