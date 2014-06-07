@@ -730,7 +730,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 files_to_install = getrpms()
                 if not files_to_install:
                     grubsrpm = "grub2-2.00-25.fc20.src.rpm"
-                    check_call(["wget", "-c", "https://kojipkgs.fedoraproject.org//packages/grub2/2.00/25.fc20/src/"%grubsrpm], cwd=project_dir)
+                    check_call(["wget", "-c", "https://kojipkgs.fedoraproject.org//packages/grub2/2.00/25.fc20/src/%s" % grubsrpm], cwd=project_dir)
                     project_dir_in_chroot = project_dir[len(rootmountpoint):]
                     check_call(in_chroot(["rpm", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ivh", "--noscripts", j(project_dir_in_chroot,grubsrpm)]))
                     cmd = in_chroot(["yum-builddep", "-y", j(project_dir_in_chroot, grubsrpm)])
