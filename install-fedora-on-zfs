@@ -722,16 +722,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     files_to_install = getrpms()
                 files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" not in f ]
                 files_to_install_2 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" in f ]
-                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_1
+                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install_1
                 check_call(cmd)
                 if files_to_install_2:
-                    cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_2
+                    cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install_2
                     check_call(cmd)
 
         for project in ["grub2"]:
             prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
             if prebuilt_proj_rpms:
-                check_call(in_chroot(["rpm", "-Uvh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"] + prebuilt_proj_rpms))
+                check_call(in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"] + prebuilt_proj_rpms))
                 for s in prebuilt_proj_rpms:
                     prebuilt_rpms_to_install.remove(os.path.basename(s))
             else:
@@ -758,7 +758,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(in_chroot(["sed", "-ri", "s/^Release: +([0-9]+)/Release: \\1.1/", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
                     check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ba", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
                 files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install ]
-                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_1
+                cmd = in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install_1
                 check_call(cmd)
 
         prebuilt_rest_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install ]
