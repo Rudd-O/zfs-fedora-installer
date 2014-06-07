@@ -693,25 +693,27 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 if not os.path.isdir(project_dir):
                     cmd = ["git", "clone", "https://github.com/Rudd-O/%s"%project, project_dir]
                     check_call(cmd)
-                    def getrpms():
-                        return glob.glob(j(project_dir,"%s-*%s*.rpm"%(project, arch))) + \
-                            glob.glob(j(project_dir,"%s-*%s*.rpm"%(project, "noarch")))
-                    files_to_install = getrpms()
-                    if not files_to_install:
-                        yum_builddep = "yum-builddep -y"
-                        if tempyumconfig_insidechroot:
-                            yum_builddep = yum_builddep + ' -c %s' % tempyumconfig_insidechroot_name
-                        cmd = in_chroot(["bash", "-c",
-                            "cd /usr/src/%s && ./autogen.sh && ./configure --with-config=user && make srpm && %s -y *.src.rpm && make rpm-utils rpm-dkms" % (project, yum_builddep)])
-                        check_call(cmd)
-                        files_to_install = getrpms()
-                    files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" not in f ]
-                    files_to_install_2 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" in f ]
-                    cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_1
+                def getrpms():
+                    therpms = glob.glob(j(project_dir, "%s-*%s*.rpm" % (project, arch))) + \
+                        glob.glob(j(project_dir, "%s-*%s*.rpm" % (project, "noarch")))
+                    therpms = [ s for s in therpms if "debuginfo" not in os.path.basename(s) ]
+                    return therpms
+                files_to_install = getrpms()
+                if not files_to_install:
+                    yum_builddep = "yum-builddep -y"
+                    if tempyumconfig_insidechroot:
+                        yum_builddep = yum_builddep + ' -c %s' % tempyumconfig_insidechroot_name
+                    cmd = in_chroot(["bash", "-c",
+                        "cd /usr/src/%s && ./autogen.sh && ./configure --with-config=user && make srpm && %s -y *.src.rpm && make rpm-utils rpm-dkms" % (project, yum_builddep)])
                     check_call(cmd)
-                    if files_to_install_2:
-                        cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_2
-                        check_call(cmd)
+                    files_to_install = getrpms()
+                files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" not in f ]
+                files_to_install_2 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" in f ]
+                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_1
+                check_call(cmd)
+                if files_to_install_2:
+                    cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs"]) + files_to_install_2
+                    check_call(cmd)
 
         for project in ["grub2"]:
             prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
@@ -725,7 +727,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     os.mkdir(project_dir)
                 def getrpms():
                     therpms = glob.glob(j(project_dir, "RPMS", arch, "*.rpm"))
-                    therpms = [ s for s in therpms if "debuginfo" not in s ]
+                    therpms = [ s for s in therpms if "debuginfo" not in os.path.basename(s) ]
                     return therpms
                 files_to_install = getrpms()
                 if not files_to_install:
