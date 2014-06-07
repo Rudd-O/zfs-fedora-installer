@@ -178,6 +178,13 @@ def make_temp_yum_config(directory, source, **kwargs):
     tempyumconfig.seek(0)
     return tempyumconfig
 
+def print_open_files(mountpoint):
+    try:
+        output = check_output(["lsof", "-n", mountpoint])
+    except subprocess.CalledProcessError:
+        return
+    print >> sys.stderr, output
+
 
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
@@ -209,6 +216,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     def cleanup():
         check_call(['sync'])
         for fs in to_unmount:
+            print_open_files(fs)
             check_call(["umount", fs])
         for filename in to_rmdir:
             os.rmdir(filename)
@@ -775,11 +783,13 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?"%modules_dir)
 
         if target_rpms_path:
+            print_open_files(target_rpms_path)
             check_call(["umount", target_rpms_path])
             to_unmount.remove(target_rpms_path)
             check_call(["rmdir", target_rpms_path])
             to_rmdir.remove(target_rpms_path)
         if yum_cachedir_path:
+            print_open_files(p(j("var", "cache", "yum")))
             check_call(["umount", p(j("var", "cache", "yum"))])
             to_unmount.remove(p(j("var", "cache", "yum")))
 
@@ -787,9 +797,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         # workaround for blkid failing without the following block happening first
         for fs in ["boot", "sys", "proc"]:
             fs = p(fs)
+            print_open_files(fs)
             check_call(["umount", fs])
             to_unmount.remove(fs)
 
+        print_open_files(rootmountpoint)
         check_call(["zpool", "export", poolname])
         to_export.remove(poolname)
 
