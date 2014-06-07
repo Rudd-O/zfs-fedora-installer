@@ -685,7 +685,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(in_chroot(["rpm", "-q"] + packages.split()),
                                         stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
                 except subprocess.CalledProcessError:
-                    check_call(in_chroot(["yum", 'install', '-y'] + packages.split()))
+                    cmd = in_chroot(["yum", 'install', '-y'] + packages.split())
+                    if tempyumconfig_insidechroot:
+                        cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
+                    check_call(cmd)
                 project_dir = p(j("usr","src",project))
                 if not os.path.isdir(project_dir):
                     cmd = ["git", "clone", "https://github.com/Rudd-O/%s"%project, project_dir]
