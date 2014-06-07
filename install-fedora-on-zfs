@@ -699,7 +699,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         if tempyumconfig_insidechroot:
                             yum_builddep = yum_builddep + ' -c %s' % tempyumconfig_insidechroot_name
                         cmd = in_chroot(["bash", "-c",
-                            "cd /usr/src/%s && ./autogen.sh && ./configure && make srpm && %s -y *.src.rpm && make rpm-utils rpm-dkms" % (project, yum_builddep)])
+                            "cd /usr/src/%s && ./autogen.sh && ./configure --with-config=user && make srpm && %s -y *.src.rpm && make rpm-utils rpm-dkms" % (project, yum_builddep)])
                         check_call(cmd)
                         files_to_install = getrpms()
                     files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" not in f ]
