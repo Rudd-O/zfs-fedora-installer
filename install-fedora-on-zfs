@@ -752,9 +752,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     if tempyumconfig_insidechroot:
                         cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
                     check_call(cmd)
-                    patchfile = file(p(j("usr","share","doc","zfs","grub.spec.diff")))
+                    patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
                     check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
-                    shutil.copy2(p(j("usr","share","doc","zfs","0485-Ensure-proper-boot-configuration-in-the-case-of-Linu.patch")), j(project_dir,"SOURCES"))
+                    shutil.copy2(p(j("usr", "share", "doc", "zfs", "grub2", "0485-Ensure-proper-boot-configuration-in-the-case-of-Linu.patch")), j(project_dir, "SOURCES"))
                     check_call(in_chroot(["sed", "-ri", "s/^Release: +([0-9]+)/Release: \\1.1/", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
                     check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ba", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
                 files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install ]
