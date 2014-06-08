@@ -887,7 +887,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         to_unmount.append(p("proc"))
 
         # regenerate initramfs
-        check_call(in_chroot(["dracut", '--no-hostonly', "-fv", "--regenerate-all"]))
+        # we need to use -o systemd because otherwise the system remains
+        # forever prompting for the password and ignores rd.luks.key
+        # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
+        check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
 
         # check for stage stop
         if break_before == "install_bootloader":
