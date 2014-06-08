@@ -520,6 +520,9 @@ UUID=%s /boot ext4 noatime 0 1
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
 
+        def with_flock(lst, directory, filelock="lockfile"):
+            return ["flock" , j(directory, filelock)] + lst
+
         # prepare yum cache directory
         if yum_cachedir_path:
             yum_cachedir_path = os.path.abspath(yum_cachedir_path)
@@ -557,7 +560,7 @@ UUID=%s /boot ext4 noatime 0 1
                    '--releasever=%d'%releasever
             ]
             if tempyumconfig:
-                cmd = cmd + ['-c', tempyumconfig.name]
+                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
@@ -575,7 +578,7 @@ UUID=%s /boot ext4 noatime 0 1
                    '--releasever=%d' % releasever
             ]
             if tempyumconfig:
-                cmd = cmd + ['-c', tempyumconfig.name]
+                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
@@ -627,9 +630,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                    '--enablerepo=fedora',
                    '--enablerepo=updates',
                    '--releasever=%d' % releasever
-            ] + packages
+            ]
             if tempyumconfig:
-                cmd = cmd + ['-c', tempyumconfig.name]
+                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
+            cmd = cmd + packages
             check_call(cmd)
 
         # set password
@@ -676,9 +680,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         for project in ["spl", "zfs"]:
             prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
             if prebuilt_proj_rpms:
-                cmd = in_chroot(["yum", "localinstall", "-y"] + prebuilt_proj_rpms)
+                cmd = in_chroot(["yum", "localinstall", "-y"])
                 if tempyumconfig_insidechroot:
-                    cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
+                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                cmd = cmd + prebuilt_proj_rpms
                 check_call(cmd)
                 for s in prebuilt_proj_rpms:
                     prebuilt_rpms_to_install.remove(os.path.basename(s))
@@ -709,9 +714,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(in_chroot(["rpm", "-q"] + packages),
                                         stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
                 except subprocess.CalledProcessError:
-                    cmd = in_chroot(["yum", 'install', '-y'] + packages)
+                    cmd = in_chroot(["yum", 'install', '-y'])
                     if tempyumconfig_insidechroot:
-                        cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
+                        cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                    cmd = cmd + packages
                     check_call(cmd)
                 project_dir = p(j("usr","src",project))
                 if not os.path.isdir(project_dir):
@@ -756,9 +762,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(["wget", "-c", "https://kojipkgs.fedoraproject.org//packages/grub2/2.00/25.fc20/src/%s" % grubsrpm], cwd=project_dir)
                     project_dir_in_chroot = project_dir[len(rootmountpoint):]
                     check_call(in_chroot(["rpm", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ivh", "--noscripts", j(project_dir_in_chroot,grubsrpm)]))
-                    cmd = in_chroot(["yum-builddep", "-y", j(project_dir_in_chroot, grubsrpm)])
+                    cmd = in_chroot(["yum-builddep", "-y"])
                     if tempyumconfig_insidechroot:
-                        cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
+                        cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                    cmd = cmd + [j(project_dir_in_chroot, grubsrpm)]
                     check_call(cmd)
                     patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
                     check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
@@ -773,9 +780,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         prebuilt_rest_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install ]
         if prebuilt_rest_rpms:
-            cmd = in_chroot(["yum", "localinstall", "-y"] + prebuilt_rest_rpms)
+            cmd = in_chroot(["yum", "localinstall", "-y"])
             if tempyumconfig_insidechroot:
-                cmd = cmd + ['-c', tempyumconfig_insidechroot_name]
+                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+            cmd = cmd + prebuilt_rest_rpms
             check_call(cmd)
 
         modules_dir = p(j("usr","lib","modules","*","*","zfs.ko"))
@@ -949,6 +957,16 @@ def test_zfs():
         raise
     return True
 
+def test_flock():
+    try: subprocess.check_call(["flock"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    except subprocess.CalledProcessError, e:
+        if e.returncode == 64: return True
+        return False
+    except OSError, e:
+        if e.errno == 2: return False
+        raise
+    return True
+
 def test_rsync():
     try: subprocess.check_call(["rsync"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
     except subprocess.CalledProcessError, e:
@@ -1007,6 +1025,9 @@ def main():
         return 5
     if not test_yum():
         print >> sys.stderr, "error: yum is not installed properly. Please use your package manager to install yum."
+        return 5
+    if args.yum_cachedir and not test_flock():
+        print >> sys.stderr, "error: flock is not installed properly, but it is necessary to safely use --yum-cachedir. Please use your package manager to install flock (specifically, util-linux)."
         return 5
     if not test_qemu():
         print >> sys.stderr, "error: qemu-system-x86_64 is not installed properly. Please use your package manager to install QEMU (specifically, qemu-system-x86)."
