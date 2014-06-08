@@ -1034,7 +1034,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             babysitter = threading.Thread(target=babysit, args=(qemu_process,))
             babysitter.setDaemon(True)
         retcode = qemu_process.wait()
-        if not interactive_qemu and retcode == -9:
+        if retcode == 0:
+            pass
+        elif not interactive_qemu and retcode == -9:
             raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
         else:
             raise subprocess.CalledProcessError(retcode,cmd)
