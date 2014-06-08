@@ -539,7 +539,7 @@ UUID=%s /boot ext4 noatime 0 1
                 persistdir="/var/lib/yum",  # something translates within yum this to /mnt/seed/var/lib/yum
                 keepcache=1,
                 logfile="/dev/stderr",
-                debuglevel=4,
+                debuglevel=2,
             )
         else:
             tempyumconfig = None
@@ -666,7 +666,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 persistdir="/var/lib/yum",
                 keepcache=1,
                 logfile="/dev/stderr",
-                debuglevel=4,
+                debuglevel=2,
             )
             # override the returned directory because we know that's where the file is stored
             tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
