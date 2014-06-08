@@ -574,7 +574,10 @@ UUID=%s /boot ext4 noatime 0 1
                 reposdir="/dev/null",
             )
         # write fedora repos configuration
+        tempyumconfig.seek(0, 2)
         tempyumconfig.write(fedora_repos_template)
+        tempyumconfig.flush()
+        tempyumconfig.seek(0)
 
         # install base packages
         packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
@@ -700,7 +703,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 reposdir="/dev/null",
             )
         # write fedora repos configuration
+        tempyumconfig_insidechroot.seek(0, 2)
         tempyumconfig_insidechroot.write(fedora_repos_template)
+        tempyumconfig_insidechroot.flush()
+        tempyumconfig_insidechroot.seek(0)
         # override the returned directory because we know that's where the file is stored
         tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
