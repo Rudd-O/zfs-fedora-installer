@@ -602,6 +602,31 @@ UUID=%s /boot ext4 noatime 0 1
         tempyumconfig.flush()
         tempyumconfig.seek(0)
 
+        # prepare a cached yum config for inside the VM
+        if yum_cachedir_path:
+            tempyumconfig_insidechroot = make_temp_yum_config(
+                source=p(j("etc", "yum.conf")),
+                directory=yum_cachedir_path,
+                cachedir="/var/cache/yum",
+                persistdir="/var/lib/yum",
+                keepcache=1,
+                logfile="/dev/stderr",
+                debuglevel=2,
+                reposdir="/nonexistent"
+            )
+        else:
+            tempyumconfig_insidechroot = make_temp_yum_config(
+                source="/etc/yum.conf",
+                reposdir="/nonexistent",
+            )
+        # write fedora repos configuration
+        tempyumconfig_insidechroot.seek(0, 2)
+        tempyumconfig_insidechroot.write(fedora_repos_template)
+        tempyumconfig_insidechroot.flush()
+        tempyumconfig_insidechroot.seek(0)
+        # override the returned directory because we know that's where the file is stored
+        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
+
         # install base packages
         packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
         try:
@@ -623,12 +648,9 @@ UUID=%s /boot ext4 noatime 0 1
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = [
-                   "yum", 'install', '-y', '--installroot=%s' % rootmountpoint,
-                   '--releasever=%d' % releasever
-            ]
-            if tempyumconfig:
-                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
+            cmd = in_chroot(["yum", 'install', '-y'])
+            if tempyumconfig_insidechroot:
+                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
@@ -674,12 +696,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = [
-                   "yum", 'install', '-y', '--installroot=%s' % rootmountpoint,
-                   '--releasever=%d' % releasever
-            ]
-            if tempyumconfig:
-                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
+            cmd = in_chroot(["yum", 'install', '-y'])
+            if tempyumconfig_insidechroot:
+                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
@@ -707,31 +726,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         else:
             target_rpms_path = None
             prebuilt_rpms_to_install = []
-
-        # prepare a cached yum config for inside the VM
-        if yum_cachedir_path:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source=p(j("etc", "yum.conf")),
-                directory=yum_cachedir_path,
-                cachedir="/var/cache/yum",
-                persistdir="/var/lib/yum",
-                keepcache=1,
-                logfile="/dev/stderr",
-                debuglevel=2,
-                reposdir="/dev/null"
-            )
-        else:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source="/etc/yum.conf",
-                reposdir="/dev/null",
-            )
-        # write fedora repos configuration
-        tempyumconfig_insidechroot.seek(0, 2)
-        tempyumconfig_insidechroot.write(fedora_repos_template)
-        tempyumconfig_insidechroot.flush()
-        tempyumconfig_insidechroot.seek(0)
-        # override the returned directory because we know that's where the file is stored
-        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
         for project in ["spl", "zfs"]:
             prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
