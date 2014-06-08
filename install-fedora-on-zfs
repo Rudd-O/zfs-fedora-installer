@@ -17,6 +17,7 @@ import re
 import shlex
 import collections
 import threading
+import fnmatch
 
 
 break_stages = collections.OrderedDict()
@@ -735,8 +736,36 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             target_rpms_path = None
             prebuilt_rpms_to_install = []
 
-        for project in ["spl", "zfs"]:
-            prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
+        for project, patterns in (
+            (
+                "spl",
+                (
+                    "spl-?.*.%s.rpm" % arch,
+                    "spl-dkms-?.*.noarch.rpm",
+                )
+            ),
+            (
+                "zfs",
+                (
+                    "zfs-?.*.%s.rpm" % arch,
+                    "zfs-dkms-?.*.noarch.rpm",
+                    "zfs-dracut-?.*.%s.rpm" % arch,
+                    "libzpool?-?.*.%s.rpm" % arch,
+                    "libnvpair?-?.*.%s.rpm" % arch,
+                    "libuutil?-?.*.%s.rpm" % arch,
+                    "libzfs?-?.*.%s.rpm" % arch,
+                )
+            ),
+        ):
+            prebuilt_proj_rpms = [
+                match
+                for pattern in patterns
+                for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
+            ]
+            prebuilt_proj_rpms = [
+                j(target_rpms_path[len(rootmountpoint):],s)
+                for s in prebuilt_proj_rpms
+            ]
             if prebuilt_proj_rpms:
                 cmd = in_chroot(["yum", "localinstall", "-y"])
                 if tempyumconfig_insidechroot:
