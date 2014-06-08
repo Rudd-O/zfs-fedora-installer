@@ -589,12 +589,14 @@ UUID=%s /boot ext4 noatime 0 1
                 keepcache=1,
                 logfile="/dev/stderr",
                 debuglevel=2,
-                reposdir="/dev/null",
+                reposdir="/nonexistent",
+                include="",
             )
         else:
             tempyumconfig = make_temp_yum_config(
                 source="/etc/yum.conf",
-                reposdir="/dev/null",
+                reposdir="/nonexistent",
+                include="",
             )
         # write fedora repos configuration
         tempyumconfig.seek(0, 2)
@@ -612,12 +614,14 @@ UUID=%s /boot ext4 noatime 0 1
                 keepcache=1,
                 logfile="/dev/stderr",
                 debuglevel=2,
-                reposdir="/nonexistent"
+                reposdir="/nonexistent",
+                include="",
             )
         else:
             tempyumconfig_insidechroot = make_temp_yum_config(
                 source="/etc/yum.conf",
                 reposdir="/nonexistent",
+                include="",
             )
         # write fedora repos configuration
         tempyumconfig_insidechroot.seek(0, 2)
