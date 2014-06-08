@@ -883,7 +883,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         to_unmount.append(p("proc"))
 
         # regenerate initramfs
-        check_call(in_chroot(["dracut", '--no-hostonly', "-fv", "--regenerate-all", '-o', 'systemd']))
+        check_call(in_chroot(["dracut", '--no-hostonly', "-fv", "--regenerate-all"]))
 
         # check for stage stop
         if break_before == "install_bootloader":
