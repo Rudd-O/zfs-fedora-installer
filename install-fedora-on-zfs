@@ -219,7 +219,7 @@ skip_if_unavailable=False
 
 def print_open_files(mountpoint):
     try:
-        output = check_output(["lsof", "-b", "-n", "+d", mountpoint])
+        output = check_output(["lsof", "-n", "+d", mountpoint])
     except subprocess.CalledProcessError:
         return
     print >> sys.stderr, output
