@@ -15,6 +15,13 @@ import logging
 import uuid
 import re
 import shlex
+import collections
+
+
+break_stages = collections.OrderedDict()
+break_stages["beginning"] = "doing anything"
+break_stages["reload_chroot"] = "reloading the final chroot"
+break_stages["install_bootloader"] = "installing the bootloader"
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -91,6 +98,15 @@ def get_parser():
     parser.add_argument(
         "--chgrp", dest="chgrp",
         action="store", default=None, help="change the group of the image files upon creation to this group"
+    )
+    parser.add_argument(
+        "--break-before", dest="break_before",
+        choices=break_stages,
+        action="store", default=None,
+        help="break before the specified stage: %s; useful to examine "
+             "the file systems at a predetermined build stage" % (
+            ", ".join("'%s' (%s)" % s for s in break_stages.items()),
+        )
     )
     return parser
 
@@ -213,6 +229,8 @@ class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
 
 
+class BreakingBefore(Exception): pass
+
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
@@ -225,6 +243,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    force_kvm=None,
                    chown=None,
                    chgrp=None,
+                   break_before=None,
     ):
 
     original_voldev = voldev
@@ -254,6 +273,10 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         releasever = int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
 
     try:
+        # check for stage stop
+        if break_before == "beginning":
+            raise BreakingBefore(break_before)
+
         voltype = filetype(voldev)
         if bootdev: boottype = filetype(bootdev)
 
@@ -824,6 +847,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         if not modules_files:
             raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?"%modules_dir)
 
+        # check for stage stop
+        if break_before == "reload_chroot":
+            raise BreakingBefore(break_before)
+
         if target_rpms_path:
             print_open_files(target_rpms_path)
             check_call(["umount", target_rpms_path])
@@ -863,6 +890,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         # regenerate initramfs
         check_call(in_chroot(["dracut", '--no-hostonly', "-fv", "--regenerate-all", '-o', 'systemd']))
+
+        # check for stage stop
+        if break_before == "install_bootloader":
+            raise BreakingBefore(break_before)
 
         # create bootloader installer
         bootloadertext = \
@@ -924,6 +955,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         except (KeyboardInterrupt, Exception):
             shutil.rmtree(kerneltempdir)
             raise
+
+    # tell the user we broke
+    except BreakingBefore, e:
+        print >> sys.stderr, "------------------------------------------------"
+        print >> sys.stderr, "breaking before %s" % break_stages[e.args[0]]
+        if do_cleanup:
+            print >> sys.stderr, "Cleaning up now"
+            cleanup()
+        return
 
     # end operating with the devices
     except BaseException:
@@ -1089,6 +1129,7 @@ def main():
             args.force_kvm,
             chown=args.chown,
             chgrp=args.chgrp,
+            break_before=args.break_before,
         )
     except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
