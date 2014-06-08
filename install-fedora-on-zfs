@@ -605,7 +605,7 @@ UUID=%s /boot ext4 noatime 0 1
         # prepare a cached yum config for inside the VM
         if yum_cachedir_path:
             tempyumconfig_insidechroot = make_temp_yum_config(
-                source=p(j("etc", "yum.conf")),
+                source="/etc/yum.conf",
                 directory=yum_cachedir_path,
                 cachedir="/var/cache/yum",
                 persistdir="/var/lib/yum",
