@@ -16,12 +16,15 @@ import uuid
 import re
 import shlex
 import collections
+import threading
 
 
 break_stages = collections.OrderedDict()
 break_stages["beginning"] = "doing anything"
 break_stages["reload_chroot"] = "reloading the final chroot"
 break_stages["install_bootloader"] = "installing the bootloader"
+
+qemu_timeout = 600
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -81,7 +84,7 @@ def get_parser():
     )
     parser.add_argument(
         "--interactive-qemu", dest="interactive_qemu",
-        action="store_true", default=False, help="QEMU will run interactively in curses mode; useful to debug problems installing the bootloader"
+        action="store_true", default=False, help="QEMU will run interactively in curses mode and it won't be stopped after %s seconds; useful to manually debug problems installing the bootloader" % qemu_timeout
     )
     parser.add_argument(
         "--yum-cachedir", dest="yum_cachedir",
@@ -228,6 +231,7 @@ def print_open_files(mountpoint):
     print >> sys.stderr, output
 
 
+class BootloaderWedged(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
 
@@ -1016,8 +1020,24 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             '-drive', 'file=%s,if=none,id=drive-ide1-0-0,format=raw'%j(kerneltempdir,"keydev.img"),
             '-device', 'ide-hd,bus=ide.1,unit=0,drive=drive-ide1-0-0,id=ide1-0-0,bootindex=3',
         ])
+    def babysit(popenobject):
+        for _ in xrange(qemu_timeout):  # 5 minutes
+            if popenobject.returncode is not None:
+                return
+            time.sleep(1)
+        print >> sys.stderr, "QEMU babysitter is killing stubborn qemu process after %s seconds" % qemu_timeout
+        popenobject.kill()
+
     try:
-        check_call(cmd)
+        qemu_process = Popen(cmd)
+        if not interactive_qemu:
+            babysitter = threading.Thread(target=babysit, args=(qemu_process,))
+            babysitter.setDaemon(True)
+        retcode = qemu_process.wait()
+        if not interactive_qemu and retcode == -9:
+            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
+        else:
+            raise subprocess.CalledProcessError(retcode,cmd)
     finally:
         shutil.rmtree(kerneltempdir)
 
