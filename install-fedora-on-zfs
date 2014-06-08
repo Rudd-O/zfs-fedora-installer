@@ -15,6 +15,16 @@ import logging
 import uuid
 import re
 import shlex
+import collections
+import threading
+
+
+break_stages = collections.OrderedDict()
+break_stages["beginning"] = "doing anything"
+break_stages["reload_chroot"] = "reloading the final chroot"
+break_stages["install_bootloader"] = "installing the bootloader"
+
+qemu_timeout = 600
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -74,7 +84,7 @@ def get_parser():
     )
     parser.add_argument(
         "--interactive-qemu", dest="interactive_qemu",
-        action="store_true", default=False, help="QEMU will run interactively in curses mode; useful to debug problems installing the bootloader"
+        action="store_true", default=False, help="QEMU will run interactively in curses mode and it won't be stopped after %s seconds; useful to manually debug problems installing the bootloader" % qemu_timeout
     )
     parser.add_argument(
         "--yum-cachedir", dest="yum_cachedir",
@@ -91,6 +101,15 @@ def get_parser():
     parser.add_argument(
         "--chgrp", dest="chgrp",
         action="store", default=None, help="change the group of the image files upon creation to this group"
+    )
+    parser.add_argument(
+        "--break-before", dest="break_before",
+        choices=break_stages,
+        action="store", default=None,
+        help="break before the specified stage: %s; useful to examine "
+             "the file systems at a predetermined build stage" % (
+            ", ".join("'%s' (%s)" % s for s in break_stages.items()),
+        )
     )
     return parser
 
@@ -167,12 +186,15 @@ def make_temp_yum_config(directory, source, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
     yumconfigtext = file(source).read()
     for optname, optval in kwargs.items():
-        if optname == "cachedir":
-            optval = optval + "/$basearch/$releasever"
-        yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
-        if not repls:
-            yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
-            assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
+        if optval is None:
+            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M)
+        else:
+            if optname == "cachedir":
+                optval = optval + "/$basearch/$releasever"
+            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
+            if not repls:
+                yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
+                assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
     tempyumconfig.write(yumconfigtext)
     tempyumconfig.flush()
     tempyumconfig.seek(0)
@@ -203,15 +225,18 @@ skip_if_unavailable=False
 
 def print_open_files(mountpoint):
     try:
-        output = check_output(["lsof", "-b", "-n", "+d", mountpoint])
+        output = check_output(["lsof", "-n", "+d", mountpoint])
     except subprocess.CalledProcessError:
         return
     print >> sys.stderr, output
 
 
+class BootloaderWedged(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
 
+
+class BreakingBefore(Exception): pass
 
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
@@ -225,6 +250,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    force_kvm=None,
                    chown=None,
                    chgrp=None,
+                   break_before=None,
     ):
 
     original_voldev = voldev
@@ -254,6 +280,10 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         releasever = int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
 
     try:
+        # check for stage stop
+        if break_before == "beginning":
+            raise BreakingBefore(break_before)
+
         voltype = filetype(voldev)
         if bootdev: boottype = filetype(bootdev)
 
@@ -561,17 +591,19 @@ UUID=%s /boot ext4 noatime 0 1
             tempyumconfig = make_temp_yum_config(
                 source="/etc/yum.conf",
                 directory=yum_cachedir_path,
-                cachedir=yum_cachedir_path,
+                cachedir="/var/cache/yum",  # this also gets translated to /mnt/seed/var/lib/jenkins/yumcache
                 persistdir="/var/lib/yum",  # something translates within yum this to /mnt/seed/var/lib/yum
                 keepcache=1,
                 logfile="/dev/stderr",
                 debuglevel=2,
-                reposdir="/dev/null",
+                reposdir="/nonexistent",
+                include=None,
             )
         else:
             tempyumconfig = make_temp_yum_config(
                 source="/etc/yum.conf",
-                reposdir="/dev/null",
+                reposdir="/nonexistent",
+                include=None,
             )
         # write fedora repos configuration
         tempyumconfig.seek(0, 2)
@@ -585,10 +617,7 @@ UUID=%s /boot ext4 noatime 0 1
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = [
-                   "yum", 'install', '-y', '--installroot=%s' % rootmountpoint,
-                   '--releasever=%d'%releasever
-            ]
+            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
             if tempyumconfig:
                 cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
@@ -600,10 +629,7 @@ UUID=%s /boot ext4 noatime 0 1
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = [
-                   "yum", 'install', '-y', '--installroot=%s' % rootmountpoint,
-                   '--releasever=%d' % releasever
-            ]
+            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
             if tempyumconfig:
                 cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
@@ -646,29 +672,53 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         del newyumconftemp
 
         # install kernel packages
-        packages="kernel kernel-devel".split()
+        packages = "kernel kernel-devel".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
-                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+                                stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = [
-                   "yum", 'install', '-y', '--installroot=%s' % rootmountpoint,
-                   '--releasever=%d' % releasever
-            ]
+            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
             if tempyumconfig:
                 cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
         # set password
-        pwfile = file(p(j("etc","shadow"))).readlines()
+        pwfile = file(p(j("etc", "shadow"))).readlines()
         pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
         if pwnotset:
             cmd = in_chroot(["passwd", "--stdin", "root"])
             pw = Popen(cmd, stdin=subprocess.PIPE)
             pw.communicate(rootpassword + "\n")
             retcode = pw.wait()
-            if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
+            if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
+
+        # prepare a cached yum config for inside the VM
+        if yum_cachedir_path:
+            tempyumconfig_insidechroot = make_temp_yum_config(
+                source=p(j("etc", "yum.conf")),
+                directory=yum_cachedir_path,
+                cachedir="/var/cache/yum",
+                persistdir="/var/lib/yum",
+                keepcache=1,
+                logfile="/dev/stderr",
+                debuglevel=2,
+                reposdir="/nonexistent",
+                include=None,
+            )
+        else:
+            tempyumconfig_insidechroot = make_temp_yum_config(
+                source="/etc/yum.conf",
+                reposdir="/nonexistent",
+                include=None,
+            )
+        # write fedora repos configuration
+        tempyumconfig_insidechroot.seek(0, 2)
+        tempyumconfig_insidechroot.write(fedora_repos_template)
+        tempyumconfig_insidechroot.flush()
+        tempyumconfig_insidechroot.seek(0)
+        # override the returned directory because we know that's where the file is stored
+        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
         arch = platform.machine()
         if prebuilt_rpms_path:
@@ -684,31 +734,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         else:
             target_rpms_path = None
             prebuilt_rpms_to_install = []
-
-        # prepare a cached yum config for inside the VM
-        if yum_cachedir_path:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source=p(j("etc", "yum.conf")),
-                directory=yum_cachedir_path,
-                cachedir="/var/cache/yum",
-                persistdir="/var/lib/yum",
-                keepcache=1,
-                logfile="/dev/stderr",
-                debuglevel=2,
-                reposdir="/dev/null"
-            )
-        else:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source="/etc/yum.conf",
-                reposdir="/dev/null",
-            )
-        # write fedora repos configuration
-        tempyumconfig_insidechroot.seek(0, 2)
-        tempyumconfig_insidechroot.write(fedora_repos_template)
-        tempyumconfig_insidechroot.flush()
-        tempyumconfig_insidechroot.seek(0)
-        # override the returned directory because we know that's where the file is stored
-        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
         for project in ["spl", "zfs"]:
             prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
@@ -824,6 +849,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         if not modules_files:
             raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?"%modules_dir)
 
+        # check for stage stop
+        if break_before == "reload_chroot":
+            raise BreakingBefore(break_before)
+
         if target_rpms_path:
             print_open_files(target_rpms_path)
             check_call(["umount", target_rpms_path])
@@ -862,7 +891,14 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         to_unmount.append(p("proc"))
 
         # regenerate initramfs
-        check_call(in_chroot(["dracut", '--no-hostonly', "-fv", "--regenerate-all", '-o', 'systemd']))
+        # we need to use -o systemd because otherwise the system remains
+        # forever prompting for the password and ignores rd.luks.key
+        # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
+        check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
+
+        # check for stage stop
+        if break_before == "install_bootloader":
+            raise BreakingBefore(break_before)
 
         # create bootloader installer
         bootloadertext = \
@@ -925,6 +961,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             shutil.rmtree(kerneltempdir)
             raise
 
+    # tell the user we broke
+    except BreakingBefore, e:
+        print >> sys.stderr, "------------------------------------------------"
+        print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
+        if do_cleanup:
+            print >> sys.stderr, "Cleaning up now"
+            cleanup()
+        raise
+
     # end operating with the devices
     except BaseException:
         print >> sys.stderr, "Unexpected error"
@@ -975,8 +1020,26 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             '-drive', 'file=%s,if=none,id=drive-ide1-0-0,format=raw'%j(kerneltempdir,"keydev.img"),
             '-device', 'ide-hd,bus=ide.1,unit=0,drive=drive-ide1-0-0,id=ide1-0-0,bootindex=3',
         ])
+    def babysit(popenobject):
+        for _ in xrange(qemu_timeout):  # 5 minutes
+            if popenobject.returncode is not None:
+                return
+            time.sleep(1)
+        print >> sys.stderr, "QEMU babysitter is killing stubborn qemu process after %s seconds" % qemu_timeout
+        popenobject.kill()
+
     try:
-        check_call(cmd)
+        qemu_process = Popen(cmd)
+        if not interactive_qemu:
+            babysitter = threading.Thread(target=babysit, args=(qemu_process,))
+            babysitter.setDaemon(True)
+        retcode = qemu_process.wait()
+        if retcode == 0:
+            pass
+        elif not interactive_qemu and retcode == -9:
+            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
+        else:
+            raise subprocess.CalledProcessError(retcode,cmd)
     finally:
         shutil.rmtree(kerneltempdir)
 
@@ -1089,10 +1152,13 @@ def main():
             args.force_kvm,
             chown=args.chown,
             chgrp=args.chgrp,
+            break_before=args.break_before,
         )
     except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
         return 9
+    except BreakingBefore:
+        return 120
     return 0
 
 if __name__ == "__main__":
