@@ -963,7 +963,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         if do_cleanup:
             print >> sys.stderr, "Cleaning up now"
             cleanup()
-        return
+        raise
 
     # end operating with the devices
     except BaseException:
@@ -1134,6 +1134,8 @@ def main():
     except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
         return 9
+    except BreakingBefore:
+        return 120
     return 0
 
 if __name__ == "__main__":
