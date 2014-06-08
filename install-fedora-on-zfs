@@ -959,7 +959,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     # tell the user we broke
     except BreakingBefore, e:
         print >> sys.stderr, "------------------------------------------------"
-        print >> sys.stderr, "breaking before %s" % break_stages[e.args[0]]
+        print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
         if do_cleanup:
             print >> sys.stderr, "Cleaning up now"
             cleanup()
