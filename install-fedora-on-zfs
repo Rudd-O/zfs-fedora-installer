@@ -183,12 +183,15 @@ def make_temp_yum_config(directory, source, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
     yumconfigtext = file(source).read()
     for optname, optval in kwargs.items():
-        if optname == "cachedir":
-            optval = optval + "/$basearch/$releasever"
-        yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
-        if not repls:
-            yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
-            assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
+        if optval is None:
+            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M)
+        else:
+            if optname == "cachedir":
+                optval = optval + "/$basearch/$releasever"
+            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
+            if not repls:
+                yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
+                assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
     tempyumconfig.write(yumconfigtext)
     tempyumconfig.flush()
     tempyumconfig.seek(0)
@@ -590,13 +593,13 @@ UUID=%s /boot ext4 noatime 0 1
                 logfile="/dev/stderr",
                 debuglevel=2,
                 reposdir="/nonexistent",
-                include="",
+                include=None,
             )
         else:
             tempyumconfig = make_temp_yum_config(
                 source="/etc/yum.conf",
                 reposdir="/nonexistent",
-                include="",
+                include=None,
             )
         # write fedora repos configuration
         tempyumconfig.seek(0, 2)
@@ -604,43 +607,13 @@ UUID=%s /boot ext4 noatime 0 1
         tempyumconfig.flush()
         tempyumconfig.seek(0)
 
-        # prepare a cached yum config for inside the VM
-        if yum_cachedir_path:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source="/etc/yum.conf",
-                directory=yum_cachedir_path,
-                cachedir="/var/cache/yum",
-                persistdir="/var/lib/yum",
-                keepcache=1,
-                logfile="/dev/stderr",
-                debuglevel=2,
-                reposdir="/nonexistent",
-                include="",
-            )
-        else:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source="/etc/yum.conf",
-                reposdir="/nonexistent",
-                include="",
-            )
-        # write fedora repos configuration
-        tempyumconfig_insidechroot.seek(0, 2)
-        tempyumconfig_insidechroot.write(fedora_repos_template)
-        tempyumconfig_insidechroot.flush()
-        tempyumconfig_insidechroot.seek(0)
-        # override the returned directory because we know that's where the file is stored
-        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
-
         # install base packages
         packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = [
-                   "yum", 'install', '-y', '--installroot=%s' % rootmountpoint,
-                   '--releasever=%d'%releasever
-            ]
+            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
             if tempyumconfig:
                 cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
@@ -652,9 +625,9 @@ UUID=%s /boot ext4 noatime 0 1
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = in_chroot(["yum", 'install', '-y'])
-            if tempyumconfig_insidechroot:
-                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
+            if tempyumconfig:
+                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
@@ -695,26 +668,53 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         del newyumconftemp
 
         # install kernel packages
-        packages="kernel kernel-devel".split()
+        packages = "kernel kernel-devel".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
-                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+                                stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
-            cmd = in_chroot(["yum", 'install', '-y'])
-            if tempyumconfig_insidechroot:
-                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
+            if tempyumconfig:
+                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
             cmd = cmd + packages
             check_call(cmd)
 
         # set password
-        pwfile = file(p(j("etc","shadow"))).readlines()
+        pwfile = file(p(j("etc", "shadow"))).readlines()
         pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
         if pwnotset:
             cmd = in_chroot(["passwd", "--stdin", "root"])
             pw = Popen(cmd, stdin=subprocess.PIPE)
             pw.communicate(rootpassword + "\n")
             retcode = pw.wait()
-            if retcode != 0: raise subprocess.CalledProcessError(retcode,[cmd])
+            if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
+
+        # prepare a cached yum config for inside the VM
+        if yum_cachedir_path:
+            tempyumconfig_insidechroot = make_temp_yum_config(
+                source=p(j("etc", "yum.conf")),
+                directory=yum_cachedir_path,
+                cachedir="/var/cache/yum",
+                persistdir="/var/lib/yum",
+                keepcache=1,
+                logfile="/dev/stderr",
+                debuglevel=2,
+                reposdir="/nonexistent",
+                include=None,
+            )
+        else:
+            tempyumconfig_insidechroot = make_temp_yum_config(
+                source="/etc/yum.conf",
+                reposdir="/nonexistent",
+                include=None,
+            )
+        # write fedora repos configuration
+        tempyumconfig_insidechroot.seek(0, 2)
+        tempyumconfig_insidechroot.write(fedora_repos_template)
+        tempyumconfig_insidechroot.flush()
+        tempyumconfig_insidechroot.seek(0)
+        # override the returned directory because we know that's where the file is stored
+        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
         arch = platform.machine()
         if prebuilt_rpms_path:
