@@ -731,10 +731,14 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             to_unmount.append(target_rpms_path)
             to_rmdir.append(target_rpms_path)
             prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
-            prebuilt_rpms_to_install = [ os.path.basename(s) for s in prebuilt_rpms_to_install if "debuginfo" not in os.path.basename(s) ]
+            prebuilt_rpms_to_install = set([
+                os.path.basename(s)
+                for s in prebuilt_rpms_to_install
+                if "debuginfo" not in os.path.basename(s)
+            ])
         else:
             target_rpms_path = None
-            prebuilt_rpms_to_install = []
+            prebuilt_rpms_to_install = set()
 
         for project, patterns in (
             (
@@ -742,7 +746,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 (
                     "spl-?.*.%s.rpm" % arch,
                     "spl-dkms-?.*.noarch.rpm",
-                )
+                ),
             ),
             (
                 "zfs",
@@ -754,115 +758,164 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     "libnvpair?-?.*.%s.rpm" % arch,
                     "libuutil?-?.*.%s.rpm" % arch,
                     "libzfs?-?.*.%s.rpm" % arch,
-                )
+                ),
             ),
         ):
+            logging.info("Installing %s (RPMs matching: %s)", project, patterns)
             prebuilt_proj_rpms = [
                 match
                 for pattern in patterns
                 for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
             ]
-            prebuilt_proj_rpms = [
-                j(target_rpms_path[len(rootmountpoint):],s)
-                for s in prebuilt_proj_rpms
-            ]
             if prebuilt_proj_rpms:
+                logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
                 cmd = in_chroot(["yum", "localinstall", "-y"])
                 if tempyumconfig_insidechroot:
                     cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                cmd = cmd + prebuilt_proj_rpms
+                cmd = cmd + [
+                    j(target_rpms_path[len(rootmountpoint):], s)
+                    for s in prebuilt_proj_rpms
+                ]
                 check_call(cmd)
-                for s in prebuilt_proj_rpms:
-                    prebuilt_rpms_to_install.remove(os.path.basename(s))
+                prebuilt_rpms_to_install.difference_update(prebuilt_proj_rpms)
 
             try:
+                logging.info("Checking if package %s-dkms is installed", project)
                 check_call(in_chroot(["rpm", "-q"] + [project, "%s-dkms"%project]),
                                     stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError:
-                # build and deploy SPL / ZFS now
-                packages = [
-                    "make",
-                    "autoconf",
-                    "automake",
-                    "gcc",
-                    "libtool",
-                    "git",
-                    "rpm-build",
-                    "yum-utils",
-                    "dkms",
-                    "zlib-devel",
-                    "libuuid-devel",
-                    "bc",
-                    "lsscsi",
-                    "mdadm",
-                    "parted"
-                ]
-                try:
-                    check_call(in_chroot(["rpm", "-q"] + packages),
-                                        stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
-                except subprocess.CalledProcessError:
-                    cmd = in_chroot(["yum", 'install', '-y'])
-                    if tempyumconfig_insidechroot:
-                        cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                    cmd = cmd + packages
-                    check_call(cmd)
+                logging.info("Package %s-dkms is not installed, building", project)
                 project_dir = p(j("usr","src",project))
-                if not os.path.isdir(project_dir):
-                    cmd = ["git", "clone", "https://github.com/Rudd-O/%s"%project, project_dir]
-                    check_call(cmd)
-                def getrpms():
-                    therpms = glob.glob(j(project_dir, "%s-*%s*.rpm" % (project, arch))) + \
-                        glob.glob(j(project_dir, "%s-*%s*.rpm" % (project, "noarch")))
-                    therpms = [ s for s in therpms if "debuginfo" not in os.path.basename(s) ]
+                def getrpms(pats, directory):
+                    therpms = [
+                        rpmfile
+                        for pat in pats
+                        for rpmfile in glob.glob(j(directory, pat))
+                    ]
                     return therpms
-                files_to_install = getrpms()
+                files_to_install = getrpms(patterns, project_dir)
                 if not files_to_install:
+                    if not os.path.isdir(project_dir):
+                        repo = "https://github.com/Rudd-O/%s" % project
+                        logging.info("Cloning git repository: %s", repo)
+                        cmd = ["git", "clone", repo, project_dir]
+                        check_call(cmd)
+
+                    packages = [
+                        "make", "autoconf", "automake", "gcc",
+                        "libtool", "git", "rpm-build", "yum-utils",
+                        "dkms", "zlib-devel", "libuuid-devel", "bc",
+                        "lsscsi", "mdadm", "parted",
+                    ]
+                    try:
+                        logging.info("Checking for dependencies: %s", packages)
+                        check_call(in_chroot(["rpm", "-q"] + packages),
+                                            stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+                    except subprocess.CalledProcessError:
+                        logging.info("Installing dependencies")
+                        cmd = in_chroot(["yum", 'install', '-y'])
+                        if tempyumconfig_insidechroot:
+                            cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                        cmd = cmd + packages
+                        check_call(cmd)
+
+                    logging.info("Building project: %s", project)
                     cmd = in_chroot(["bash", "-c",
                         "cd /usr/src/%s && ./autogen.sh && ./configure --with-config=user && make rpm-utils rpm-dkms" % (project,)])
                     check_call(cmd)
-                    files_to_install = getrpms()
-                files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" not in f ]
-                files_to_install_2 = [ f[len(rootmountpoint):] for f in files_to_install if "zfs-dracut" in f ]
-                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install_1
+                    files_to_install = getrpms(patterns, project_dir)
+
+                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
+                logging.info("Installing built RPMs: %s", files_to_install)
+                cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install
                 check_call(cmd)
-                if files_to_install_2:
-                    cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install_2
+
+        for project, patterns in (
+            (
+                "grub2",
+                (
+                    "grub2-*.%s.rpm" % arch,
+                ),
+            ),
+        ):
+            logging.info("Installing %s (RPMs matching: %s)", project, patterns)
+            prebuilt_proj_rpms = [
+                match
+                for pattern in patterns
+                for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
+            ]
+            if prebuilt_proj_rpms:
+                logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
+                cmd = in_chroot(["yum", "localinstall", "-y"])
+                if tempyumconfig_insidechroot:
+                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                cmd = cmd + [
+                    j(target_rpms_path[len(rootmountpoint):], s)
+                    for s in prebuilt_proj_rpms
+                ]
+                check_call(cmd)
+                prebuilt_rpms_to_install.difference_update(prebuilt_proj_rpms)
+
+            class NonsenseException(Exception): pass
+            try:
+                logging.info("Checking if %s supports ZFS", project)
+                grub2requires = check_output(
+                    in_chroot(["rpm", "-q", "grub2-tools", "--requires"])
+                )
+                if "libzfs" not in grub2requires:
+                    raise NonsenseException()
+            except NonsenseException:
+                logging.info("%s does not support ZFS, building", project)
+                project_dir = p(j("usr","src",project))
+                def getrpms(pats, directory):
+                    therpms = [
+                        rpmfile
+                        for pat in pats
+                        for rpmfile in glob.glob(j(directory, pat))
+                    ]
+                    return therpms
+                files_to_install = getrpms(patterns, j(project_dir, "RPMS", arch))
+                if not files_to_install:
+                    if not os.path.isdir(project_dir):
+                        os.mkdir(project_dir)
+
+                    grubsrpm = "grub2-2.00-25.fc20.src.rpm"
+                    gruburl = "https://kojipkgs.fedoraproject.org//packages/grub2/2.00/25.fc20/src/%s" % grubsrpm
+                    logging.info("Downloading GRUB2 source RPM: %s", gruburl)
+                    check_call(["wget", "-c", gruburl], cwd=project_dir)
+
+                    logging.info("Unpacking GRUB2 source RPM")
+                    project_dir_in_chroot = project_dir[len(rootmountpoint):]
+                    cmd = in_chroot([
+                        "rpm",
+                        "--define",
+                        "_topdir %s" % (project_dir_in_chroot,),
+                        "-ivh", "--noscripts",
+                        j(project_dir_in_chroot, grubsrpm)
+                    ])
                     check_call(cmd)
 
-        for project in ["grub2"]:
-            prebuilt_proj_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install if s.startswith(project) ]
-            if prebuilt_proj_rpms:
-                check_call(in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"] + prebuilt_proj_rpms))
-                for s in prebuilt_proj_rpms:
-                    prebuilt_rpms_to_install.remove(os.path.basename(s))
-            else:
-                project_dir = p(j("usr","src",project))
-                if not os.path.isdir(project_dir):
-                    os.mkdir(project_dir)
-                def getrpms():
-                    therpms = glob.glob(j(project_dir, "RPMS", arch, "*.rpm"))
-                    therpms = [ s for s in therpms if "debuginfo" not in os.path.basename(s) ]
-                    return therpms
-                files_to_install = getrpms()
-                if not files_to_install:
-                    grubsrpm = "grub2-2.00-25.fc20.src.rpm"
-                    check_call(["wget", "-c", "https://kojipkgs.fedoraproject.org//packages/grub2/2.00/25.fc20/src/%s" % grubsrpm], cwd=project_dir)
-                    project_dir_in_chroot = project_dir[len(rootmountpoint):]
-                    check_call(in_chroot(["rpm", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ivh", "--noscripts", j(project_dir_in_chroot,grubsrpm)]))
+                    logging.info("Installing dependencies")
                     cmd = in_chroot(["yum-builddep", "-y"])
                     if tempyumconfig_insidechroot:
                         cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
                     cmd = cmd + [j(project_dir_in_chroot, grubsrpm)]
                     check_call(cmd)
+
+                    logging.info("Patching GRUB2")
                     patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
                     check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
                     patchfile.close()
                     shutil.copy2(p(j("usr", "share", "doc", "zfs", "grub2", "0485-Ensure-proper-boot-configuration-in-the-case-of-Linu.patch")), j(project_dir, "SOURCES"))
-                    check_call(in_chroot(["sed", "-ri", "s/^Release: +([0-9]+)/Release: \\1.1/", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
+                    check_call(in_chroot(["sed", "-ri", "s/^Release: +([0-9]+)/Release: \\1.1/", j(project_dir_in_chroot, "SPECS", "grub2.spec")]))
+
+                    logging.info("Building project: %s", project)
                     check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ba", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
-                    files_to_install = getrpms()
-                files_to_install_1 = [ f[len(rootmountpoint):] for f in files_to_install ]
-                cmd = in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install_1
+                    files_to_install = getrpms(patterns, j(project_dir, "RPMS", arch))
+
+                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
+                logging.info("Installing built RPMs: %s", files_to_install)
+                cmd = in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install
                 check_call(cmd)
 
         prebuilt_rest_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install ]
