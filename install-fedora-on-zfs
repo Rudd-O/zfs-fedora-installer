@@ -70,7 +70,7 @@ def get_parser():
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
-        action="store", default=None, help="use the pre-built (DKMS/tools) SPL and ZFS RPMs in this directory (default: build SPL and ZFS RPMs within the chroot)"
+        action="store", default=None, help="also install pre-built SPL, ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the chroot)"
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
@@ -735,19 +735,20 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             prebuilt_rpms_to_install = set([
                 os.path.basename(s)
                 for s in prebuilt_rpms_to_install
-                if "debuginfo" not in os.path.basename(s)
+                if stringtoexclude not in os.path.basename(s)
             ])
         else:
             target_rpms_path = None
             prebuilt_rpms_to_install = set()
 
-        for project, patterns in (
+        for project, patterns, stringtoexclude in (
             (
                 "spl",
                 (
                     "spl-?.*.%s.rpm" % arch,
                     "spl-dkms-?.*.noarch.rpm",
                 ),
+                "debuginfo",
             ),
             (
                 "zfs",
@@ -761,6 +762,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     "libzfs?-?.*.%s.rpm" % arch,
                     "libzfs?-devel-?.*.%s.rpm" % arch,
                 ),
+                "debuginfo",
             ),
         ):
             logging.info("Installing %s (RPMs matching: %s)", project, patterns)
@@ -768,6 +770,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 match
                 for pattern in patterns
                 for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
+                if stringtoexclude not in match
             ]
             if prebuilt_proj_rpms:
                 logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
@@ -793,6 +796,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         rpmfile
                         for pat in pats
                         for rpmfile in glob.glob(j(directory, pat))
+                        if stringtoexclude not in os.path.basename(rpmfile)
                     ]
                     return therpms
                 files_to_install = getrpms(patterns, project_dir)
@@ -840,12 +844,13 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 cmd = in_chroot(["rpm", "-ivh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install
                 check_call(cmd)
 
-        for project, patterns in (
+        for project, patterns, stringtoexclude in (
             (
                 "grub2",
                 (
                     "grub2-*.%s.rpm" % arch,
                 ),
+                "debuginfo",
             ),
         ):
             logging.info("Installing %s (RPMs matching: %s)", project, patterns)
@@ -853,6 +858,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 match
                 for pattern in patterns
                 for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
+                if stringtoexclude not in match
             ]
             if prebuilt_proj_rpms:
                 logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
@@ -882,6 +888,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         rpmfile
                         for pat in pats
                         for rpmfile in glob.glob(j(directory, pat))
+                        if stringtoexclude not in os.path.basename(rpmfile)
                     ]
                     return therpms
                 files_to_install = getrpms(patterns, j(project_dir, "RPMS", arch))
