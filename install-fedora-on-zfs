@@ -862,9 +862,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             ]
             if prebuilt_proj_rpms:
                 logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
-                cmd = in_chroot(["yum", "localinstall", "-y"])
-                if tempyumconfig_insidechroot:
-                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                cmd = in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"])
                 cmd = cmd + [
                     j(target_rpms_path[len(rootmountpoint):], s)
                     for s in prebuilt_proj_rpms
@@ -932,7 +930,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                cmd = in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install
+                cmd = in_chroot(["rpm", "-ivh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"])
+                cmd = cmd + files_to_install
                 check_call(cmd)
 
         prebuilt_rest_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install ]
