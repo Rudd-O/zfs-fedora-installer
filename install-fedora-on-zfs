@@ -18,6 +18,7 @@ import shlex
 import collections
 import threading
 import fnmatch
+import multiprocessing
 
 
 break_stages = collections.OrderedDict()
@@ -820,8 +821,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         check_call(cmd)
 
                     logging.info("Building project: %s", project)
+                    cores = multiprocessing.cpu_count()
                     cmd = in_chroot(["bash", "-c",
-                        "cd /usr/src/%s && ./autogen.sh && ./configure --with-config=user && make rpm-utils rpm-dkms" % (project,)])
+                        (
+                            "cd /usr/src/%s && "
+                            "./autogen.sh && "
+                            "./configure --with-config=user && "
+                            "make -j%s rpm-utils && "
+                            "make -j%s rpm-dkms" % (project, cores, cores)
+                        )
+                    ])
                     check_call(cmd)
                     files_to_install = getrpms(patterns, project_dir)
 
