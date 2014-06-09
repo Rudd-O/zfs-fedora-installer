@@ -759,6 +759,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     "libnvpair?-?.*.%s.rpm" % arch,
                     "libuutil?-?.*.%s.rpm" % arch,
                     "libzfs?-?.*.%s.rpm" % arch,
+                    "libzfs?-devel-?.*.%s.rpm" % arch,
                 ),
             ),
         ):
