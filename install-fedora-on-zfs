@@ -735,7 +735,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             prebuilt_rpms_to_install = set([
                 os.path.basename(s)
                 for s in prebuilt_rpms_to_install
-                if stringtoexclude not in os.path.basename(s)
+                if "debuginfo" not in os.path.basename(s)
             ])
         else:
             target_rpms_path = None
