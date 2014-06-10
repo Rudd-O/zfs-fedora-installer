@@ -886,12 +886,29 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     cmd = cmd + [j(project_dir_in_chroot, grubsrpm)]
                     check_call(cmd)
 
+                    packages = ["rpmdevtools"]
+                    try:
+                        logging.info("Checking for dependencies: %s", packages)
+                        check_call(in_chroot(["rpm", "-q"] + packages),
+                                            stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+                    except subprocess.CalledProcessError:
+                        logging.info("Installing dependencies")
+                        cmd = in_chroot(["yum", 'install', '-y'])
+                        if tempyumconfig_insidechroot:
+                            cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                        cmd = cmd + packages
+                        check_call(cmd)
+
                     logging.info("Patching GRUB2")
                     patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
                     check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
                     patchfile.close()
                     shutil.copy2(p(j("usr", "share", "doc", "zfs", "grub2", "0485-Ensure-proper-boot-configuration-in-the-case-of-Linu.patch")), j(project_dir, "SOURCES"))
-                    check_call(in_chroot(["sed", "-ri", "s/^Release: +([0-9]+)/Release: \\1.1/", j(project_dir_in_chroot, "SPECS", "grub2.spec")]))
+                    check_call(in_chroot([
+                        "rpmdev-bumpspec",
+                        "-c", "Support for ZFS root file systems",
+                        j(project_dir_in_chroot, "SPECS", "grub2.spec")
+                    ]))
 
                     logging.info("Building project: %s", project)
                     check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ba", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
