@@ -723,6 +723,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
         arch = platform.machine()
+        stringtoexclude = "debuginfo"
         if prebuilt_rpms_path:
             target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
             if not os.path.isdir(target_rpms_path):
@@ -735,53 +736,42 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             prebuilt_rpms_to_install = set([
                 os.path.basename(s)
                 for s in prebuilt_rpms_to_install
-                if "debuginfo" not in os.path.basename(s)
+                if stringtoexclude not in os.path.basename(s)
             ])
         else:
             target_rpms_path = None
             prebuilt_rpms_to_install = set()
 
-        for project, patterns, stringtoexclude in (
+        if prebuilt_rpms_to_install:
+            logging.info(
+                "Installing available prebuilt RPMs: %s",
+                prebuilt_rpms_to_install
+            )
+            cmd = in_chroot(["yum", "localinstall", "-y"])
+            if tempyumconfig_insidechroot:
+                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+            cmd = cmd + [
+                j(target_rpms_path[len(rootmountpoint):], s)
+                for s in prebuilt_rpms_to_install
+            ]
+            check_call(cmd)
+
+        for project, patterns in (
             (
                 "spl",
                 (
-                    "spl-?.*.%s.rpm" % arch,
-                    "spl-dkms-?.*.noarch.rpm",
+                    "*.%s.rpm" % arch,
+                    "*.noarch.rpm",
                 ),
-                "debuginfo",
             ),
             (
                 "zfs",
                 (
-                    "zfs-?.*.%s.rpm" % arch,
-                    "zfs-dkms-?.*.noarch.rpm",
-                    "zfs-dracut-?.*.%s.rpm" % arch,
-                    "libzpool?-?.*.%s.rpm" % arch,
-                    "libnvpair?-?.*.%s.rpm" % arch,
-                    "libuutil?-?.*.%s.rpm" % arch,
-                    "libzfs?-?.*.%s.rpm" % arch,
-                    "libzfs?-devel-?.*.%s.rpm" % arch,
+                    "*.%s.rpm" % arch,
+                    "*.noarch.rpm",
                 ),
-                "debuginfo",
             ),
         ):
-            logging.info("Installing %s (RPMs matching: %s)", project, patterns)
-            prebuilt_proj_rpms = [
-                match
-                for pattern in patterns
-                for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
-                if stringtoexclude not in match
-            ]
-            if prebuilt_proj_rpms:
-                logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
-                cmd = in_chroot(["rpm", "-Uvh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install
-                cmd = cmd + [
-                    j(target_rpms_path[len(rootmountpoint):], s)
-                    for s in prebuilt_proj_rpms
-                ]
-                check_call(cmd)
-                prebuilt_rpms_to_install.difference_update(prebuilt_proj_rpms)
-
             try:
                 logging.info("Checking if package %s-dkms is installed", project)
                 check_call(in_chroot(["rpm", "-q"] + [project, "%s-dkms"%project]),
@@ -839,35 +829,26 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                cmd = in_chroot(["rpm", "-Uvh", "--replacefiles", "--replacepkgs", "--oldpackage"]) + files_to_install
+                cmd = in_chroot(["yum", "localinstall", "-y"])
+                if tempyumconfig_insidechroot:
+                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                cmd = cmd + files_to_install
                 check_call(cmd)
 
-        for project, patterns, stringtoexclude in (
+        # Check we have a ZFS.ko for at least one kernel.
+        modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko"))
+        modules_files = glob.glob(modules_dir)
+        if not modules_files:
+            raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?" % modules_dir)
+
+        for project, patterns in (
             (
                 "grub2",
                 (
-                    "grub2-*.%s.rpm" % arch,
+                    "RPMS/%s/*.%s.rpm" % (arch, arch),
                 ),
-                "debuginfo",
             ),
         ):
-            logging.info("Installing %s (RPMs matching: %s)", project, patterns)
-            prebuilt_proj_rpms = [
-                match
-                for pattern in patterns
-                for match in fnmatch.filter(prebuilt_rpms_to_install, pattern)
-                if stringtoexclude not in match
-            ]
-            if prebuilt_proj_rpms:
-                logging.info("Installing prebuilt RPMs available: %s", prebuilt_proj_rpms)
-                cmd = in_chroot(["rpm", "-Uvh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"])
-                cmd = cmd + [
-                    j(target_rpms_path[len(rootmountpoint):], s)
-                    for s in prebuilt_proj_rpms
-                ]
-                check_call(cmd)
-                prebuilt_rpms_to_install.difference_update(prebuilt_proj_rpms)
-
             class NonsenseException(Exception): pass
             try:
                 logging.info("Checking if %s supports ZFS", project)
@@ -887,7 +868,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         if stringtoexclude not in os.path.basename(rpmfile)
                     ]
                     return therpms
-                files_to_install = getrpms(patterns, j(project_dir, "RPMS", arch))
+                files_to_install = getrpms(patterns, project_dir)
                 if not files_to_install:
                     if not os.path.isdir(project_dir):
                         os.mkdir(project_dir)
@@ -924,26 +905,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                     logging.info("Building project: %s", project)
                     check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ba", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
-                    files_to_install = getrpms(patterns, j(project_dir, "RPMS", arch))
+                    files_to_install = getrpms(patterns, project_dir)
 
                 files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                cmd = in_chroot(["rpm", "-Uvh", "--noscripts", "--replacefiles", "--replacepkgs", "--oldpackage"])
+                cmd = in_chroot(["yum", "localinstall", "-y"])
+                if tempyumconfig_insidechroot:
+                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
                 cmd = cmd + files_to_install
                 check_call(cmd)
-
-        prebuilt_rest_rpms = [ j(target_rpms_path[len(rootmountpoint):],s) for s in prebuilt_rpms_to_install ]
-        if prebuilt_rest_rpms:
-            cmd = in_chroot(["yum", "localinstall", "-y"])
-            if tempyumconfig_insidechroot:
-                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-            cmd = cmd + prebuilt_rest_rpms
-            check_call(cmd)
-
-        modules_dir = p(j("usr","lib","modules","*","*","zfs.ko"))
-        modules_files = glob.glob(modules_dir)
-        if not modules_files:
-            raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?"%modules_dir)
 
         # check for stage stop
         if break_before == "reload_chroot":
