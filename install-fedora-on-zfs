@@ -615,18 +615,8 @@ UUID=%s /boot ext4 noatime 0 1
 
         # install base packages
         packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
-        try:
-            check_call(in_chroot(["rpm", "-q"] + packages),
-                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
-            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
-            if tempyumconfig:
-                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
-            cmd = cmd + packages
-            check_call(cmd)
-
         # install initial boot packages
-        packages="grub2 grub2-tools grubby".split()
+        packages = packages + "grub2 grub2-tools grubby".split()
         try:
             check_call(in_chroot(["rpm", "-q"] + packages),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
