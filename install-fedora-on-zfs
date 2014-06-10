@@ -654,15 +654,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 """%(poolname,luksstuff,)
         file(p(j("etc","kernel","cmdline")),"w").write(grubconfig)
 
-        # prevent future grub updates
-        newyumconftemp = make_temp_yum_config(
-            source=p(j("etc", "yum.conf")),
-            directory=os.getenv("TMPDIR") or "/tmp",
-            exclude="grub2-tools",
-        )
-        file(p(j("etc", "yum.conf")), "w").write(newyumconftemp.read())
-        del newyumconftemp
-
         # install kernel packages
         packages = "kernel kernel-devel".split()
         try:
@@ -921,6 +912,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
                 cmd = cmd + files_to_install
                 check_call(cmd)
+
+        # prevent future grub updates
+        newyumconftemp = make_temp_yum_config(
+            source=p(j("etc", "yum.conf")),
+            directory=os.getenv("TMPDIR") or "/tmp",
+            exclude="grub2-tools",
+        )
+        file(p(j("etc", "yum.conf")), "w").write(newyumconftemp.read())
+        del newyumconftemp
 
         # check for stage stop
         if break_before == "reload_chroot":
