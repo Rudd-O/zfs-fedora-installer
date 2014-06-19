@@ -1080,7 +1080,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         '-uuid', vmuuid,
         "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
         '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
-        '-append', '%s%sroot=ZFS=%s/ROOT/os ro rd.debug init=/installbootloader'%(luks_cmdline,console_cmdline,poolname),
+        '-append', '%s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(luks_cmdline,console_cmdline,poolname),
     ]
     cmd = cmd + emuopts
     if original_bootdev:
