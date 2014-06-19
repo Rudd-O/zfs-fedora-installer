@@ -225,14 +225,6 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
 skip_if_unavailable=False
 """
 
-def print_open_files(mountpoint):
-    try:
-        output = check_output(["lsof", "-n", "+d", mountpoint])
-    except subprocess.CalledProcessError:
-        return
-    print >> sys.stderr, output
-
-
 class BootloaderWedged(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
@@ -267,7 +259,6 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     def cleanup():
         check_call(['sync'])
         for fs in to_unmount:
-            print_open_files(fs)
             check_call(["umount", fs])
         for filename in to_rmdir:
             os.rmdir(filename)
@@ -627,6 +618,17 @@ UUID=%s /boot ext4 noatime 0 1
             cmd = cmd + packages
             check_call(cmd)
 
+        # omit zfs modules when dracutting
+        if not os.path.exists(p("usr/bin/dracut.real")):
+            check_call(in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"]))
+            file(p("usr/bin/dracut"), "w").write("""#!/bin/bash
+
+echo NOT Executing fake dracut that omits ZFS dracut modules >&2
+exit 0
+exec /usr/bin/dracut.real -o "zfs zfsexpandknowledge zfssystemd" "$@"
+""")
+            os.chmod(p("usr/bin/dracut"), 0755)
+
         if lukspassword:
             luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards"%(rootuuid,)
         else:
@@ -927,25 +929,21 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             raise BreakingBefore(break_before)
 
         if target_rpms_path:
-            print_open_files(target_rpms_path)
             check_call(["umount", target_rpms_path])
             to_unmount.remove(target_rpms_path)
             check_call(["rmdir", target_rpms_path])
             to_rmdir.remove(target_rpms_path)
         if yum_cachedir_path:
-            print_open_files(p(j("var", "cache", "yum")))
             check_call(["umount", p(j("var", "cache", "yum"))])
             to_unmount.remove(p(j("var", "cache", "yum")))
 
-
+        check_call(['sync'])
         # workaround for blkid failing without the following block happening first
         for fs in ["boot", "sys", "proc"]:
             fs = p(fs)
-            print_open_files(fs)
             check_call(["umount", fs])
             to_unmount.remove(fs)
 
-        print_open_files(rootmountpoint)
         check_call(["zpool", "export", poolname])
         to_export.remove(poolname)
 
@@ -967,6 +965,12 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         # we need to use -o systemd because otherwise the system remains
         # forever prompting for the password and ignores rd.luks.key
         # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
+        if os.path.exists(p("usr/bin/dracut.real")):
+            check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
+        # At this point, we regenerate the initrds, but we omit the systemd
+        # module because not omitting it causes the keydev=/key parameter
+        # to be ignored. They keep unwittingly destroying support for
+        # important shit in Fedora.  Fuck.
         check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
 
         # check for stage stop
@@ -1044,8 +1048,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         raise
 
     # end operating with the devices
-    except BaseException:
-        print >> sys.stderr, "Unexpected error"
+    except BaseException, e:
+        print >> sys.stderr, "Unexpected error: %s" % e
         if do_cleanup:
             print >> sys.stderr, "Cleaning up now"
             cleanup()
@@ -1076,7 +1080,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         '-uuid', vmuuid,
         "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
         '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
-        '-append', '%s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(luks_cmdline,console_cmdline,poolname),
+        '-append', '%s%sroot=ZFS=%s/ROOT/os ro rd.debug init=/installbootloader'%(luks_cmdline,console_cmdline,poolname),
     ]
     cmd = cmd + emuopts
     if original_bootdev:
