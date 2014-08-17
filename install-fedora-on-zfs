@@ -919,7 +919,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         newyumconftemp = make_temp_yum_config(
             source=p(j("etc", "yum.conf")),
             directory=os.getenv("TMPDIR") or "/tmp",
-            exclude="grub2-tools",
+            exclude="grub2 grub2-tools",
         )
         file(p(j("etc", "yum.conf")), "w").write(newyumconftemp.read())
         del newyumconftemp
