@@ -856,10 +856,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     if not os.path.isdir(project_dir):
                         os.mkdir(project_dir)
 
-                    grubsrpm = "grub2-2.00-25.fc20.src.rpm"
-                    gruburl = "https://kojipkgs.fedoraproject.org//packages/grub2/2.00/25.fc20/src/%s" % grubsrpm
+                    gruburl = "https://kojipkgs.fedoraproject.org/packages/grub2/2.00/26.fc%s/src/grub2-2.00-26.fc%s.src.rpm" % (releasever, releasever)
+                    grubsrpm = os.path.basename(gruburl)
+                    grubhash = "0a3a371c8e6b2af62baa91d70efc3b090a25136ee911d05f6643deb94211d91c"
                     logging.info("Downloading GRUB2 source RPM: %s", gruburl)
                     check_call(["wget", "-c", gruburl], cwd=project_dir)
+
+                    logging.info("Checking hash of GRUB2 source RPM: %s", grubsrpm)
+                    downloadhash = check_output(["sha256sum", grubsrpm], cwd=project_dir).strip().split()[0]
+                    assert grubhash == downloadhash, "the SHA256 sum of the GRUB RPM %s does not match the expected sum %s" % (gruburl, grubhash)
 
                     logging.info("Unpacking GRUB2 source RPM")
                     project_dir_in_chroot = project_dir[len(rootmountpoint):]
@@ -896,7 +901,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
                     check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
                     patchfile.close()
-                    shutil.copy2(p(j("usr", "share", "doc", "zfs", "grub2", "0485-Ensure-proper-boot-configuration-in-the-case-of-Linu.patch")), j(project_dir, "SOURCES"))
+                    filestocopy = list(sorted(glob.glob(p(j("usr", "share", "doc", "zfs", "grub2", "*.patch")))))
+                    for filetocopy in filestocopy:
+                      shutil.copy2(filetocopy, j(project_dir, "SOURCES"))
                     check_call(in_chroot([
                         "rpmdev-bumpspec",
                         "-c", "Support for ZFS root file systems",
