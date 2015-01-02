@@ -184,7 +184,7 @@ def create_file(filename, sizebytes, owner=None, group=None):
     if group:
         check_call(["chgrp", group, "--", filename])
 
-def make_temp_yum_config(directory, source, **kwargs):
+def make_temp_yum_config(source, directory, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
     yumconfigtext = file(source).read()
     for optname, optval in kwargs.items():
@@ -250,6 +250,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     original_voldev = voldev
     original_bootdev = bootdev
 
+    to_close = []
     to_un_losetup = []
     to_luks_close = []
     to_export = []
@@ -257,6 +258,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     to_unmount = []
 
     def cleanup():
+        for f in to_close:
+            f.close()
         check_call(['sync'])
         for fs in to_unmount:
             check_call(["umount", fs])
@@ -316,8 +319,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
 
             if not bootpart:
                 cmd = ["fdisk", bootdev]
-                p = Popen(cmd, stdin=subprocess.PIPE)
-                p.communicate(
+                pr = Popen(cmd, stdin=subprocess.PIPE)
+                pr.communicate(
     '''n
     p
     1
@@ -328,7 +331,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     w
     '''
                 )
-                retcode = p.wait()
+                retcode = pr.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
                 time.sleep(2)
 
@@ -364,8 +367,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             rootendsector = ( get_file_size(voldev) / 512 ) - 1 - ( 16 * 1024 * 1024 / 512 )
             if not rootpart and not bootpart:
                 cmd = ["fdisk", voldev]
-                p = Popen(cmd, stdin=subprocess.PIPE)
-                p.communicate(
+                pr = Popen(cmd, stdin=subprocess.PIPE)
+                pr.communicate(
     '''n
 p
 1
@@ -381,7 +384,7 @@ p
 w
 '''%(bootstartsector, bootendsector, rootstartsector, rootendsector)
                 )
-                retcode = p.wait()
+                retcode = pr.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
                 time.sleep(2)
 
@@ -569,19 +572,71 @@ UUID=%s /boot ext4 noatime 0 1
         def with_flock(lst, directory, filelock="lockfile"):
             return ["flock" , j(directory, filelock)] + lst
 
-        def ensure_packages_in_chroot(packages, yum_cachedir_path, tempyumconfig_insidechroot_name=None):
+        def ensure_packages_installed(packages, yumconfig, yumcachedir=None, method="in_chroot"):
+            # method can be out_of_chroot or in_chroot
+            # if in_chroot, yumconfig must be a path valid within the chroot
+            # if out_of_chroot, yumconfig must be path valid outside the chroot
+            # in both cases, yumcachedir, if specified, must be a path valid outside the chroot
             try:
                 logging.info("Checking packages are available: %s", packages)
                 check_call(in_chroot(["rpm", "-q"] + packages),
                                     stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
                 logging.info("All required packages are available")
             except subprocess.CalledProcessError:
-                logging.info("Installing packages: %s", packages)
-                cmd = in_chroot(["yum", 'install', '-y'])
-                if tempyumconfig_insidechroot_name:
-                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                logging.info("Installing packages %s: %s", method, packages)
+                if method == 'in_chroot':
+                    assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
+                    cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
+                elif method == 'out_of_chroot':
+                    assert os.path.isfile(yumconfig), "yum config %r does not exist outside chroot" % yumconfig
+                    cmd = in_chroot(["yum", 'install', '-y'])
+                else:
+                    assert 0, "unknown method %r" % method
+                if yumcachedir:
+                    assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
+                    cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
+                else:
+                    cmd = cmd + ['-c', yumconfig]
+                cmd = cmd + ['--']
                 cmd = cmd + packages
                 check_call(cmd)
+
+        def yum_builddep(package, yumconfig, yumcachedir=None):
+            # always happens in chroot
+            # package must be a path to an SRPM valid within the chroot
+            # yumconfig must be a path valid within the chroot
+            # yumcachedir, if specified, must be a path valid outside the chroot
+            assert os.path.isfile(p(package)), "package %r does not exist within chroot" % package
+            assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
+            logging.info("Installing dependencies of package: %s", package)
+            cmd = ["yum-builddep", '-y']
+            if yumcachedir:
+                assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
+                cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
+            else:
+                cmd = cmd + ['-c', yumconfig]
+            cmd = cmd + ['--']
+            cmd = cmd + [package]
+            check_call(cmd)
+
+        def yum_localinstall(packages, yumconfig, yumcachedir=None):
+            # always happens in chroot
+            # packages must be a list of paths to RPMs valid within the chroot
+            # yumconfig must be a path valid within the chroot
+            # yumcachedir, if specified, must be a path valid outside the chroot
+            for package in packages:
+                assert os.path.isfile(p(package)), "package %r does not exist within chroot" % package
+            assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
+            logging.info("Installing packages: %s", packages)
+            cmd = ["yum", 'localinstall', '-y']
+            if yumcachedir:
+                assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
+                cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
+            else:
+                cmd = cmd + ['-c', yumconfig]
+            cmd = cmd + ['--']
+            cmd = cmd + packages
+            check_call(cmd)
 
         # prepare yum cache directory
         if yum_cachedir_path:
@@ -609,9 +664,11 @@ UUID=%s /boot ext4 noatime 0 1
         else:
             tempyumconfig = make_temp_yum_config(
                 source="/etc/yum.conf",
+                directory=os.getenv("TMPDIR") or "/tmp",
                 reposdir="/nonexistent",
                 include=None,
             )
+        to_close.append(tempyumconfig)
         # write fedora repos configuration
         tempyumconfig.seek(0, 2)
         tempyumconfig.write(fedora_repos_template)
@@ -622,15 +679,7 @@ UUID=%s /boot ext4 noatime 0 1
         packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
         # install initial boot packages
         packages = packages + "grub2 grub2-tools grubby".split()
-        try:
-            check_call(in_chroot(["rpm", "-q"] + packages),
-                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
-            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
-            if tempyumconfig:
-                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
-            cmd = cmd + packages
-            check_call(cmd)
+        ensure_packages_installed(packages, tempyumconfig.name, yum_cachedir_path, method='out_of_chroot')
 
         # omit zfs modules when dracutting
         if not os.path.exists(p("usr/bin/dracut.real")):
@@ -672,15 +721,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         # install kernel packages
         packages = "kernel kernel-devel".split()
-        try:
-            check_call(in_chroot(["rpm", "-q"] + packages),
-                                stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
-            cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
-            if tempyumconfig:
-                cmd = with_flock(cmd + ['-c', tempyumconfig.name], yum_cachedir_path)
-            cmd = cmd + packages
-            check_call(cmd)
+        ensure_packages_installed(packages, tempyumconfig.name, yum_cachedir_path, method='out_of_chroot')
 
         # set password
         pwfile = file(p(j("etc", "shadow"))).readlines()
@@ -705,19 +746,23 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 reposdir="/nonexistent",
                 include=None,
             )
+            # override the returned directory because we know that's where the file is stored
+            tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
         else:
             tempyumconfig_insidechroot = make_temp_yum_config(
-                source="/etc/yum.conf",
+                source=p(j("etc", "yum.conf")),
+                directory=p("tmp"),
                 reposdir="/nonexistent",
                 include=None,
             )
+            # override the returned directory because we know that's where the file is stored
+            tempyumconfig_insidechroot_name = j("/tmp", os.path.basename(tempyumconfig_insidechroot.name))
+        to_close.append(tempyumconfig_insidechroot)
         # write fedora repos configuration
         tempyumconfig_insidechroot.seek(0, 2)
         tempyumconfig_insidechroot.write(fedora_repos_template)
         tempyumconfig_insidechroot.flush()
         tempyumconfig_insidechroot.seek(0)
-        # override the returned directory because we know that's where the file is stored
-        tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
 
         arch = platform.machine()
         stringtoexclude = "debuginfo"
@@ -744,14 +789,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 "Installing available prebuilt RPMs: %s",
                 prebuilt_rpms_to_install
             )
-            cmd = in_chroot(["yum", "localinstall", "-y"])
-            if tempyumconfig_insidechroot:
-                cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-            cmd = cmd + [
+            files_to_install = [
                 j(target_rpms_path[len(rootmountpoint):], s)
                 for s in prebuilt_rpms_to_install
             ]
-            check_call(cmd)
+            yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
 
         for project, patterns in (
             (
@@ -792,15 +834,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         cmd = ["git", "clone", repo, project_dir]
                         check_call(cmd)
 
-                    ensure_packages_in_chroot(
+                    ensure_packages_installed(
                         [
                             "make", "autoconf", "automake", "gcc",
                             "libtool", "git", "rpm-build",
                             "dkms", "zlib-devel", "libuuid-devel", "bc",
                             "lsscsi", "mdadm", "parted",
                         ],
+                        tempyumconfig_insidechroot_name,
                         yum_cachedir_path,
-                        tempyumconfig_insidechroot_name if tempyumconfig_insidechroot else None,
+                        method='in_chroot',
                     )
 
                     logging.info("Building project: %s", project)
@@ -819,11 +862,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                cmd = in_chroot(["yum", "localinstall", "-y"])
-                if tempyumconfig_insidechroot:
-                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                cmd = cmd + files_to_install
-                check_call(cmd)
+                yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
 
         # Check we have a ZFS.ko for at least one kernel.
         modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko"))
@@ -884,31 +923,14 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     ])
                     check_call(cmd)
 
-                    ensure_packages_in_chroot(
-                        ["yum-utils"],
+                    logging.info("Installing GRUB2 build dependencies")
+                    ensure_packages_installed(
+                        ["yum-utils", "rpmdevtools"],
+                        tempyumconfig_insidechroot_name,
                         yum_cachedir_path,
-                        tempyumconfig_insidechroot_name if tempyumconfig_insidechroot else None,
+                        method='in_chroot',
                     )
-
-                    logging.info("Installing dependencies")
-                    cmd = in_chroot(["yum-builddep", "-y"])
-                    if tempyumconfig_insidechroot:
-                        cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                    cmd = cmd + [j(project_dir_in_chroot, grubsrpm)]
-                    check_call(cmd)
-
-                    packages = ["rpmdevtools"]
-                    try:
-                        logging.info("Checking for dependencies: %s", packages)
-                        check_call(in_chroot(["rpm", "-q"] + packages),
-                                            stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-                    except subprocess.CalledProcessError:
-                        logging.info("Installing dependencies")
-                        cmd = in_chroot(["yum", 'install', '-y'])
-                        if tempyumconfig_insidechroot:
-                            cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                        cmd = cmd + packages
-                        check_call(cmd)
+                    yum_builddep(j(project_dir_in_chroot, grubsrpm), tempyumconfig_insidechroot_name, yum_cachedir_path)
 
                     logging.info("Patching GRUB2")
                     patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
@@ -931,11 +953,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                cmd = in_chroot(["yum", "localinstall", "-y"])
-                if tempyumconfig_insidechroot:
-                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                cmd = cmd + files_to_install
-                check_call(cmd)
+                yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
 
         # prevent future grub updates
         newyumconftemp = make_temp_yum_config(
