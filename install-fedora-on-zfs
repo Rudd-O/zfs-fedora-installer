@@ -609,7 +609,7 @@ UUID=%s /boot ext4 noatime 0 1
             assert os.path.isfile(p(package)), "package %r does not exist within chroot" % package
             assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
             logging.info("Installing dependencies of package: %s", package)
-            cmd = ["yum-builddep", '-y']
+            cmd = in_chroot(["yum-builddep", '-y'])
             if yumcachedir:
                 assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
                 cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
@@ -628,7 +628,7 @@ UUID=%s /boot ext4 noatime 0 1
                 assert os.path.isfile(p(package)), "package %r does not exist within chroot" % package
             assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
             logging.info("Installing packages: %s", packages)
-            cmd = ["yum", 'localinstall', '-y']
+            cmd = in_chroot(["yum", 'localinstall', '-y'])
             if yumcachedir:
                 assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
                 cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
