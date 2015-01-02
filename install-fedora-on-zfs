@@ -863,9 +863,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     if not os.path.isdir(project_dir):
                         os.mkdir(project_dir)
 
-                    gruburl = "https://kojipkgs.fedoraproject.org/packages/grub2/2.00/26.fc%s/src/grub2-2.00-26.fc%s.src.rpm" % (releasever, releasever)
+                    gruburl = "https://kojipkgs.fedoraproject.org/packages/grub2/2.00/27.fc%s/src/grub2-2.00-27.fc%s.src.rpm" % (releasever, releasever)
                     grubsrpm = os.path.basename(gruburl)
-                    grubhash = "0a3a371c8e6b2af62baa91d70efc3b090a25136ee911d05f6643deb94211d91c"
+                    grubhash = "ea3d04682f00245c6950930c34a7cdb89cbe97eab694c09be0537a414149c8a5"
                     logging.info("Downloading GRUB2 source RPM: %s", gruburl)
                     check_call(["wget", "-c", gruburl], cwd=project_dir)
 
