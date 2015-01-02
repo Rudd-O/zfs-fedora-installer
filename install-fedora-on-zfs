@@ -586,10 +586,10 @@ UUID=%s /boot ext4 noatime 0 1
                 logging.info("Installing packages %s: %s", method, packages)
                 if method == 'in_chroot':
                     assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
-                    cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
+                    cmd = in_chroot(["yum", 'install', '-y'])
                 elif method == 'out_of_chroot':
                     assert os.path.isfile(yumconfig), "yum config %r does not exist outside chroot" % yumconfig
-                    cmd = in_chroot(["yum", 'install', '-y'])
+                    cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
                 else:
                     assert 0, "unknown method %r" % method
                 if yumcachedir:
