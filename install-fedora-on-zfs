@@ -26,7 +26,7 @@ break_stages["beginning"] = "doing anything"
 break_stages["reload_chroot"] = "reloading the final chroot"
 break_stages["install_bootloader"] = "installing the bootloader"
 
-qemu_timeout = 600
+qemu_timeout = 1200
 
 def get_parser():
     parser = argparse.ArgumentParser(
