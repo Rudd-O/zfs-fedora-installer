@@ -487,7 +487,7 @@ w
             except subprocess.CalledProcessError, e:
                 raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
 
-        p = lambda _: j(rootmountpoint,_)
+        p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
 
         # mount virtual file systems, creating their mount points as necessary
         for m in "boot sys proc etc".split():
