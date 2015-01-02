@@ -912,8 +912,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                     logging.info("Patching GRUB2")
                     patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
-                    check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
-                    patchfile.close()
+                    try:
+                        check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
+                    finally:
+                        patchfile.close()
                     filestocopy = list(sorted(glob.glob(p(j("usr", "share", "doc", "zfs", "grub2", "*.patch")))))
                     for filetocopy in filestocopy:
                       shutil.copy2(filetocopy, j(project_dir, "SOURCES"))
