@@ -569,6 +569,20 @@ UUID=%s /boot ext4 noatime 0 1
         def with_flock(lst, directory, filelock="lockfile"):
             return ["flock" , j(directory, filelock)] + lst
 
+        def ensure_packages_in_chroot(packages, yum_cachedir_path, tempyumconfig_insidechroot_name=None):
+            try:
+                logging.info("Checking packages are available: %s", packages)
+                check_call(in_chroot(["rpm", "-q"] + packages),
+                                    stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+                logging.info("All required packages are available")
+            except subprocess.CalledProcessError:
+                logging.info("Installing packages: %s", packages)
+                cmd = in_chroot(["yum", 'install', '-y'])
+                if tempyumconfig_insidechroot_name:
+                    cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
+                cmd = cmd + packages
+                check_call(cmd)
+
         # prepare yum cache directory
         if yum_cachedir_path:
             yum_cachedir_path = os.path.abspath(yum_cachedir_path)
@@ -778,23 +792,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         cmd = ["git", "clone", repo, project_dir]
                         check_call(cmd)
 
-                    packages = [
-                        "make", "autoconf", "automake", "gcc",
-                        "libtool", "git", "rpm-build", "yum-utils",
-                        "dkms", "zlib-devel", "libuuid-devel", "bc",
-                        "lsscsi", "mdadm", "parted",
-                    ]
-                    try:
-                        logging.info("Checking for dependencies: %s", packages)
-                        check_call(in_chroot(["rpm", "-q"] + packages),
-                                            stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-                    except subprocess.CalledProcessError:
-                        logging.info("Installing dependencies")
-                        cmd = in_chroot(["yum", 'install', '-y'])
-                        if tempyumconfig_insidechroot:
-                            cmd = with_flock(cmd + ['-c', tempyumconfig_insidechroot_name], yum_cachedir_path)
-                        cmd = cmd + packages
-                        check_call(cmd)
+                    ensure_packages_in_chroot(
+                        [
+                            "make", "autoconf", "automake", "gcc",
+                            "libtool", "git", "rpm-build",
+                            "dkms", "zlib-devel", "libuuid-devel", "bc",
+                            "lsscsi", "mdadm", "parted",
+                        ],
+                        yum_cachedir_path,
+                        tempyumconfig_insidechroot_name if tempyumconfig_insidechroot else None,
+                    )
 
                     logging.info("Building project: %s", project)
                     cores = multiprocessing.cpu_count()
@@ -832,15 +839,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 ),
             ),
         ):
-            class NonsenseException(Exception): pass
+            class DoesNotSupportZFSException(Exception): pass
             try:
                 logging.info("Checking if %s supports ZFS", project)
                 grub2requires = check_output(
                     in_chroot(["rpm", "-q", "grub2-tools", "--requires"])
                 )
                 if "libzfs" not in grub2requires:
-                    raise NonsenseException()
-            except NonsenseException:
+                    raise DoesNotSupportZFSException()
+            except DoesNotSupportZFSException:
                 logging.info("%s does not support ZFS, building", project)
                 project_dir = p(j("usr","src",project))
                 def getrpms(pats, directory):
@@ -876,6 +883,12 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         j(project_dir_in_chroot, grubsrpm)
                     ])
                     check_call(cmd)
+
+                    ensure_packages_in_chroot(
+                        ["yum-utils"],
+                        yum_cachedir_path,
+                        tempyumconfig_insidechroot_name if tempyumconfig_insidechroot else None,
+                    )
 
                     logging.info("Installing dependencies")
                     cmd = in_chroot(["yum-builddep", "-y"])
