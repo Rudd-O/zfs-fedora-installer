@@ -19,6 +19,7 @@ import collections
 import threading
 import fnmatch
 import multiprocessing
+import pipes
 
 
 break_stages = collections.OrderedDict()
@@ -116,18 +117,19 @@ def get_parser():
     )
     return parser
 
+def format_cmdline(lst):
+    return " ".join(pipes.quote(x) for x in lst)
+
 def check_call(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     cmd = args[0]
-    cmdstr = " ".join(["%r"%r for r in cmd])
-    logging.debug("Check calling %s in cwd %r", cmdstr, cwd)
+    logging.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.check_call(*args,**kwargs)
 
 def check_output(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     cmd = args[0]
-    cmdstr = " ".join(["%r"%r for r in cmd])
-    logging.debug("Check outputting %s in cwd %r", cmdstr, cwd)
+    logging.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
     output = subprocess.check_output(*args,**kwargs)
     if output:
         firstline=output.splitlines()[0].strip()
@@ -139,8 +141,7 @@ def check_output(*args,**kwargs):
 def Popen(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     cmd = args[0]
-    cmdstr = " ".join(["%r"%r for r in cmd])
-    logging.debug("Popening %s in cwd %r", cmdstr, cwd)
+    logging.debug("Popening %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.Popen(*args,**kwargs)
 
 def filetype(dev):
