@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+
+import sys
+
+lines = open("/usr/sbin/grub2-mkconfig", "rb").readlines()
+
+if "# This program was patched by fix-grub-mkconfig.\n" in lines:
+    sys.exit(0)
+
+if 'GRUB_DEVICE="`${grub_probe} --target=device /`"\n':
+    open("/usr/sbin/grub2-mkconfig.bak", "wb").writelines(lines)
+    pos = lines.index('GRUB_DEVICE="`${grub_probe} --target=device /`"\n')
+    lines.insert(pos + 1, 'fi\n')
+    lines.insert(pos, "else\n")
+    lines.insert(pos, "GRUB_DEVICE=ZFS=`cat /proc/self/mounts | awk ' $2 == \"/\" { print $1 } ' | tail -1`\n")
+    lines.insert(pos, "if cat /proc/self/mounts | awk ' $2 == \"/\" { print $3 } ' | grep -q zfs ; then\n")
+    lines.insert(pos, "# This program was patched by fix-grub-mkconfig.\n")
+    open("/usr/sbin/grub2-mkconfig", "wb").writelines(lines)
+
+else:
+    sys.stderr.write("Can't patch.  Sorry.\n")
+    sys.exit(4)

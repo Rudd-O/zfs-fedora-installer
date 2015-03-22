@@ -873,22 +873,21 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         for project, patterns in (
             (
-                "grub2",
+                "grub-zfs-fixer",
                 (
-                    "RPMS/%s/*.%s.rpm" % (arch, arch),
+                    "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
                 ),
             ),
         ):
-            class DoesNotSupportZFSException(Exception): pass
+            class FixerNotInstalledYet(Exception): pass
             try:
-                logging.info("Checking if %s supports ZFS", project)
-                grub2requires = check_output(
-                    in_chroot(["rpm", "-q", "grub2-tools", "--requires"])
-                )
-                if "libzfs" not in grub2requires:
-                    raise DoesNotSupportZFSException()
-            except DoesNotSupportZFSException:
-                logging.info("%s does not support ZFS, building", project)
+                logging.info("Checking if %s has the GRUB ZFS fixer installed", project)
+                try:
+                    grub2requires = check_output(in_chroot(["rpm", "-q", "grub-zfs-fixer"]))
+                except subprocess.CalledProcessError:
+                    raise FixerNotInstalledYet()
+            except FixerNotInstalledYet:
+                logging.info("%s does not have the GRUB ZFS fixer, building", project)
                 project_dir = p(j("usr","src",project))
                 def getrpms(pats, directory):
                     therpms = [
@@ -903,67 +902,31 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     if not os.path.isdir(project_dir):
                         os.mkdir(project_dir)
 
-                    gruburl = "https://kojipkgs.fedoraproject.org/packages/grub2/2.00/27.fc%s/src/grub2-2.00-27.fc%s.src.rpm" % (releasever, releasever)
-                    grubsrpm = os.path.basename(gruburl)
-                    grubhash = "ea3d04682f00245c6950930c34a7cdb89cbe97eab694c09be0537a414149c8a5"
-                    logging.info("Downloading GRUB2 source RPM: %s", gruburl)
-                    check_call(["wget", "-c", gruburl], cwd=project_dir)
-
-                    logging.info("Checking hash of GRUB2 source RPM: %s", grubsrpm)
-                    downloadhash = check_output(["sha256sum", grubsrpm], cwd=project_dir).strip().split()[0]
-                    assert grubhash == downloadhash, "the SHA256 sum of the GRUB RPM %s does not match the expected sum %s" % (gruburl, grubhash)
-
-                    logging.info("Unpacking GRUB2 source RPM")
-                    project_dir_in_chroot = project_dir[len(rootmountpoint):]
-                    cmd = in_chroot([
-                        "rpm",
-                        "--define",
-                        "_topdir %s" % (project_dir_in_chroot,),
-                        "-ivh", "--noscripts",
-                        j(project_dir_in_chroot, grubsrpm)
-                    ])
-                    check_call(cmd)
-
-                    logging.info("Installing GRUB2 build dependencies")
                     ensure_packages_installed(
-                        ["yum-utils", "rpmdevtools"],
+                        [
+                            "rpm-build", "tar", "gzip",
+                        ],
                         tempyumconfig_insidechroot_name,
                         yum_cachedir_path,
                         method='in_chroot',
                     )
-                    yum_builddep(j(project_dir_in_chroot, grubsrpm), tempyumconfig_insidechroot_name, yum_cachedir_path)
-
-                    logging.info("Patching GRUB2")
-                    patchfile = file(p(j("usr", "share", "doc", "zfs", "grub2", "grub.spec.diff")))
-                    try:
-                        check_call(["patch", "-p0"], stdin=patchfile, cwd=j(project_dir,"SPECS"))
-                    finally:
-                        patchfile.close()
-                    filestocopy = list(sorted(glob.glob(p(j("usr", "share", "doc", "zfs", "grub2", "*.patch")))))
-                    for filetocopy in filestocopy:
-                      shutil.copy2(filetocopy, j(project_dir, "SOURCES"))
-                    check_call(in_chroot([
-                        "rpmdev-bumpspec",
-                        "-c", "Support for ZFS root file systems",
-                        j(project_dir_in_chroot, "SPECS", "grub2.spec")
-                    ]))
-
+                    logging.info("Tarring %s tarball", project)
+                    check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
+                               cwd=os.path.dirname(__file__))
                     logging.info("Building project: %s", project)
-                    check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ba", j(project_dir_in_chroot,"SPECS","grub2.spec")]))
+                    project_dir_in_chroot = project_dir[len(rootmountpoint):]
+                    check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
                     files_to_install = getrpms(patterns, project_dir)
 
                 files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
                 yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
 
-        # prevent future grub updates
-        newyumconftemp = make_temp_yum_config(
-            source=p(j("etc", "yum.conf")),
-            directory=os.getenv("TMPDIR") or "/tmp",
-            exclude="grub2 grub2-tools",
-        )
-        file(p(j("etc", "yum.conf")), "w").write(newyumconftemp.read())
-        del newyumconftemp
+        # Check we have a ZFS.ko for at least one kernel.
+        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
+        mkconfig_text = file(mkconfig_file).read()
+        if "ZFS" not in mkconfig_text:
+            raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
 
         # check for stage stop
         if break_before == "reload_chroot":
