@@ -1,5 +1,5 @@
 Name:           grub-zfs-fixer
-Version:        0.0.1
+Version:        0.0.2
 Release:        1
 Summary:        Fixes GRUB2 grub-mkconfig
 

@@ -1,22 +1,91 @@
 #!/usr/bin/env python
 
 import sys
+import shutil
 
-lines = open("/usr/sbin/grub2-mkconfig", "rb").readlines()
 
-if "# This program was patched by fix-grub-mkconfig.\n" in lines:
-    sys.exit(0)
+patchline = "# This program was patched by fix-grub-mkconfig.\n"
 
-if 'GRUB_DEVICE="`${grub_probe} --target=device /`"\n':
-    open("/usr/sbin/grub2-mkconfig.bak", "wb").writelines(lines)
-    pos = lines.index('GRUB_DEVICE="`${grub_probe} --target=device /`"\n')
-    lines.insert(pos + 1, 'fi\n')
-    lines.insert(pos, "else\n")
-    lines.insert(pos, "GRUB_DEVICE=ZFS=`cat /proc/self/mounts | awk ' $2 == \"/\" { print $1 } ' | tail -1`\n")
-    lines.insert(pos, "if cat /proc/self/mounts | awk ' $2 == \"/\" { print $3 } ' | grep -q zfs ; then\n")
-    lines.insert(pos, "# This program was patched by fix-grub-mkconfig.\n")
-    open("/usr/sbin/grub2-mkconfig", "wb").writelines(lines)
 
-else:
-    sys.stderr.write("Can't patch.  Sorry.\n")
-    sys.exit(4)
+class CantPatch(Exception):
+
+    def __str__(self):
+	return "Can't patch %s" % self.args[0]
+
+
+class AlreadyPatched(Exception):
+
+    def __str__(self):
+	return "Already patched %s" % self.args[0]
+
+
+def patch_mkconfig(filename):
+    lines = open(filename, "rb").readlines()
+
+    if patchline in lines:
+	raise AlreadyPatched(filename)
+
+    if 'GRUB_DEVICE="`${grub_probe} --target=device /`"\n' in lines:
+	pos = lines.index('GRUB_DEVICE="`${grub_probe} --target=device /`"\n')
+	lines.insert(pos + 1, 'fi\n')
+	lines.insert(pos, "else\n")
+	lines.insert(pos, "GRUB_DEVICE=ZFS=`cat /proc/self/mounts | awk ' $2 == \"/\" { print $1 } ' | tail -1`\n")
+	lines.insert(pos, "if cat /proc/self/mounts | awk ' $2 == \"/\" { print $3 } ' | grep -q zfs ; then\n")
+	lines.insert(pos, patchline)
+
+    else:
+	raise CantPatch("grub2-mkconfig")
+
+    return lines
+
+
+def patch_10_linux(filename):
+    lines = open(filename, "rb").readlines()
+
+    if patchline in lines:
+	raise AlreadyPatched(filename)
+
+    if '    xzfs)\n' in lines:
+	pos = lines.index('    xzfs)\n')
+	lines[pos] = '    xzfs_patched_out)\n'
+	lines.insert(pos, patchline)
+
+    else:
+	raise CantPatch("grub2-mkconfig")
+
+    return lines
+
+
+def savelines(filename, lines):
+    shutil.copy2(filename, filename + ".rpmsave")
+    open(filename, "wb").writelines(lines)
+
+
+def main():
+    try:
+	try:
+	    mkconfig_lines = patch_mkconfig("/usr/sbin/grub2-mkconfig")
+	except AlreadyPatched:
+	    mkconfig_lines = None
+	try:
+	    ten_linux_lines = patch_10_linux("/etc/grub.d/10_linux")
+	except AlreadyPatched:
+	    ten_linux_lines = None
+	try:
+	    twenty_linux_xen_lines = patch_10_linux("/etc/grub.d/20_linux_xen")
+	except AlreadyPatched:
+	    ten_linux_lines = None
+    except CantPatch, e:
+	sys.stderr.write(str(e) + "\n")
+	sys.exit(4)
+
+    if mkconfig_lines:
+	savelines("/usr/sbin/grub2-mkconfig", mkconfig_lines)
+    if ten_linux_lines:
+	savelines("/etc/grub.d/10_linux", ten_linux_lines)
+    if twenty_linux_xen_lines:
+	savelines("/etc/grub.d/20_linux_xen", twenty_linux_xen_lines)
+
+
+if __name__ == "__main__":
+    main()

@@ -803,6 +803,70 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         for project, patterns in (
             (
+                "grub-zfs-fixer",
+                (
+                    "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
+                ),
+            ),
+        ):
+            class FixerNotInstalledYet(Exception): pass
+            try:
+                logging.info("Checking if %s has the GRUB ZFS fixer installed", project)
+                try:
+                    fixerlines = file(j(os.path.dirname(__file__), "grub-zfs-fixer", "grub-zfs-fixer.spec")).readlines()
+                    fixerversion = [ x.split()[1] for x in fixerlines if x.startswith("Version:") ][0]
+                    fixerrelease = [ x.split()[1] for x in fixerlines if x.startswith("Release:") ][0]
+                    check_output(in_chroot([
+                        "rpm",
+                        "-q",
+                        "grub-zfs-fixer-%s-%s" % (fixerversion, fixerrelease)
+                    ]))
+                except subprocess.CalledProcessError:
+                    raise FixerNotInstalledYet()
+            except FixerNotInstalledYet:
+                logging.info("%s does not have the GRUB ZFS fixer, building", project)
+                project_dir = p(j("usr","src",project))
+                def getrpms(pats, directory):
+                    therpms = [
+                        rpmfile
+                        for pat in pats
+                        for rpmfile in glob.glob(j(directory, pat))
+                        if stringtoexclude not in os.path.basename(rpmfile)
+                    ]
+                    return therpms
+                files_to_install = getrpms(patterns, project_dir)
+                if not files_to_install:
+                    if not os.path.isdir(project_dir):
+                        os.mkdir(project_dir)
+
+                    ensure_packages_installed(
+                        [
+                            "rpm-build", "tar", "gzip",
+                        ],
+                        tempyumconfig_insidechroot_name,
+                        yum_cachedir_path,
+                        method='in_chroot',
+                    )
+                    logging.info("Tarring %s tarball", project)
+                    check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
+                               cwd=os.path.dirname(__file__))
+                    logging.info("Building project: %s", project)
+                    project_dir_in_chroot = project_dir[len(rootmountpoint):]
+                    check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
+                    files_to_install = getrpms(patterns, project_dir)
+
+                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
+                logging.info("Installing built RPMs: %s", files_to_install)
+                yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
+
+        # Check we have a patched grub2-mkconfig.
+        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
+        mkconfig_text = file(mkconfig_file).read()
+        if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
+            raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
+
+        for project, patterns in (
+            (
                 "spl",
                 (
                     "*.%s.rpm" % arch,
@@ -875,63 +939,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         modules_files = glob.glob(modules_dir)
         if not modules_files:
             raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?" % modules_dir)
-
-        for project, patterns in (
-            (
-                "grub-zfs-fixer",
-                (
-                    "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
-                ),
-            ),
-        ):
-            class FixerNotInstalledYet(Exception): pass
-            try:
-                logging.info("Checking if %s has the GRUB ZFS fixer installed", project)
-                try:
-                    grub2requires = check_output(in_chroot(["rpm", "-q", "grub-zfs-fixer"]))
-                except subprocess.CalledProcessError:
-                    raise FixerNotInstalledYet()
-            except FixerNotInstalledYet:
-                logging.info("%s does not have the GRUB ZFS fixer, building", project)
-                project_dir = p(j("usr","src",project))
-                def getrpms(pats, directory):
-                    therpms = [
-                        rpmfile
-                        for pat in pats
-                        for rpmfile in glob.glob(j(directory, pat))
-                        if stringtoexclude not in os.path.basename(rpmfile)
-                    ]
-                    return therpms
-                files_to_install = getrpms(patterns, project_dir)
-                if not files_to_install:
-                    if not os.path.isdir(project_dir):
-                        os.mkdir(project_dir)
-
-                    ensure_packages_installed(
-                        [
-                            "rpm-build", "tar", "gzip",
-                        ],
-                        tempyumconfig_insidechroot_name,
-                        yum_cachedir_path,
-                        method='in_chroot',
-                    )
-                    logging.info("Tarring %s tarball", project)
-                    check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
-                               cwd=os.path.dirname(__file__))
-                    logging.info("Building project: %s", project)
-                    project_dir_in_chroot = project_dir[len(rootmountpoint):]
-                    check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
-                    files_to_install = getrpms(patterns, project_dir)
-
-                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
-                logging.info("Installing built RPMs: %s", files_to_install)
-                yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
-
-        # Check we have a ZFS.ko for at least one kernel.
-        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
-        mkconfig_text = file(mkconfig_file).read()
-        if "ZFS" not in mkconfig_text:
-            raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
 
         # check for stage stop
         if break_before == "reload_chroot":
