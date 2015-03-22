@@ -771,7 +771,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
             if not os.path.isdir(target_rpms_path):
                 os.mkdir(target_rpms_path)
-            if not os.path.ismount(target_rpms_path):
+            if os.path.ismount(target_rpms_path):
+                if os.stat(prebuilt_rpms_path).st_ino != os.stat(target_rpms_path):
+                    check_call(["umount", target_rpms_path])
+                    check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
+            else:
                 check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
             to_unmount.append(target_rpms_path)
             to_rmdir.append(target_rpms_path)
