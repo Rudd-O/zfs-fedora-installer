@@ -1053,6 +1053,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     "-R", rootmountpoint,
                     poolname])
         to_export.append(poolname)
+        to_unmount.append(rootmountpoint)
 
         check_call(["mount", bootpart, p("boot")])
         to_unmount.append(p("boot"))
