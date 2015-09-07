@@ -1255,15 +1255,6 @@ def test_flock():
         raise
     return True
 
-def test_lsof():
-    try: subprocess.check_call(["lsof", "-v"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
-        return False
-    except OSError, e:
-        if e.errno == 2: return False
-        raise
-    return True
-
 def test_rsync():
     try: subprocess.check_call(["rsync"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
     except subprocess.CalledProcessError, e:
@@ -1325,9 +1316,6 @@ def main():
         return 5
     if args.yum_cachedir and not test_flock():
         print >> sys.stderr, "error: flock is not installed properly, but it is necessary to safely use --yum-cachedir. Please use your package manager to install flock (specifically, util-linux)."
-        return 5
-    if not test_lsof():
-        print >> sys.stderr, "error: lsof is not installed properly. Please use your package manager to install lsof."
         return 5
     if not test_qemu():
         print >> sys.stderr, "error: qemu-system-x86_64 is not installed properly. Please use your package manager to install QEMU (specifically, qemu-system-x86)."
