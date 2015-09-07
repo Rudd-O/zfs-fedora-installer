@@ -155,6 +155,9 @@ def filetype(dev):
     if stat.S_ISREG(s.st_mode): return 'file'
     assert 0, 'specified path %r is not a block device or a file'
 
+def with_flock(lst, directory, filelock="lockfile"):
+    return ["flock" , j(directory, filelock)] + lst
+
 def get_associated_lodev(path):
     output = ":".join(check_output(
         ["losetup", "-j",path]
@@ -654,8 +657,6 @@ UUID=%s /boot ext4 noatime 0 1
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
 
-        def with_flock(lst, directory, filelock="lockfile"):
-            return ["flock" , j(directory, filelock)] + lst
 
         def ensure_packages_installed(packages, yumconfig, yumcachedir=None, method="in_chroot"):
             # method can be out_of_chroot or in_chroot
