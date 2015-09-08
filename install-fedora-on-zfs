@@ -193,6 +193,13 @@ def create_file(filename, sizebytes, owner=None, group=None):
     if group:
         check_call(["chgrp", group, "--", filename])
 
+def delete_contents(directory):
+    if not os.path.exists(directory):
+        return
+    ps = [ j(directory, p) for p in os.listdir(directory) ]
+    if ps:
+        check_call(["rm", "-rf"] + ps)
+
 def mpdecode(encoded_mountpoint):
     chars = []
     pos = 0
@@ -1075,6 +1082,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         # check for stage stop
         if break_before == "reload_chroot":
             raise BreakingBefore(break_before)
+
+        # release disk space now that installation is done
+        for pkgm in ('dnf', 'yum'):
+            for directory in ("cache", "lib"):
+                delete_contents(p(j("var", directory, pkgm)))
 
         if target_rpms_path:
             umount(target_rpms_path)
