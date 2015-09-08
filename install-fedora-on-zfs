@@ -316,6 +316,174 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
 skip_if_unavailable=False
 """
 
+class ChrootPackageManager(object):
+
+    chroot = None
+    cachedir = None
+
+    cachemount = None
+    pkgmgr_config_outsidechroot = None
+    pkgmgr_config_insidechroot = None
+    strategy_outsidechroot = None
+    strategy_insidechroot = None
+
+    def __init__(self, chroot, releasever, cachedir=None):
+        self.releasever = releasever
+        self.chroot = chroot
+        self.cachedir = None if cachedir is None else os.path.abspath(cachedir)
+
+    def __enter__(self):
+        if self.pkgmgr_config_outsidechroot:
+            return
+
+        if os.path.exists("/etc/dnf/dnf.conf"):
+            sourceconf = "/etc/dnf/dnf.conf"
+            self.strategy_outsidechroot = "dnf"
+        else:
+            sourceconf = "/etc/yum.conf"
+            self.strategy_outsidechroot = "yum"
+
+        # prepare yum cache directory
+        if self.cachedir:
+            if not os.path.isdir(self.cachedir):
+                os.makedirs(self.cachedir)
+            cachemount = j(self.chroot, "var", "cache", self.strategy_outsidechroot)
+            if not os.path.isdir(cachemount):
+                os.makedirs(cachemount)
+            if not os.path.ismount(cachemount):
+                check_call(["mount", "--bind", self.cachedir, cachemount])
+            self.cachemount = cachemount
+            if not os.path.isdir(j(self.chroot, "var", "lib", self.strategy_outsidechroot)):
+                os.makedirs(j(self.chroot, "var", "lib", self.strategy_outsidechroot))
+            parms = dict(
+                source=sourceconf,
+                directory=os.getenv("TMPDIR") or "/tmp",
+                cachedir=j("/var", "cache", self.strategy_outsidechroot),
+                persistdir=j("/var", "lib", self.strategy_outsidechroot),
+                keepcache=1,
+                logfile="/dev/null",
+                debuglevel=2,
+                reposdir="/nonexistent",
+                include=None,
+            )
+        else:
+            parms = dict(
+                source=sourceconf,
+                directory=os.getenv("TMPDIR") or "/tmp",
+                reposdir="/nonexistent",
+                include=None,
+            )
+
+        self.pkgmgr_config_outsidechroot = make_temp_yum_config(**parms)
+        # write fedora repos configuration
+        self.pkgmgr_config_outsidechroot.seek(0, 2)
+        self.pkgmgr_config_outsidechroot.write(fedora_repos_template)
+        self.pkgmgr_config_outsidechroot.flush()
+        self.pkgmgr_config_outsidechroot.seek(0)
+
+        if os.path.isfile(j(self.chroot, "etc", "dnf", "dnf.conf")):
+            parms["source"] = j(self.chroot, "etc", "dnf", "dnf.conf")
+            self.strategy_insidechroot = "dnf"
+
+        elif os.path.isfile(j(self.chroot, "etc", "yum.conf")):
+            parms["source"] = j(self.chroot, "etc", "yum.conf")
+            self.strategy_insidechroot = "yum"
+
+        if self.strategy_insidechroot:
+            parms["directory"] = j(self.chroot, "tmp")
+            self.pkgmgr_config_insidechroot = make_temp_yum_config(**parms)
+            # write fedora repos configuration
+            self.pkgmgr_config_insidechroot.seek(0, 2)
+            self.pkgmgr_config_insidechroot.write(fedora_repos_template)
+            self.pkgmgr_config_insidechroot.flush()
+            self.pkgmgr_config_insidechroot.seek(0)
+
+    def __exit__(self, *ignored, **kwignored):
+        if self.cachemount:
+            umount(self.cachemount)
+            self.cachemount = None
+        if self.pkgmgr_config_insidechroot:
+            self.pkgmgr_config_insidechroot.close()
+            self.pkgmgr_config_insidechroot = None
+        if self.pkgmgr_config_outsidechroot:
+            self.pkgmgr_config_outsidechroot.close()
+            self.pkgmgr_config_outsidechroot = None
+        self.strategy_insidechroot = None
+        self.strategy_outsidechroot = None
+
+    def ensure_packages_installed(self, packages, method="in_chroot"):
+        def in_chroot(lst):
+            return ["chroot", self.chroot] + lst
+
+        with self:
+            # method can be out_of_chroot or in_chroot
+            if method == 'in_chroot':
+                if not self.strategy_insidechroot:
+                    raise Exception("Cannot use in_chroot method without a working yum or DNF inside the chroot")
+                strategy = self.strategy_insidechroot
+            elif method == 'out_of_chroot':
+                if not self.strategy_outsidechroot:
+                    raise Exception("Cannot use out_of_chroot method without a working yum or DNF installed on your system")
+                strategy = self.strategy_outsidechroot
+            else:
+                assert 0, "unknown method %r" % method
+
+            try:
+                logging.info("Checking packages are available: %s", packages)
+                check_call(in_chroot(["rpm", "-q"] + packages),
+                                    stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+                logging.info("All required packages are available")
+            except subprocess.CalledProcessError:
+                logging.info("Installing packages %s: %s", method, packages)
+                if method == 'in_chroot':
+                    yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
+                    cmd = in_chroot([strategy, 'install', '-y'])
+                elif method == 'out_of_chroot':
+                    yumconfig = self.pkgmgr_config_outsidechroot.name
+                    cmd = [strategy, 'install', '-y', '--installroot=%s' % self.chroot, '--releasever=%d' % self.releasever]
+                if self.cachemount:
+                    cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
+                else:
+                    cmd = cmd + ['-c', yumconfig]
+                if strategy != "dnf":
+                    cmd = cmd + ['--']
+                cmd = cmd + packages
+                check_call(cmd)
+
+    def install_local_packages(self, packages):
+        def in_chroot(lst):
+            return ["chroot", self.chroot] + lst
+
+        with self:
+            # always happens in chroot
+            # packages must be a list of paths to RPMs valid within the chroot
+            if not self.strategy_insidechroot:
+                raise Exception("Cannot install local packages without a working yum or DNF inside the chroot")
+
+            packages = [ os.path.abspath(p) for p in packages ]
+            for package in packages:
+                if not os.path.isfile(package):
+                    raise Exception("package file %r does not exist" % package)
+                if not package.startswith(self.chroot + os.path.sep):
+                    raise Exception("package file %r is not within the chroot" % package)
+            logging.info("Installing packages: %s", packages)
+            if self.strategy_insidechroot == "yum":
+                cmd = in_chroot(["yum", 'localinstall', '-y'])
+            elif self.strategy_insidechroot == "dnf":
+                cmd = in_chroot(["dnf", 'install', '-y'])
+            else:
+                assert 0, "unknown strategy %r" % self.strategy_insidechroot
+            yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
+            if self.cachemount:
+                cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
+            else:
+                cmd = cmd + ['-c', yumconfig]
+            if self.strategy_insidechroot != "dnf":
+                cmd = cmd + ['--']
+            cmd = cmd + [ p[len(self.chroot):] for p in packages ]
+            check_call(cmd)
+
+
 class BootloaderWedged(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
@@ -661,115 +829,17 @@ UUID=%s /boot ext4 noatime 0 1
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
 
-
-        def ensure_packages_installed(packages, yumconfig, yumcachedir=None, method="in_chroot"):
-            # method can be out_of_chroot or in_chroot
-            # if in_chroot, yumconfig must be a path valid within the chroot
-            # if out_of_chroot, yumconfig must be path valid outside the chroot
-            # in both cases, yumcachedir, if specified, must be a path valid outside the chroot
-            try:
-                logging.info("Checking packages are available: %s", packages)
-                check_call(in_chroot(["rpm", "-q"] + packages),
-                                    stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-                logging.info("All required packages are available")
-            except subprocess.CalledProcessError:
-                logging.info("Installing packages %s: %s", method, packages)
-                if method == 'in_chroot':
-                    assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
-                    cmd = in_chroot(["yum", 'install', '-y'])
-                elif method == 'out_of_chroot':
-                    assert os.path.isfile(yumconfig), "yum config %r does not exist outside chroot" % yumconfig
-                    cmd = ["yum", 'install', '-y', '--installroot=%s' % rootmountpoint, '--releasever=%d' % releasever]
-                else:
-                    assert 0, "unknown method %r" % method
-                if yumcachedir:
-                    assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
-                    cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
-                else:
-                    cmd = cmd + ['-c', yumconfig]
-                cmd = cmd + ['--']
-                cmd = cmd + packages
-                check_call(cmd)
-
-        def yum_builddep(package, yumconfig, yumcachedir=None):
-            # always happens in chroot
-            # package must be a path to an SRPM valid within the chroot
-            # yumconfig must be a path valid within the chroot
-            # yumcachedir, if specified, must be a path valid outside the chroot
-            assert os.path.isfile(p(package)), "package %r does not exist within chroot" % package
-            assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
-            logging.info("Installing dependencies of package: %s", package)
-            cmd = in_chroot(["yum-builddep", '-y'])
-            if yumcachedir:
-                assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
-                cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
-            else:
-                cmd = cmd + ['-c', yumconfig]
-            cmd = cmd + ['--']
-            cmd = cmd + [package]
-            check_call(cmd)
-
-        def yum_localinstall(packages, yumconfig, yumcachedir=None):
-            # always happens in chroot
-            # packages must be a list of paths to RPMs valid within the chroot
-            # yumconfig must be a path valid within the chroot
-            # yumcachedir, if specified, must be a path valid outside the chroot
-            for package in packages:
-                assert os.path.isfile(p(package)), "package %r does not exist within chroot" % package
-            assert os.path.isfile(p(yumconfig)), "yum config %r does not exist within chroot" % yumconfig
-            logging.info("Installing packages: %s", packages)
-            cmd = in_chroot(["yum", 'localinstall', '-y'])
-            if yumcachedir:
-                assert os.path.isdir(yumcachedir), "yum cache dir %r does not exist outside chroot" % yumcachedir
-                cmd = with_flock(cmd + ['-c', yumconfig], yumcachedir)
-            else:
-                cmd = cmd + ['-c', yumconfig]
-            cmd = cmd + ['--']
-            cmd = cmd + packages
-            check_call(cmd)
-
-        # prepare yum cache directory
-        if yum_cachedir_path:
-            yum_cachedir_path = os.path.abspath(yum_cachedir_path)
-            if not os.path.isdir(yum_cachedir_path):
-                os.makedirs(yum_cachedir_path)
-            if not os.path.isdir(p(j("var", "cache", "yum"))):
-                os.makedirs(p(j("var", "cache", "yum")))
-            if not os.path.ismount(p(j("var", "cache", "yum"))):
-                check_call(["mount", "--bind", yum_cachedir_path, p(j("var", "cache", "yum"))])
-            if not os.path.isdir(p(j("var", "lib", "yum"))):
-                os.makedirs(p(j("var", "lib", "yum")))
-            to_unmount.append(p(j("var", "cache", "yum")))
-            tempyumconfig = make_temp_yum_config(
-                source="/etc/yum.conf",
-                directory=yum_cachedir_path,
-                cachedir="/var/cache/yum",  # this also gets translated to /mnt/seed/var/lib/jenkins/yumcache
-                persistdir="/var/lib/yum",  # something translates within yum this to /mnt/seed/var/lib/yum
-                keepcache=1,
-                logfile="/dev/null",
-                debuglevel=2,
-                reposdir="/nonexistent",
-                include=None,
-            )
-        else:
-            tempyumconfig = make_temp_yum_config(
-                source="/etc/yum.conf",
-                directory=os.getenv("TMPDIR") or "/tmp",
-                reposdir="/nonexistent",
-                include=None,
-            )
-        to_close.append(tempyumconfig)
-        # write fedora repos configuration
-        tempyumconfig.seek(0, 2)
-        tempyumconfig.write(fedora_repos_template)
-        tempyumconfig.flush()
-        tempyumconfig.seek(0)
+        pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
 
         # install base packages
-        packages="basesystem rootfiles bash nano binutils yum rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
+        packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
+        if releasever >= 21:
+            packages.append("dnf")
+        else:
+            packages.append("yum")
         # install initial boot packages
         packages = packages + "grub2 grub2-tools grubby".split()
-        ensure_packages_installed(packages, tempyumconfig.name, yum_cachedir_path, method='out_of_chroot')
+        pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
 
         # omit zfs modules when dracutting
         if not os.path.exists(p("usr/bin/dracut.real")):
@@ -811,7 +881,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         # install kernel packages
         packages = "kernel kernel-devel".split()
-        ensure_packages_installed(packages, tempyumconfig.name, yum_cachedir_path, method='out_of_chroot')
+        pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
 
         # set password
         pwfile = file(p(j("etc", "shadow"))).readlines()
@@ -822,37 +892,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             pw.communicate(rootpassword + "\n")
             retcode = pw.wait()
             if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
-
-        # prepare a cached yum config for inside the VM
-        if yum_cachedir_path:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source=p(j("etc", "yum.conf")),
-                directory=yum_cachedir_path,
-                cachedir="/var/cache/yum",
-                persistdir="/var/lib/yum",
-                keepcache=1,
-                logfile="/dev/null",
-                debuglevel=2,
-                reposdir="/nonexistent",
-                include=None,
-            )
-            # override the returned directory because we know that's where the file is stored
-            tempyumconfig_insidechroot_name = j("/var/cache/yum", os.path.basename(tempyumconfig_insidechroot.name))
-        else:
-            tempyumconfig_insidechroot = make_temp_yum_config(
-                source=p(j("etc", "yum.conf")),
-                directory=p("tmp"),
-                reposdir="/nonexistent",
-                include=None,
-            )
-            # override the returned directory because we know that's where the file is stored
-            tempyumconfig_insidechroot_name = j("/tmp", os.path.basename(tempyumconfig_insidechroot.name))
-        to_close.append(tempyumconfig_insidechroot)
-        # write fedora repos configuration
-        tempyumconfig_insidechroot.seek(0, 2)
-        tempyumconfig_insidechroot.write(fedora_repos_template)
-        tempyumconfig_insidechroot.flush()
-        tempyumconfig_insidechroot.seek(0)
 
         arch = platform.machine()
         stringtoexclude = "debuginfo"
@@ -889,10 +928,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 prebuilt_rpms_to_install
             )
             files_to_install = [
-                j(target_rpms_path[len(rootmountpoint):], s)
+                j(target_rpms_path, s)
                 for s in prebuilt_rpms_to_install
             ]
-            yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
+            pkgmgr.install_local_packages(files_to_install)
 
         # check for stage stop
         if break_before == "install_grub_zfs_fixer":
@@ -936,13 +975,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     if not os.path.isdir(project_dir):
                         os.mkdir(project_dir)
 
-                    ensure_packages_installed(
+                    pkgmgr.ensure_packages_installed(
                         [
                             "rpm-build", "tar", "gzip",
                         ],
-                        tempyumconfig_insidechroot_name,
-                        yum_cachedir_path,
-                        method='in_chroot',
                     )
                     logging.info("Tarring %s tarball", project)
                     check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
@@ -952,9 +988,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
                     files_to_install = getrpms(patterns, project_dir)
 
-                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
+                pkgmgr.install_local_packages(files_to_install)
 
         # Check we have a patched grub2-mkconfig.
         mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
@@ -1005,16 +1040,13 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         cmd = ["git", "clone", repo, project_dir]
                         check_call(cmd)
 
-                    ensure_packages_installed(
+                    pkgmgr.ensure_packages_installed(
                         [
                             "make", "autoconf", "automake", "gcc",
                             "libtool", "git", "rpm-build",
                             "dkms", "zlib-devel", "libuuid-devel", "bc",
                             "lsscsi", "mdadm", "parted",
                         ],
-                        tempyumconfig_insidechroot_name,
-                        yum_cachedir_path,
-                        method='in_chroot',
                     )
 
                     logging.info("Building project: %s", project)
@@ -1031,9 +1063,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(cmd)
                     files_to_install = getrpms(patterns, project_dir)
 
-                files_to_install = [ f[len(rootmountpoint):] for f in files_to_install ]
                 logging.info("Installing built RPMs: %s", files_to_install)
-                yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
+                pkgmgr.install_local_packages(files_to_install)
 
         # Check we have a ZFS.ko for at least one kernel.
         modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko"))
@@ -1050,9 +1081,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             to_unmount.remove(target_rpms_path)
             check_call(["rmdir", target_rpms_path])
             to_rmdir.remove(target_rpms_path)
-        if yum_cachedir_path:
-            umount(p(j("var", "cache", "yum")))
-            to_unmount.remove(p(j("var", "cache", "yum")))
 
         check_call(['sync'])
         # workaround for blkid failing without the following block happening first
@@ -1283,14 +1311,18 @@ def test_rsync():
     return True
 
 def test_yum():
-    try: subprocess.check_call(["yum"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
-        if e.returncode == 1: return True
-        return False
-    except OSError, e:
-        if e.errno == 2: return False
-        raise
-    return True
+    pkgmgrs = {"yum":True, "dnf": True}
+    for pkgmgr in pkgmgrs:
+        try: subprocess.check_call([pkgmgr], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+        except subprocess.CalledProcessError, e:
+            if e.returncode != 1:
+                pkgmgrs[pkgmgr] = False
+        except OSError, e:
+            if e.errno == 2:
+                pkgmgrs[pkgmgr] = False
+                continue
+            raise
+    return any(pkgmgrs.values())
 
 def cpuinfo(): return file("/proc/cpuinfo").read()
 
@@ -1329,7 +1361,7 @@ def main():
         print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/spl and then https://github.com/Rudd-O/zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
         return 5
     if not test_yum():
-        print >> sys.stderr, "error: yum is not installed properly. Please use your package manager to install yum."
+        print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
     if args.yum_cachedir and not test_flock():
         print >> sys.stderr, "error: flock is not installed properly, but it is necessary to safely use --yum-cachedir. Please use your package manager to install flock (specifically, util-linux)."
