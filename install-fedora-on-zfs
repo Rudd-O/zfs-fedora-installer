@@ -24,6 +24,10 @@ import pipes
 
 break_stages = collections.OrderedDict()
 break_stages["beginning"] = "doing anything"
+break_stages["install_prebuilt_rpms"] = "installing prebuilt RPMs specified on the command line"
+break_stages["install_grub_zfs_fixer"] = "installing GRUB2 fixer RPM"
+break_stages["deploy_spl"] = "deploying SPL"
+break_stages["deploy_zfs"] = "deploying ZFS"
 break_stages["reload_chroot"] = "reloading the final chroot"
 break_stages["install_bootloader"] = "installing the bootloader"
 
@@ -852,6 +856,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         arch = platform.machine()
         stringtoexclude = "debuginfo"
+
+        # check for stage stop
+        if break_before == "install_prebuilt_rpms":
+            raise BreakingBefore(break_before)
+
         if prebuilt_rpms_path:
             target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
             if not os.path.isdir(target_rpms_path):
@@ -884,6 +893,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 for s in prebuilt_rpms_to_install
             ]
             yum_localinstall(files_to_install, tempyumconfig_insidechroot_name, yum_cachedir_path)
+
+        # check for stage stop
+        if break_before == "install_grub_zfs_fixer":
+            raise BreakingBefore(break_before)
 
         for project, patterns in (
             (
@@ -965,6 +978,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 ),
             ),
         ):
+            # check for stage stop
+            if break_before == "deploy_%s" % project:
+                raise BreakingBefore(break_before)
+
             try:
                 logging.info("Checking if package %s-dkms is installed", project)
                 check_call(in_chroot(["rpm", "-q"] + [project, "%s-dkms"%project]),
