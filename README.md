@@ -6,17 +6,23 @@ Fedora on ZFS root installer
 | <img width="164" height="164" title="" alt="" src="doc/bitcoin.png" /> |
 | [1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V](bitcoin:1NhK4UBCyBx4bDgxLVHtAK6EZjSxc8441V) |
 
-This script will create an image file containing a fresh, minimal Fedora 19+ installation on a ZFS pool.  This pool can:
+This project contains two programs.
+
+*Program number one* is `install-fedora-on-zfs`.  This script will create an image file containing a fresh, minimal Fedora 19+ installation on a ZFS pool.  This pool can:
 
 * be booted on a QEMU / virt-manager virtual machine, or
 * be written to a block device, after which you can grow the last partition to make ZFS use the extra space.
 
 If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers, until the next time dracut regenerates the initial RAM disks, after which the initial RAM disks will be tailored to the specific hardware of the machine where it ran.
 
+`install-fedora-on-zfs` requires a working ZFS install on the machine you are running it.  See below for instructions.
+
+*Program number two* is `deploy-zfs`.  This script will deploy ZFS, ZFS-Dracut and `grub-zfs-fixer` via DKMS RPMs to a running Fedora system.  That system can then be converted to a full ZFS on root system if you so desire.
+
 See below for setup instructions.
 
-Usage
------
+Usage of `install-fedora-on-zfs`
+--------------------------------
 
     ./install-fedora-on-zfs --help
     usage: install-fedora-on-zfs [-h] [--vol-size VOLSIZE]
@@ -59,8 +65,25 @@ Usage
 
 After setup is done, you can use `dd` to transfer the image(s) to the appropriate media (perhaps an USB drive) for booting.  See below for examples and more information.
 
-Details about the installation process
---------------------------------------
+Usage of `deploy-zfs`
+---------------------
+
+    usage: deploy-zfs [-h] [--use-prebuilt-rpms DIR] [--no-cleanup]
+
+    Install ZFS on a running system
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      --use-prebuilt-rpms DIR
+                            also install pre-built SPL, ZFS, GRUB and other RPMs
+                            in this directory, except for debuginfo packages
+                            within the directory (default: build SPL, ZFS and GRUB
+                            RPMs, within the system)
+      --no-cleanup          if an error occurs, do not clean up temporary mounts
+                            and files
+
+Details about the `install-fedora-on-zfs` installation process
+--------------------------------------------------------------
 
 1. The specified device(s) / file(s) will be prepared for the ZFS installation.  If you specified a separate boot device, then it will be partitioned with a `/boot` partition, and the main device will be entirely used for a ZFS pool.  Otherwise, the main device will be partitioned between a `/boot` partition (which will use about 256 MB of the space on the device / file) and a ZFS pool (which will use the rest of the space available on the device / file, minus 16 MB at the end).
 2. If you requested encryption, the device containing the ZFS pool is encrypted using LUKS, and the soon-to-be-done system is set up to use LUKS encryption on boot.  Be ware that you will be prompted for this password interactively at a later point.
@@ -71,14 +94,14 @@ Details about the installation process
 7. QEMU will be executed, booting the newly-created image with specific instructions to install the bootloader and perform other janitorial tasks.  At this point, if you requested LUKS encryption, you will be prompted for the LUKS password.
 8. Everything the script did will be cleaned up, leaving the file / block device ready to be booted off a QEMU virtual machine, or whatever device you write the image to.
 
-Requirements
-------------
+Requirements for `install-fedora-on-zfs`
+----------------------------------------
 
-These are the programs you need to execute this script:
+These are the programs you need to execute `install-fedora-on-zfs`:
 
+* a working ZFS install (see below)
 * python
 * qemu-kvm
-* ZFS already installed (see below)
 * losetup
 * mkfs.ext4
 * grub2
@@ -88,29 +111,19 @@ These are the programs you need to execute this script:
 * mkswap
 * cryptsetup
 
-Getting ZFS installed on your machine
--------------------------------------
+Getting ZFS installed on your machine for `install-fedora-on-zfs` to use
+------------------------------------------------------------------------
 
-Before using this program in your computer, you need to have a functioning copy of ZFS in it.  Follow these steps:
+Before using this program in your computer, you need to have a functioning copy of ZFS in it.  Run the `deploy-zfs` program to get it.
 
-Obtain the source to ZFS and this program:
+After doing so, run:
 
-* git clone https://github.com/Rudd-O/spl ~/spl
-* git clone https://github.com/Rudd-O/zfs ~/zfs
-* git clone https://github.com/Rudd-O/zfs-fedora-installer ~/zfs-fedora-installer
-
-Install ZFS:
-
-    pushd ~/spl ; ./autogen.sh && ./configure --prefix=/usr && make -j2 && sudo make install ; popd
-    pushd ~/zfs ; ./autogen.sh && ./configure --prefix=/usr --with-udevdir=/lib/udev && make -j2 && sudo make install ; popd
-    sudo depmod -a
-    sudo modprobe zfs
     sudo udevadm control --reload-rules
 
-Now you can verify that the `zfs` command works.  If it does, then you are ready to run this program.
+Now you can verify that the `zfs` command works.  If it does, then you are ready to run the `install-fedora-on-zfs` program.
 
-Transferring the images to media
---------------------------------
+Transferring the `install-fedora-on-zfs` images to media
+--------------------------------------------------------
 
 You can transfer the resulting disk images to larger media afterward.  The usual `dd if=/path/to/root/image of=/dev/path/to/disk/device` advice works fine.  Here is an example showing how to write an image file that was just created to `/dev/sde`:
 
@@ -140,7 +153,7 @@ Of course, you can also extend the pool to other disk devices.  If you do so, ma
 Notes / known issues
 --------------------
 
-This script only works on Fedora hosts.
+This script only works on Fedora hosts.  I accept patches to make it work on CentOS.
 
 License
 -------
