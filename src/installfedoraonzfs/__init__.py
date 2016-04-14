@@ -1398,8 +1398,8 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
         (
             "spl",
             (
-                "*.%s.rpm" % arch,
-                "*.noarch.rpm",
+                "spl-*.%s.rpm" % arch,
+                "spl-dkms-*.noarch.rpm",
             ),
         ),
         (
