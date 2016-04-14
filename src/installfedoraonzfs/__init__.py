@@ -1411,7 +1411,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                 "zfs-[0123456789]*.%s.rpm" % arch,
                 "zfs-dracut-*.%s.rpm" % arch,
             ),
-            ('zfs', 'zfs-dkms'),
+            ('zfs', 'zfs-dkms', 'zfs-dracut'),
         ),
     ):
         # check for stage stop
