@@ -1419,7 +1419,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
             raise BreakingBefore(break_before)
 
         try:
-            logging.info("Checking if package %s-dkms is installed", project)
+            logging.info("Checking if keystone packages %s are installed", ", ".join(keystonepkgs))
             check_call(in_chroot(["rpm", "-q"] + list(keystonepkgs)),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
