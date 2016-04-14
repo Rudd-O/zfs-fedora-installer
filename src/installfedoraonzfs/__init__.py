@@ -1442,7 +1442,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                         "make", "autoconf", "automake", "gcc",
                         "libtool", "git", "rpm-build",
                         "dkms", "zlib-devel", "libuuid-devel", "bc",
-                        "libblkid-devel",
+                        "libblkid-devel", "libattr-devel",
                         "lsscsi", "mdadm", "parted",
                     ],
                 )
