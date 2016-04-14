@@ -1394,13 +1394,14 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
     if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
         raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
 
-    for project, patterns in (
+    for project, patterns, keystonepkgs in (
         (
             "spl",
             (
                 "spl-*.%s.rpm" % arch,
                 "spl-dkms-*.noarch.rpm",
             ),
+            ('spl', 'spl-dkms'),
         ),
         (
             "zfs",
@@ -1410,6 +1411,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                 "zfs-[0123456789]*.%s.rpm" % arch,
                 "zfs-dracut-*.%s.rpm" % arch,
             ),
+            ('zfs', 'zfs-dkms'),
         ),
     ):
         # check for stage stop
@@ -1418,7 +1420,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
 
         try:
             logging.info("Checking if package %s-dkms is installed", project)
-            check_call(in_chroot(["rpm", "-q"] + [project, "%s-dkms"%project]),
+            check_call(in_chroot(["rpm", "-q"] + list(keystonepkgs)),
                                 stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError:
             logging.info("Package %s-dkms is not installed, building", project)
