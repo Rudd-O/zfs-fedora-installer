@@ -1339,6 +1339,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
             "grub-zfs-fixer",
             (
                 "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
+                "RPMS/*.%s.rpm" % ("noarch",),
             ),
         ),
     ):
