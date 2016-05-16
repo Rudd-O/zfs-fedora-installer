@@ -960,7 +960,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                               in_chroot=in_chroot,
                               pkgmgr=pkgmgr,
                               prebuilt_rpms_path=prebuilt_rpms_path,
-                              break_before=break_before)
+                              break_before=break_before,
+                              to_unmount=to_unmount,
+                              to_rmdir=to_rmdir,)
 
         # check for stage stop
         if break_before == "reload_chroot":
@@ -1287,7 +1289,7 @@ def install_fedora_on_zfs():
 
 
 def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
-                          prebuilt_rpms_path, break_before):
+                          prebuilt_rpms_path, break_before, to_unmount, to_rmdir):
     arch = platform.machine()
     stringtoexclude = "debuginfo"
 
@@ -1504,7 +1506,9 @@ def deploy_zfs():
                               in_chroot=in_chroot,
                               pkgmgr=pkgmgr,
                               prebuilt_rpms_path=args.prebuiltrpms,
-                              break_before=None)
+                              break_before=None,
+                              to_rmdir=to_rmdir,
+                              to_unmount=to_unmount,)
     except BaseException, e:
         print >> sys.stderr, "Unexpected error: %s" % e
         if cleanup:
