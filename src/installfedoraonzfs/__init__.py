@@ -1177,35 +1177,27 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     finally:
         shutil.rmtree(kerneltempdir)
 
-def test_zfs():
-    try: subprocess.check_call(["zfs"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+def test_cmd(cmdname, expected_ret):
+    try: subprocess.check_call([cmdname], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
     except subprocess.CalledProcessError, e:
-        if e.returncode == 2: return True
+        if e.returncode == expected_ret: return True
         return False
     except OSError, e:
         if e.errno == 2: return False
         raise
     return True
+
+def test_mkfs_ext4():
+    return test_cmd("mkfs.ext4", 1)
+
+def test_zfs():
+    return test_cmd("zfs", 2)
 
 def test_flock():
-    try: subprocess.check_call(["flock"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
-        if e.returncode == 64: return True
-        return False
-    except OSError, e:
-        if e.errno == 2: return False
-        raise
-    return True
+    return test_cmd("flock", 64)
 
 def test_rsync():
-    try: subprocess.check_call(["rsync"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
-        if e.returncode == 1: return True
-        return False
-    except OSError, e:
-        if e.errno == 2: return False
-        raise
-    return True
+    return test_cmd("rsync", 1)
 
 def test_yum():
     pkgmgrs = {"yum":True, "dnf": True}
@@ -1256,6 +1248,9 @@ def install_fedora_on_zfs():
         return 5
     if not test_zfs():
         print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/spl and then https://github.com/Rudd-O/zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        return 5
+    if not test_mkfs_ext4():
+        print >> sys.stderr, "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
         return 5
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
