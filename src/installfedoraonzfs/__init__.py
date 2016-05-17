@@ -1384,8 +1384,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                 check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
                             cwd=j(grubzfsfixerpath, os.path.pardir))
                 logging.info("Building project: %s", project)
-                pathlen = 0 if p("") == "/" else len(rootmountpoint)
-                project_dir_in_chroot = project_dir[pathlen:]
+                project_dir_in_chroot = project_dir[len(p(""))-1:]
                 check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
                 files_to_install = getrpms(patterns, project_dir)
 
