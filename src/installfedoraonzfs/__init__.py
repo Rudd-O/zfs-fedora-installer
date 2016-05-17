@@ -1118,6 +1118,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         proper_timeout = qemu_timeout
     else:
         proper_timeout = qemu_timeout * qemu_full_emulation_factor
+        logging.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
     if interactive_qemu:
         screenmode = [ "-curses" ]
         console_cmdline = ""
