@@ -97,17 +97,18 @@ within your home directory's `mockroot` directory that is equivalent to your
 host, but with the whole setup necessary to run `zfs-fedora-installer`
 without any complications.
 
-From what you can see in the script, the output image will end up created in
-`mockroot/fedora-23-z86_64-custom/root/usr/src/diskimage/diskimage.img`
-and, at that point, you can use the created image for your own purposes.
-
 To execute the script:
 
 ```
 cd zfs-fedora-installer/qubes
-sudo ./imagebuild
+mkdir -p path/to/mockroot
+sudo ./imagebuild path/to/mockroot
 cd ..
 ```
+
+From what you can see in the script, the output image will end up created in
+`path/to/mockroot/fedora-23-z86_64-custom/root/usr/src/diskimage/diskimage.img`
+and, at that point, you can use the created image for your own purposes.
 
 That should be all you need to do in order to get a bootable Fedora image
 with ZFS on root and disk encryption, straight out of a Qubes OS VM.

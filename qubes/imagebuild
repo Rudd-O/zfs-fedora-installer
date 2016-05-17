@@ -2,9 +2,6 @@
 
 set -xe
 
-unset CDPATH
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
 test -d zfs-fedora-installer || {
   echo "error: zfspreparation never cloned zfs-fedora-installer"
   exit 2
@@ -18,16 +15,28 @@ done
 
 modprobe zfs || {
   echo "error: zfspreparation never ran deploy-zfs"
+  exit 2
 }
 
-"$DIR"/mockwrapper --pm-cmd install qemu-system-x86 python2 rsync dnf kernel kernel-devel e2fsprogs cryptsetup expect
-"$DIR"/mockwrapper --chroot -- rm -rf /usr/src/rpms /usr/src/zfs-fedora-installer
-"$DIR"/mockwrapper --copyin -- zfs-fedora-installer /usr/src/zfs-fedora-installer
-"$DIR"/mockwrapper --chroot -- mkdir -p /usr/src/rpms /usr/src/diskimage
-"$DIR"/mockwrapper --copyin -- /usr/src/spl/*.rpm /usr/src/zfs/*.rpm /usr/src/rpms
-"$DIR"/mockwrapper --chroot -- /usr/src/zfs-fedora-installer/deploy-zfs \
+unset CDPATH
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+mockroot="$1"
+shift
+
+test -d "$mockroot" || {
+  echo "error: the first argument must be the mock root, and it must exist, and it must be a directory"
+  exit 2
+}
+
+"$DIR"/mockwrapper "$mockroot" --pm-cmd install qemu-system-x86 python2 rsync dnf kernel kernel-devel e2fsprogs cryptsetup expect
+"$DIR"/mockwrapper "$mockroot" --chroot -- rm -rf /usr/src/rpms /usr/src/zfs-fedora-installer
+"$DIR"/mockwrapper "$mockroot" --copyin -- zfs-fedora-installer /usr/src/zfs-fedora-installer
+"$DIR"/mockwrapper "$mockroot" --chroot -- mkdir -p /usr/src/rpms /usr/src/diskimage
+"$DIR"/mockwrapper "$mockroot" --copyin -- /usr/src/spl/*.rpm /usr/src/zfs/*.rpm /usr/src/rpms
+"$DIR"/mockwrapper "$mockroot" --chroot -- /usr/src/zfs-fedora-installer/deploy-zfs \
     --use-prebuilt-rpms="/usr/src/rpms"
-"$DIR"/mockwrapper --chroot -- /usr/src/zfs-fedora-installer/install-fedora-on-zfs \
+"$DIR"/mockwrapper "$mockroot" --chroot -- /usr/src/zfs-fedora-installer/install-fedora-on-zfs \
     "/usr/src/diskimage/diskimage.img" \
     --pool-name=diskimage \
     --root-password=password \

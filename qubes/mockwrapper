@@ -2,8 +2,16 @@
 
 set -xe
 
-MOCKLIB="$HOME/mockroot/lib"
-MOCKCACHE="$HOME/mockroot/cache"
+mockroot="$1"
+shift
+
+test -d "$mockroot" || {
+  echo "error: the first argument must be the mock root, and it must exist, and it must be a directory"
+  exit 2
+}
+
+MOCKLIB="$mockroot/lib"
+MOCKCACHE="$mockroot/cache"
 
 mountpoint -q "/var/lib/mock" || {
   mkdir -p "$MOCKLIB"
