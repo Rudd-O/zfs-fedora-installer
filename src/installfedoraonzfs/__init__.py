@@ -1109,9 +1109,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
     # end operating with the devices
     except BaseException, e:
-        print >> sys.stderr, "Unexpected error: %s" % e
+        logging.exception("Unexpected error")
         if do_cleanup:
-            print >> sys.stderr, "Cleaning up now"
+            logging.info("Cleaning up now")
             cleanup()
         raise
 
@@ -1520,9 +1520,9 @@ def deploy_zfs():
                               to_rmdir=to_rmdir,
                               to_unmount=to_unmount,)
     except BaseException, e:
-        print >> sys.stderr, "Unexpected error: %s" % e
-        if cleanup:
-            print >> sys.stderr, "Cleaning up now"
+        logging.exception("Unexpected error")
+        if do_cleanup:
+            logging.info("Cleaning up now")
             cleanup()
         raise
 
