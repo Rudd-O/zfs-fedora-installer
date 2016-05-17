@@ -1199,6 +1199,9 @@ def test_flock():
 def test_rsync():
     return test_cmd("rsync", 1)
 
+def test_cryptsetup():
+    return test_cmd("cryptsetup", 1)
+
 def test_yum():
     pkgmgrs = {"yum":True, "dnf": True}
     for pkgmgr in pkgmgrs:
@@ -1251,6 +1254,9 @@ def install_fedora_on_zfs():
         return 5
     if not test_mkfs_ext4():
         print >> sys.stderr, "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
+        return 5
+    if not test_cryptsetup():
+        print >> sys.stderr, "error: cryptsetup is not installed properly. Please install cryptsetup."
         return 5
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
