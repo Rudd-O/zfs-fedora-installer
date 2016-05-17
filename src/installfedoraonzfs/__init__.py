@@ -33,6 +33,8 @@ break_stages["install_bootloader"] = "installing the bootloader"
 
 qemu_timeout = 120
 qemu_full_emulation_factor = 10
+BASIC_FORMAT = '%(levelname)s:%(name)s:%(funcname)s@%(lineno)d  %(message)s'
+
 
 def get_parser():
     parser = argparse.ArgumentParser(
@@ -1249,7 +1251,7 @@ def test_qemu():
     return True
 
 def install_fedora_on_zfs():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
     args = get_parser().parse_args()
     cleanup = not args.nocleanup
     if not test_rsync():
@@ -1491,7 +1493,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
 
 def deploy_zfs():
     args = get_deploy_parser().parse_args()
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
     cleanup = not args.nocleanup
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
