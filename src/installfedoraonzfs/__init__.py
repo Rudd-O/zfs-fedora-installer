@@ -555,6 +555,7 @@ class SystemPackageManager(object):
 
 
 class BootloaderWedged(Exception): pass
+class MachineNeverShutoff(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
 
@@ -1161,24 +1162,34 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             if popenobject.returncode is not None:
                 return
             time.sleep(1)
-        print >> sys.stderr, "QEMU babysitter is killing stubborn qemu process after %s seconds" % timeout
+        logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
         popenobject.kill()
 
-    try:
-        qemu_process = Popen(cmd)
-        if not interactive_qemu:
-            babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
-            babysitter.setDaemon(True)
-            babysitter.start()
-        retcode = qemu_process.wait()
-        if retcode == 0:
-            pass
-        elif not interactive_qemu and retcode == -9:
-            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
-        else:
-            raise subprocess.CalledProcessError(retcode,cmd)
-    finally:
-        shutil.rmtree(kerneltempdir)
+    with tempfile.TemporaryFile() as logf:
+        machine_powered_off_okay = False
+        try:
+            qemu_process = Popen(cmd, stdin=file(os.devnull, "r"), stdout=logf, stderr=logf)
+            if not interactive_qemu:
+                babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
+                babysitter.setDaemon(True)
+                babysitter.start()
+            retcode = qemu_process.wait()
+            if retcode == 0:
+                pass
+            elif not interactive_qemu and retcode == -9:
+                raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
+            else:
+                raise subprocess.CalledProcessError(retcode,cmd)
+        finally:
+            logf.seek(0)
+            for line in logf.xreadlines():
+                print >> sys.stderr, line
+                if "reboot: Power down" in line:
+                    machine_powered_off_okay = True
+            logf.close()
+            shutil.rmtree(kerneltempdir)
+        if not machine_powered_off_okay:
+            raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
 
 def test_cmd(cmdname, expected_ret):
     try: subprocess.check_call([cmdname], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
