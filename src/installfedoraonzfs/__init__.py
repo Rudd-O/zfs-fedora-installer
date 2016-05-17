@@ -981,12 +981,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             for directory in ("cache", "lib"):
                 delete_contents(p(j("var", directory, pkgm)))
 
-        if target_rpms_path:
-            umount(target_rpms_path)
-            to_unmount.remove(target_rpms_path)
-            check_call(["rmdir", target_rpms_path])
-            to_rmdir.remove(target_rpms_path)
-
         check_call(['sync'])
         # workaround for blkid failing without the following block happening first
         for fs in ["boot", "sys", "proc"]:
@@ -1339,6 +1333,12 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
             for s in prebuilt_rpms_to_install
         ]
         pkgmgr.install_local_packages(files_to_install)
+
+    if target_rpms_path:
+        umount(target_rpms_path)
+        to_unmount.remove(target_rpms_path)
+        check_call(["rmdir", target_rpms_path])
+        to_rmdir.remove(target_rpms_path)
 
     # check for stage stop
     if break_before == "install_grub_zfs_fixer":
