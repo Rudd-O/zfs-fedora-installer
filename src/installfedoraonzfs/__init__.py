@@ -149,7 +149,7 @@ def format_cmdline(lst):
 def check_call(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     cmd = args[0]
-    logging.debug("Check calling %s", format_cmdline(cmd))
+    logging.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.check_call(*args,**kwargs)
 
 def check_output(*args,**kwargs):
