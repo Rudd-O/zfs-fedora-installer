@@ -119,6 +119,11 @@ def get_parser():
             ", ".join("'%s' (%s)" % s for s in break_stages.items()),
         )
     )
+    parser.add_argument(
+        "--workdir", dest="workdir",
+        action="store", default='/var/lib/zfs-fedora-installer',
+        help="use this directory as a working (scratch) space for the mount points of the created pool"
+    )
     return parser
 
 def get_deploy_parser():
@@ -567,6 +572,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    chown=None,
                    chgrp=None,
                    break_before=None,
+                   workdir='/var/lib/zfs-fedora-installer',
     ):
 
     original_voldev = voldev
@@ -761,7 +767,7 @@ w
             to_luks_close.append(luksuuid)
             rootpart = j("/dev","mapper",luksuuid)
 
-        rootmountpoint = j("/mnt",poolname)
+        rootmountpoint = j(workdir, poolname)
         try:
             check_call(["zfs", "list", "-H", "-o", "name", poolname],
                                 stdout=file(os.devnull,"w"))
@@ -1280,6 +1286,7 @@ def install_fedora_on_zfs():
             chown=args.chown,
             chgrp=args.chgrp,
             break_before=args.break_before,
+            workdir=args.workdir,
         )
     except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
