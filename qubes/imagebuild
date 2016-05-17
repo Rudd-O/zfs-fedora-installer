@@ -1,0 +1,37 @@
+#!/bin/bash
+
+set -xe
+
+unset CDPATH
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+test -d zfs-fedora-installer || {
+  echo "error: zfspreparation never cloned zfs-fedora-installer"
+  exit 2
+}
+for a in /usr/src/spl/*.rpm /usr/src/zfs/*.rpm ; do
+  test -f "$a" || {
+    echo "error: zfspreparation never built installable RPMs: $a does not exist"
+    exit 2
+  }
+done
+
+modprobe zfs || {
+  echo "error: zfspreparation never ran deploy-zfs"
+}
+
+"$DIR"/mockwrapper --pm-cmd install qemu-system-x86 python2 rsync dnf kernel kernel-devel e2fsprogs cryptsetup expect
+"$DIR"/mockwrapper --chroot -- rm -rf /usr/src/rpms /usr/src/zfs-fedora-installer
+"$DIR"/mockwrapper --copyin -- zfs-fedora-installer /usr/src/zfs-fedora-installer
+"$DIR"/mockwrapper --chroot -- mkdir -p /usr/src/rpms /usr/src/diskimage
+"$DIR"/mockwrapper --copyin -- /usr/src/spl/*.rpm /usr/src/zfs/*.rpm /usr/src/rpms
+"$DIR"/mockwrapper --chroot -- /usr/src/zfs-fedora-installer/deploy-zfs \
+    --use-prebuilt-rpms="/usr/src/rpms"
+"$DIR"/mockwrapper --chroot -- /usr/src/zfs-fedora-installer/install-fedora-on-zfs \
+    "/usr/src/diskimage/diskimage.img" \
+    --pool-name=diskimage \
+    --root-password=password \
+    --luks-password=password \
+    --yum-cachedir="/usr/src/yumcache" \
+    --workdir="/usr/src/diskimage/scratch" \
+    --use-prebuilt-rpms="/usr/src/rpms"
