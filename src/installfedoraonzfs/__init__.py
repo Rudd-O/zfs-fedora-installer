@@ -33,7 +33,7 @@ break_stages["install_bootloader"] = "installing the bootloader"
 
 qemu_timeout = 120
 qemu_full_emulation_factor = 10
-BASIC_FORMAT = '%(levelname)s:%(name)s:%(funcName)s@%(lineno)d  %(message)s'
+BASIC_FORMAT = '%(levelname)8s:%(name)s:%(funcName)20s@%(lineno)4d\t%(message)s'
 
 
 def get_parser():
