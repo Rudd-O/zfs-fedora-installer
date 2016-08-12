@@ -1259,7 +1259,6 @@ def test_qemu():
 def install_fedora_on_zfs():
     logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
     args = get_parser().parse_args()
-    cleanup = not args.nocleanup
     if not test_rsync():
         print >> sys.stderr, "error: rsync is not available. Please use your package manager to install rsync."
         return 5
@@ -1285,7 +1284,8 @@ def install_fedora_on_zfs():
         install_fedora(
             args.voldev[0], args.volsize, args.bootdev, args.bootsize,
             args.poolname, args.hostname, args.rootpassword,
-            args.swapsize, args.releasever, args.lukspassword, cleanup,
+            args.swapsize, args.releasever, args.lukspassword,
+            not args.nocleanup,
             args.interactive_qemu,
             args.luksoptions,
             args.prebuiltrpms,
@@ -1506,7 +1506,6 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
 def deploy_zfs():
     args = get_deploy_parser().parse_args()
     logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
-    cleanup = not args.nocleanup
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
@@ -1533,7 +1532,7 @@ def deploy_zfs():
                               to_unmount=to_unmount,)
     except BaseException, e:
         logging.exception("Unexpected error")
-        if do_cleanup:
+        if not args.nocleanup:
             logging.info("Cleaning up now")
             cleanup()
         raise
