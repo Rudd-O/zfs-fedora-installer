@@ -1120,6 +1120,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     else:
         proper_timeout = qemu_timeout * qemu_full_emulation_factor
         logging.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
+    dracut_cmdline = ("rd.info rd.debug rd.udev.debug systemd.show_status=1 "
+                      "systemd.log_target=kmsg systemd.log_level=info")
     if interactive_qemu:
         screenmode = [ "-curses" ]
         console_cmdline = ""
@@ -1130,6 +1132,12 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         luks_cmdline = "rd.luks.uuid=%s rd.luks.key=/key "%(rootuuid,)
     else:
         luks_cmdline = ""
+    cmdline = '%s %s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader' % (
+        dracut_cmdline,
+        luks_cmdline,
+        console_cmdline,
+        poolname
+    )
     cmd = [
         emucmd,
         ] + screenmode + [
@@ -1140,7 +1148,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         '-uuid', vmuuid,
         "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
         '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
-        '-append', '%s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader'%(luks_cmdline,console_cmdline,poolname),
+        '-append', cmdline,
     ]
     cmd = cmd + emuopts
     if original_bootdev:
