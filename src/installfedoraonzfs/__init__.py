@@ -287,7 +287,7 @@ def check_for_open_files(prefix):
   return results
 
 def umount(mountpoint, tries=5):
-    if not os.path.usmount(mountpoint):
+    if not os.path.ismount(mountpoint):
         return
     try:
         check_call(["umount", mountpoint])
