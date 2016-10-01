@@ -1118,7 +1118,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     echo b > /proc/sysrq-trigger
     sleep 5
     echo cannot power off VM.  Please kill qemu.
-    '''%(poolname, poolname)
+    '''%(poolname,)
         bootloaderpath = p("installbootloader")
         bootloader = file(bootloaderpath,"w")
         bootloader.write(bootloadertext)
