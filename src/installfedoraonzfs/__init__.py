@@ -20,6 +20,7 @@ import threading
 import fnmatch
 import multiprocessing
 import pipes
+import fcntl
 
 
 break_stages = collections.OrderedDict()
@@ -350,6 +351,7 @@ class ChrootPackageManager(object):
 
     chroot = None
     cachedir = None
+    cachedir_lockfile = None
 
     cachemount = None
     pkgmgr_config_outsidechroot = None
@@ -375,8 +377,10 @@ class ChrootPackageManager(object):
 
         # prepare yum cache directory
         if self.cachedir:
-            if not os.path.isdir(self.cachedir):
-                os.makedirs(self.cachedir)
+            for subdir in ["ephemeral", "permanent"]:
+                subdir = os.path.join(self.cachedir, subdir)
+                if not os.path.isdir(subdir):
+                    os.makedirs(subdir)
             cachemount = j(self.chroot, "var", "cache", self.strategy_outsidechroot)
             if not os.path.isdir(cachemount):
                 os.makedirs(cachemount)
@@ -388,14 +392,18 @@ class ChrootPackageManager(object):
             parms = dict(
                 source=sourceconf,
                 directory=os.getenv("TMPDIR") or "/tmp",
-                cachedir=j("/var", "cache", self.strategy_outsidechroot),
+                cachedir=j("/var", "cache", self.strategy_outsidechroot, "ephemeral"),
                 persistdir=j("/var", "lib", self.strategy_outsidechroot),
-                keepcache=1,
                 logfile="/dev/null",
                 debuglevel=2,
                 reposdir="/nonexistent",
                 include=None,
             )
+            self.cachedir_lockfile = open(
+                os.path.join(self.cachedir, "cachelock"),
+                'wb'
+            )
+            fcntl.flock(self.cachedir_lockfile.fileno(), fcntl.LOCK_EX)
         else:
             parms = dict(
                 source=sourceconf,
@@ -429,6 +437,9 @@ class ChrootPackageManager(object):
             self.pkgmgr_config_insidechroot.seek(0)
 
     def __exit__(self, *ignored, **kwignored):
+        if self.cachedir_lockfile:
+            self.cachedir_lockfile.close()
+            self.cachedir_lockfile = None
         if self.cachemount:
             umount(self.cachemount)
             self.cachemount = None
@@ -440,6 +451,32 @@ class ChrootPackageManager(object):
             self.pkgmgr_config_outsidechroot = None
         self.strategy_insidechroot = None
         self.strategy_outsidechroot = None
+
+    def _save_downloaded_packages(self, strategy):
+        # DNF developers are criminals.
+        # https://github.com/rpm-software-management/dnf/pull/286
+        # https://bugzilla.redhat.com/show_bug.cgi?id=1046244
+        # Who the fuck does this shit?
+        if not self.cachedir:
+            return
+        if strategy != "dnf":
+            return
+        check_call([
+            "cp", "-aln",
+            self.cachedir + os.path.sep + "permanent" + os.path.sep,
+            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
+        ])
+
+    def _restore_downloaded_packages(self, strategy):
+        if not self.cachedir:
+            return
+        if strategy != "dnf":
+            return
+        check_call([
+            "cp", "-aln",
+            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
+            self.cachedir + os.path.sep + "permanent" + os.path.sep,
+        ])
 
     def ensure_packages_installed(self, packages, method="in_chroot"):
         def in_chroot(lst):
@@ -483,7 +520,7 @@ class ChrootPackageManager(object):
                 if strategy != "dnf":
                     cmd = cmd + ['--']
                 cmd = cmd + packages
-                check_call(cmd)
+                return self._run_pkgmgr_install(cmd, strategy)
 
     def install_local_packages(self, packages):
         def in_chroot(lst):
@@ -516,7 +553,20 @@ class ChrootPackageManager(object):
             if self.strategy_insidechroot != "dnf":
                 cmd = cmd + ['--']
             cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-            check_call(cmd)
+            return self._run_pkgmgr_install(cmd, self.strategy_insidechroot)
+
+    def _run_pkgmgr_install(self, cmd, strategy):
+        installidx = None
+        for x in ("install", "localinstall"):
+            if x in cmd:
+                installidx = cmd.index(x)
+                break
+        if installidx is not None:
+            self._restore_downloaded_packages(self.strategy_insidechroot)
+            precmd = cmd[:installidx] + ["--downloadonly"] + cmd[installidx:]
+            check_call(precmd)
+            self._save_downloaded_packages(self.strategy_insidechroot)
+        check_call(cmd)
 
 
 class SystemPackageManager(object):
