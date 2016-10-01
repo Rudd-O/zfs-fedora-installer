@@ -469,7 +469,12 @@ class ChrootPackageManager(object):
                     cmd = in_chroot([strategy, 'install', '-y'])
                 elif method == 'out_of_chroot':
                     yumconfig = self.pkgmgr_config_outsidechroot.name
-                    cmd = [strategy, 'install', '-y', '--installroot=%s' % self.chroot, '--releasever=%d' % self.releasever]
+                    cmd = [strategy,
+                           'install',
+                           '--disableplugin=*qubes*',
+                           '-y',
+                           '--installroot=%s' % self.chroot,
+                           '--releasever=%d' % self.releasever]
                 if self.cachemount:
                     cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
                 else:
