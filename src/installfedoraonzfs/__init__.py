@@ -1072,13 +1072,25 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
         if os.path.exists(p("usr/bin/dracut.real")):
             check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
-        if os.path.isdir(p(j("boot", "loader"))):
-            kernel = glob.glob(p(j("boot", "*", "*", "linux")))[0]
-            initrd = glob.glob(p(j("boot", "*", "*", "initrd")))[0]
+        def get_kernel_initrd():
+            if os.path.isdir(p(j("boot", "loader"))):
+                kernel = glob.glob(p(j("boot", "*", "*", "linux")))[0]
+                try:
+                    initrd = glob.glob(p(j("boot", "*", "*", "initrd")))[0]
+                except IndexError:
+                    initrd = None
+            else:
+                kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
+                try:
+                    initrd = glob.glob(p(j("boot", "initramfs-*")))[0]
+                except IndexError:
+                    initrd = None
+            return kernel, initrd
+        kernel, initrd = get_kernel_initrd()
+        if initrd:
+            mayhapszfsko = check_output(["lsinitrd", initrd])
         else:
-            kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
-            initrd = glob.glob(p(j("boot", "initramfs-*")))[0]
-        mayhapszfsko = check_output(["lsinitrd", initrd])
+            mayhapszfsko = ""
         # At this point, we regenerate the initrds.
         if "zfs.ko" not in mayhapszfsko:
             check_call(in_chroot(["dracut", "--no-hostonly", "-fv", "--regenerate-all"]))
@@ -1125,6 +1137,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 kerneltempdir = tempfile.mkdtemp(dir="/dev/shm")
             else:
                 kerneltempdir = tempfile.mkdtemp()
+            kernel, initrd = get_kernel_initrd()
             shutil.copy2(kernel, kerneltempdir)
             shutil.copy2(initrd, kerneltempdir)
             if lukspassword:
