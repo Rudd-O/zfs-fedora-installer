@@ -1022,11 +1022,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
         if os.path.exists(p("usr/bin/dracut.real")):
             check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
-        # At this point, we regenerate the initrds, but we omit the systemd
-        # module because not omitting it causes the keydev=/key parameter
-        # to be ignored. They keep unwittingly destroying support for
-        # important shit in Fedora.  Fuck.
-        check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
+        if os.path.isdir(p(j("boot", "loader"))):
+            kernel = glob.glob(p(j("boot", "*", "*", "linux")))[0]
+            initrd = glob.glob(p(j("boot", "*", "*", "initrd")))[0]
+        else:
+            kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
+            initrd = glob.glob(p(j("boot", "initramfs-*")))[0]
+        mayhapszfsko = check_output(["lsinitrd", initrd])
+        # At this point, we regenerate the initrds.
+        if "zfs.ko" not in mayhapszfsko:
+            check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
 
         # check for stage stop
         if break_before == "install_bootloader":
@@ -1073,16 +1078,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 kerneltempdir = tempfile.mkdtemp(dir="/dev/shm")
             else:
                 kerneltempdir = tempfile.mkdtemp()
-            if os.path.isdir(p(j("boot","loader"))):
-                kernel = glob.glob(p(j("boot","*","*","linux")))
-                initrd = glob.glob(p(j("boot","*","*","initrd")))
-                shutil.copy2(kernel[0], kerneltempdir)
-                shutil.copy2(initrd[0], kerneltempdir)
-            else:
-                kernel = glob.glob(p(j("boot","vmlinuz-*")))
-                initrd = glob.glob(p(j("boot","initramfs-*")))
-                shutil.copy2(kernel[0], kerneltempdir)
-                shutil.copy2(initrd[0], kerneltempdir)
+            shutil.copy2(kernel, kerneltempdir)
+            shutil.copy2(initrd, kerneltempdir)
             if lukspassword:
                 create_file(j(kerneltempdir, "keydev.img"), 1024*100)
                 check_call(["mkfs.ext4", '-F', j(kerneltempdir, "keydev.img")])
@@ -1152,8 +1149,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         "-no-reboot",
         '-m', '1024',
         '-uuid', vmuuid,
-        "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
-        '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
+        "-kernel", os.path.join(kerneltempdir, os.path.basename(kernel)),
+        '-initrd', os.path.join(kerneltempdir, os.path.basename(initrd)),
         '-append', cmdline,
     ]
     cmd = cmd + emuopts
