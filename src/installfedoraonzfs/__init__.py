@@ -183,8 +183,6 @@ def filetype(dev):
     if stat.S_ISREG(s.st_mode): return 'file'
     assert 0, 'specified path %r is not a block device or a file'
 
-def with_flock(lst, directory, filelock="lockfile"):
-    return ["flock" , j(directory, filelock)] + lst
 
 def get_associated_lodev(path):
     output = ":".join(check_output(
@@ -400,7 +398,7 @@ class ChrootPackageManager(object):
                 include=None,
             )
             self.cachedir_lockfile = open(
-                os.path.join(self.cachedir, "cachelock"),
+                os.path.join(self.cachedir, "lockfile"),
                 'wb'
             )
             fcntl.flock(self.cachedir_lockfile.fileno(), fcntl.LOCK_EX)
@@ -513,10 +511,7 @@ class ChrootPackageManager(object):
                            '-y',
                            '--installroot=%s' % self.chroot,
                            '--releasever=%d' % self.releasever]
-                if self.cachemount:
-                    cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
-                else:
-                    cmd = cmd + ['-c', yumconfig]
+                cmd = cmd + ['-c', yumconfig]
                 if strategy != "dnf":
                     cmd = cmd + ['--']
                 cmd = cmd + packages
@@ -546,10 +541,7 @@ class ChrootPackageManager(object):
             else:
                 assert 0, "unknown strategy %r" % self.strategy_insidechroot
             yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
-            if self.cachemount:
-                cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
-            else:
-                cmd = cmd + ['-c', yumconfig]
+            cmd = cmd + ['-c', yumconfig]
             if self.strategy_insidechroot != "dnf":
                 cmd = cmd + ['--']
             cmd = cmd + [ p[len(self.chroot):] for p in packages ]
