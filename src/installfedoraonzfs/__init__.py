@@ -1052,9 +1052,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     grub2-install /dev/sda
     grub2-mkconfig -o /boot/grub2/grub.cfg
     zfs inherit com.sun:auto-snapshot "%s"
-    zpool set cachefile=/etc/zfs/zpool.cache "%s"
-    rm -f /etc/zfs/zpool.cache
-    dracut --no-hostonly --regenerate-all -fv
     umount /boot
     rm -f /installbootloader
     sync
