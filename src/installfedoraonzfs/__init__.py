@@ -460,9 +460,9 @@ class ChrootPackageManager(object):
         if strategy != "dnf":
             return
         check_call([
-            "rsync", "-alnT",
-            self.cachedir + os.path.sep + "permanent",
-            self.cachedir + os.path.sep + "ephemeral",
+            "rsync", "-axHAS",
+            self.cachedir + os.path.sep + "permanent" + os.path.sep,
+            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
         ])
 
     def _restore_downloaded_packages(self, strategy):
@@ -471,9 +471,9 @@ class ChrootPackageManager(object):
         if strategy != "dnf":
             return
         check_call([
-            "cp", "-alnT",
-            self.cachedir + os.path.sep + "ephemeral",
-            self.cachedir + os.path.sep + "permanent",
+            "rsync", "-axHAS",
+            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
+            self.cachedir + os.path.sep + "permanent" + os.path.sep,
         ])
 
     def ensure_packages_installed(self, packages, method="in_chroot"):
