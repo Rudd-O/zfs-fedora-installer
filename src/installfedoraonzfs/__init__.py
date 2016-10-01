@@ -30,6 +30,7 @@ break_stages["deploy_spl"] = "deploying SPL"
 break_stages["deploy_zfs"] = "deploying ZFS"
 break_stages["reload_chroot"] = "reloading the final chroot"
 break_stages["install_bootloader"] = "installing the bootloader"
+break_stages["boot_bootloader"] = "booting the installation of the bootloader"
 
 qemu_timeout = 120
 qemu_full_emulation_factor = 10
@@ -1177,6 +1178,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             time.sleep(1)
         logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
         popenobject.kill()
+
+    # check for stage stop
+    if break_before == "boot_bootloader":
+        logging.info(
+            "qemu process that would execute now: %s" % " ".join([
+                pipes.quote(s) for s in cmd
+            ])
+        )
+        raise BreakingBefore(break_before)
 
     with tempfile.TemporaryFile() as logf:
         machine_powered_off_okay = False
