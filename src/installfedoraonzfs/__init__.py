@@ -474,8 +474,8 @@ class ChrootPackageManager(object):
             return
         check_call([
             "rsync", "-axHAS",
-            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
             self.cachedir + os.path.sep + "permanent" + os.path.sep,
+            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
         ])
 
     def ensure_packages_installed(self, packages, method="in_chroot"):
