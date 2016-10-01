@@ -1031,7 +1031,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         mayhapszfsko = check_output(["lsinitrd", initrd])
         # At this point, we regenerate the initrds.
         if "zfs.ko" not in mayhapszfsko:
-            check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
+            check_call(in_chroot(["dracut", "--no-hostonly", "-fv", "--regenerate-all"]))
 
         # check for stage stop
         if break_before == "install_bootloader":
