@@ -462,7 +462,7 @@ class ChrootPackageManager(object):
         if strategy != "dnf":
             return
         check_call([
-            "cp", "-aln",
+            "cp", "-alnT",
             self.cachedir + os.path.sep + "permanent" + os.path.sep,
             self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
         ])
