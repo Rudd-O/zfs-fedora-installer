@@ -1135,10 +1135,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         check_call(["mount", "-t", "proc", "proc", p("proc")])
         to_unmount.append(p("proc"))
 
-        # regenerate initramfs
-        # we need to use -o systemd because otherwise the system remains
-        # forever prompting for the password and ignores rd.luks.key
-        # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
         if os.path.exists(p("usr/bin/dracut.real")):
             check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
         def get_kernel_initrd():
