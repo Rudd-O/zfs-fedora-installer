@@ -22,6 +22,7 @@ import fnmatch
 import multiprocessing
 import pipes
 import fcntl
+import errno
 
 
 break_stages = collections.OrderedDict()
@@ -620,6 +621,7 @@ class BootDriver(threading.Thread):
         self.password = password # fixme validate password
         self.pty = pty
         self.output = []
+        self.error = None
 
     def run(self):
         logging.info("Boot driver started")
@@ -628,24 +630,39 @@ class BootDriver(threading.Thread):
             logging.info("Expecting password prompt")
         lastline = []
         while True:
-            c = self.pty.read(1)
-            if c == "":
-                break
-            self.output.append(c)
-            sys.stdout.write(c)
-            if c == "\n":
-                lastline = []
-            else:
-                lastline.append(c)
-            s = "".join(lastline)
-            if self.password and "Please enter passphrase for disk" in s and pwendprompt in s:
-                # Zero out the last line to prevent future spurious matches.
-                lastline = []
-                self.write_password()
-        logging.info("QEMU slave PTY is gone")
+            try:
+                try:
+                    c = self.pty.read(1)
+                except IOError, e:
+                    if e.errno == errno.EIO:
+                        c = ""
+                    else:
+                        raise
+                if c == "":
+                    logging.info("QEMU slave PTY gone")
+                    break
+                self.output.append(c)
+                sys.stdout.write(c)
+                if c == "\n":
+                    lastline = []
+                else:
+                    lastline.append(c)
+                s = "".join(lastline)
+                if self.password and "Please enter passphrase for disk" in s and pwendprompt in s:
+                    # Zero out the last line to prevent future spurious matches.
+                    lastline = []
+                    self.write_password()
+            except Exception, e:
+                self.error = e
+        logging.info("Boot driver gone")
 
     def get_output(self):
         return "".join(self.output)
+
+    def join(self):
+        threading.Thread.join(self)
+        if self.error:
+            raise self.error
 
     def write_password(self):
         pw = []
