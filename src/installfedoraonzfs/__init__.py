@@ -85,7 +85,7 @@ def get_parser():
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
-        action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption)"
+        action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption); unprintable glyphs whose ASCII value lies below 32 (the space character) will be rejected"
     )
     parser.add_argument(
         "--luks-options", dest="luksoptions", metavar="LUKSOPTIONS", type=str,
@@ -1428,6 +1428,9 @@ def install_fedora_on_zfs():
             break_before=args.break_before,
             workdir=args.workdir,
         )
+    except (ImpossiblePassphrase), e:
+        print >> sys.stderr, "error:", e
+        return os.EX_USAGE
     except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
         return 9
