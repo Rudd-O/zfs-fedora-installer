@@ -1290,6 +1290,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     if interactive_qemu:
         stdin, stdout, stderr = (None, None, None)
         driver = None
+        vmiomaster = None
     else:
         vmiomaster, vmioslave = pty.openpty()
         vmiomaster, vmioslave = os.fdopen(vmiomaster, "a+b"), os.fdopen(vmioslave, "rw+b")
@@ -1307,6 +1308,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         if driver:
             driver.start()
         retcode = qemu_process.wait()
+        if vmiomaster:
+            vmiomaster.close()
         if retcode == 0:
             pass
         elif not interactive_qemu and retcode == -9:
