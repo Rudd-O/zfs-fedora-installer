@@ -1201,7 +1201,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         "-name", hostname,
         "-M", "pc-1.2",
         "-no-reboot",
-        '-m', '1024',
+        '-m', '256',
         '-uuid', vmuuid,
         "-kernel", os.path.join(kerneltempdir, os.path.basename(kernel)),
         '-initrd', os.path.join(kerneltempdir, os.path.basename(initrd)),
