@@ -644,6 +644,9 @@ class BootDriver(threading.Thread):
                 self.write_password()
         logging.info("QEMU slave PTY is gone")
 
+    def get_output(self):
+        return "".join(self.output)
+
     def write_password(self):
         pw = []
         time.sleep(0.25)
