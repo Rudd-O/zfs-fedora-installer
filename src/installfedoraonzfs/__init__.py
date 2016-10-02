@@ -1301,6 +1301,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     machine_powered_off_okay = True if interactive_qemu else False
     try:
         qemu_process = Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, close_fds=True)
+        vmioslave.close() # After handing it off.
         if not interactive_qemu:
             babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
             babysitter.setDaemon(True)
