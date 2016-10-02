@@ -10,6 +10,7 @@ from os.path import join as j
 import shutil
 import glob
 import platform
+import pty
 import tempfile
 import logging
 import uuid
@@ -604,10 +605,61 @@ class SystemPackageManager(object):
         check_call(cmd)
 
 
+class BootDriver(threading.Thread):
+
+    @staticmethod
+    def can_handle_passphrase(passphrase):
+        for p in passphrase:
+            if ord(p) < 32:
+                return False
+        return True
+
+    def __init__(self, password, pty):
+        threading.Thread.__init__(self)
+        self.setDaemon(True)
+        self.password = password # fixme validate password
+        self.pty = pty
+        self.output = []
+
+    def run(self):
+        logging.info("Boot driver started")
+        pwendprompt = "".join(['!', ' ', '\x1b', '[', '0', 'm'])
+        if self.password:
+            logging.info("Expecting password prompt")
+        lastline = []
+        while True:
+            c = self.pty.read(1)
+            if c == "":
+                break
+            self.output.append(c)
+            sys.stdout.write(c)
+            if c == "\n":
+                lastline = []
+            else:
+                lastline.append(c)
+            s = "".join(lastline)
+            if self.password and "Please enter passphrase for disk" in s and pwendprompt in s:
+                # Zero out the last line to prevent future spurious matches.
+                lastline = []
+                self.write_password()
+        logging.info("QEMU slave PTY is gone")
+
+    def write_password(self):
+        pw = []
+        time.sleep(0.25)
+        logging.info("Writing password to VM now")
+        for char in self.password:
+            self.pty.write(char)
+            self.pty.flush()
+        self.pty.write("\n")
+        self.pty.flush()
+
+
 class BootloaderWedged(Exception): pass
 class MachineNeverShutoff(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
+class ImpossiblePassphrase(Exception): pass
 
 
 class BreakingBefore(Exception): pass
@@ -627,6 +679,9 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    break_before=None,
                    workdir='/var/lib/zfs-fedora-installer',
     ):
+
+    if lukspassword and not BootDriver.can_handle_passphrase(lukspassword):
+        raise ImpossiblePassphrase("passphrase %r cannot be handled by the boot driver" % lukspassword)
 
     original_voldev = voldev
     original_bootdev = bootdev
@@ -1134,18 +1189,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             kernel, initrd = get_kernel_initrd()
             shutil.copy2(kernel, kerneltempdir)
             shutil.copy2(initrd, kerneltempdir)
-            if lukspassword:
-                create_file(j(kerneltempdir, "keydev.img"), 1024*100)
-                check_call(["mkfs.ext4", '-F', j(kerneltempdir, "keydev.img")])
-                if not os.path.isdir(j(kerneltempdir, "keydev")):
-                    os.mkdir(j(kerneltempdir, "keydev"))
-                if not os.path.ismount(j(kerneltempdir, "keydev.img")):
-                    check_call(["mount", j(kerneltempdir, "keydev.img"), j(kerneltempdir, "keydev")])
-                    to_unmount.append(j(kerneltempdir, "keydev"))
-                keyfile = file(j(kerneltempdir, "keydev", "key"), "w")
-                keyfile.write(lukspassword)
-                keyfile.flush()
-                keyfile.close()
         except (KeyboardInterrupt, Exception):
             shutil.rmtree(kerneltempdir)
             raise
@@ -1180,19 +1223,27 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     dracut_cmdline = ("rd.info rd.debug rd.udev.debug systemd.show_status=1 "
                       "systemd.log_target=console systemd.log_level=info")
     if interactive_qemu:
-        screenmode = [ "-curses" ]
-        console_cmdline = ""
+        screenmode = [
+            "-nographic"
+            "-monitor","none",
+            "-chardev","stdio,id=char0",
+        ]
     else:
-        screenmode = [ "-nographic", "-serial", "/dev/stdout" ]
-        console_cmdline = "console=ttyS0 "
+        screenmode = [
+            "-nographic",
+            "-monitor","none",
+            "-chardev","stdio,id=char0",
+            "-chardev","file,id=char1,path=/dev/stderr",
+            "-serial","chardev:char0",
+            "-mon","char1,mode=control,default",
+        ]
     if lukspassword:
         luks_cmdline = "rd.luks.uuid=%s rd.luks.key=/key "%(rootuuid,)
     else:
         luks_cmdline = ""
-    cmdline = '%s %s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader' % (
+    cmdline = '%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro init=/installbootloader' % (
         dracut_cmdline,
         luks_cmdline,
-        console_cmdline,
         poolname
     )
     cmd = [
@@ -1217,18 +1268,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         '-drive', 'file=%s,if=none,id=drive-ide0-0-1,format=raw' % original_voldev,
         '-device', 'ide-hd,bus=ide.0,unit=1,drive=drive-ide0-0-1,id=ide0-0-1,bootindex=2',
     ])
-    if lukspassword:
-        cmd.extend([
-            '-drive', 'file=%s,if=none,id=drive-ide1-0-0,format=raw'%j(kerneltempdir,"keydev.img"),
-            '-device', 'ide-hd,bus=ide.1,unit=0,drive=drive-ide1-0-0,id=ide1-0-0,bootindex=3',
-        ])
-    def babysit(popenobject, timeout):
-        for _ in xrange(timeout):  # 5 minutes
-            if popenobject.returncode is not None:
-                return
-            time.sleep(1)
-        logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
-        popenobject.kill()
 
     # check for stage stop
     if break_before == "boot_bootloader":
@@ -1237,33 +1276,52 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 pipes.quote(s) for s in cmd
             ])
         )
+        logging.info("After using this command, remember to manually clean up files in %s" % kerneltempdir)
         raise BreakingBefore(break_before)
 
-    with tempfile.TemporaryFile() as logf:
-        machine_powered_off_okay = False
-        try:
-            qemu_process = Popen(cmd, stdin=file(os.devnull, "r"), stdout=logf, stderr=logf)
-            if not interactive_qemu:
-                babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
-                babysitter.setDaemon(True)
-                babysitter.start()
-            retcode = qemu_process.wait()
-            if retcode == 0:
-                pass
-            elif not interactive_qemu and retcode == -9:
-                raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
-            else:
-                raise subprocess.CalledProcessError(retcode,cmd)
-        finally:
-            logf.seek(0)
-            for line in logf.xreadlines():
-                print >> sys.stderr, line
-                if "reboot: Power down" in line:
-                    machine_powered_off_okay = True
-            logf.close()
-            shutil.rmtree(kerneltempdir)
-        if not machine_powered_off_okay:
-            raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
+    def babysit(popenobject, timeout):
+        for _ in xrange(timeout):
+            if popenobject.returncode is not None:
+                return
+            time.sleep(1)
+        logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
+        popenobject.kill()
+
+    if interactive_qemu:
+        stdin, stdout, stderr = (None, None, None)
+        driver = None
+    else:
+        vmiomaster, vmioslave = pty.openpty()
+        vmiomaster, vmioslave = os.fdopen(vmiomaster, "a+b"), os.fdopen(vmioslave, "rw+b")
+        stdin, stdout, stderr = (vmioslave, vmioslave, vmioslave)
+        logging.info("Creating a new BootDriver thread to input the passphrase if needed")
+        driver = BootDriver(lukspassword if lukspassword else "", vmiomaster)
+
+    machine_powered_off_okay = True if interactive_qemu else False
+    try:
+        qemu_process = Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, close_fds=True)
+        if not interactive_qemu:
+            babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
+            babysitter.setDaemon(True)
+            babysitter.start()
+        if driver:
+            driver.start()
+        retcode = qemu_process.wait()
+        if retcode == 0:
+            pass
+        elif not interactive_qemu and retcode == -9:
+            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
+        else:
+            raise subprocess.CalledProcessError(retcode,cmd)
+    finally:
+        shutil.rmtree(kerneltempdir)
+        if driver:
+            logging.info("Waiting to join the BootDriver thread")
+            driver.join()
+            if "reboot: Power down" in driver.get_output():
+                machine_powered_off_okay = True
+    if not machine_powered_off_okay:
+        raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
 
 def test_cmd(cmdname, expected_ret):
     try: subprocess.check_call([cmdname], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
