@@ -1164,6 +1164,10 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         if "zfs.ko" not in mayhapszfsko:
             check_call(in_chroot(["dracut", "--no-hostonly", "-fv", "--regenerate-all"]))
 
+        # Kill the resolv.conf file written only to install packages.
+        if os.path.isfile(p(j("etc", "resolv.conf"))):
+            os.unlink(p(j("etc", "resolv.conf")))
+
         # check for stage stop
         if break_before == "install_bootloader":
             raise BreakingBefore(break_before)
