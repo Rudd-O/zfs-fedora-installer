@@ -316,6 +316,132 @@ def umount(mountpoint, tries=5):
         time.sleep(1)
         umount(mountpoint, tries - 1)
 
+
+def boot_image_in_qemu(hostname,
+                       poolname,
+                       voldev,
+                       bootdev,
+                       kernelfile,
+                       initrdfile,
+                       force_kvm,
+                       interactive_qemu,
+                       lukspassword,
+                       break_before,
+                       qemu_timeout):
+    vmuuid = str(uuid.uuid1())
+    emucmd, emuopts = detect_qemu(force_kvm)
+    if '-enable-kvm' in emuopts:
+        proper_timeout = qemu_timeout
+    else:
+        proper_timeout = qemu_timeout * qemu_full_emulation_factor
+        logging.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
+    dracut_cmdline = ("rd.info rd.debug rd.udev.debug systemd.show_status=1 "
+                    "systemd.log_target=console systemd.log_level=debug")
+    if interactive_qemu:
+        screenmode = [
+            "-nographic"
+            "-monitor","none",
+            "-chardev","stdio,id=char0",
+        ]
+    else:
+        screenmode = [
+            "-nographic",
+            "-monitor","none",
+            "-chardev","stdio,id=char0",
+            "-chardev","file,id=char1,path=/dev/stderr",
+            "-serial","chardev:char0",
+            "-mon","char1,mode=control,default",
+        ]
+    if lukspassword:
+        luks_cmdline = "rd.luks.uuid=%s "%(rootuuid,)
+    else:
+        luks_cmdline = ""
+    cmdline = '%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro init=/installbootloader' % (
+        dracut_cmdline,
+        luks_cmdline,
+        poolname
+    )
+    cmd = [
+        emucmd,
+        ] + screenmode + [
+        "-name", hostname,
+        "-M", "pc-1.2",
+        "-no-reboot",
+        '-m', '256',
+        '-uuid', vmuuid,
+        "-kernel", kernelfile,
+        '-initrd', initrdfile,
+        '-append', cmdline,
+    ]
+    cmd = cmd + emuopts
+    if bootdev:
+        cmd.extend([
+            '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%bootdev,
+            '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
+        ])
+    cmd.extend([
+        '-drive', 'file=%s,if=none,id=drive-ide0-0-1,format=raw' % voldev,
+        '-device', 'ide-hd,bus=ide.0,unit=1,drive=drive-ide0-0-1,id=ide0-0-1,bootindex=2',
+    ])
+
+    # check for stage stop
+    if break_before == "boot_bootloader":
+        logging.info(
+            "qemu process that would execute now: %s" % " ".join([
+                pipes.quote(s) for s in cmd
+            ])
+        )
+        logging.info("These files remain behind: %s and %s" % (kernelfile, initrdfile))
+        raise BreakingBefore(break_before)
+
+    def babysit(popenobject, timeout):
+        for _ in xrange(timeout):
+            if popenobject.returncode is not None:
+                return
+            time.sleep(1)
+        logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
+        popenobject.kill()
+
+    if interactive_qemu:
+        stdin, stdout, stderr = (None, None, None)
+        driver = None
+        vmiomaster = None
+    else:
+        vmiomaster, vmioslave = pty.openpty()
+        vmiomaster, vmioslave = os.fdopen(vmiomaster, "a+b"), os.fdopen(vmioslave, "rw+b")
+        stdin, stdout, stderr = (vmioslave, vmioslave, vmioslave)
+        logging.info("Creating a new BootDriver thread to input the passphrase if needed")
+        driver = BootDriver(lukspassword if lukspassword else "", vmiomaster)
+
+    machine_powered_off_okay = True if interactive_qemu else False
+    try:
+        qemu_process = Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, close_fds=True)
+        vmioslave.close() # After handing it off.
+        if not interactive_qemu:
+            babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
+            babysitter.setDaemon(True)
+            babysitter.start()
+        if driver:
+            driver.start()
+        retcode = qemu_process.wait()
+        if vmiomaster:
+            vmiomaster.close()
+        if retcode == 0:
+            pass
+        elif not interactive_qemu and retcode == -9:
+            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
+        else:
+            raise subprocess.CalledProcessError(retcode,cmd)
+    finally:
+        if driver:
+            logging.info("Waiting to join the BootDriver thread")
+            driver.join()
+            if "reboot: Power down" in driver.get_output():
+                machine_powered_off_okay = True
+    if not machine_powered_off_okay:
+        raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
+
+
 def make_temp_yum_config(source, directory, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
     yumconfigtext = file(source).read()
@@ -1094,9 +1220,7 @@ UUID=%s /boot ext4 noatime 0 1
             check_call(in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"]))
             file(p("usr/bin/dracut"), "w").write("""#!/bin/bash
 
-echo NOT Executing fake dracut that omits ZFS dracut modules >&2
-exit 0
-exec /usr/bin/dracut.real -o "zfs zfsexpandknowledge zfssystemd" "$@"
+echo This is a fake dracut.
 """)
             os.chmod(p("usr/bin/dracut"), 0755)
 
@@ -1189,28 +1313,26 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         if os.path.exists(p("usr/bin/dracut.real")):
             check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
-        def get_kernel_initrd():
+        def get_kernel_initrd_kver():
             if os.path.isdir(p(j("boot", "loader"))):
-                kernel = glob.glob(p(j("boot", "*", "*", "linux")))[0]
-                try:
-                    initrd = glob.glob(p(j("boot", "*", "*", "initrd")))[0]
-                except IndexError:
-                    initrd = None
+                kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
+                kver = os.path.basename(os.path.dirname(kernel))
+                initrd = p(j("boot", "loader", kver, "initrd"))
+                hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
             else:
                 kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
-                try:
-                    initrd = glob.glob(p(j("boot", "initramfs-*")))[0]
-                except IndexError:
-                    initrd = None
-            return kernel, initrd
-        kernel, initrd = get_kernel_initrd()
-        if initrd:
+                kver = os.path.basename(kernel)[len("vmlinuz-"):]
+                initrd = p(j("boot", "initramfs-%s.img"%kver))
+                hostonly = p(j("boot", "initramfs-hostonly-%s.img"%kver))
+            return kernel, initrd, hostonly, kver
+        kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver()
+        if os.path.isfile(initrd):
             mayhapszfsko = check_output(["lsinitrd", initrd])
         else:
             mayhapszfsko = ""
         # At this point, we regenerate the initrds.
         if "zfs.ko" not in mayhapszfsko:
-            check_call(in_chroot(["dracut", "--no-hostonly", "-fv", "--regenerate-all"]))
+            check_call(in_chroot(["dracut", "-Nfv", initrd, kver]))
 
         # Kill the resolv.conf file written only to install packages.
         if os.path.isfile(p(j("etc", "resolv.conf"))):
@@ -1235,6 +1357,12 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     grub2-install /dev/sda
     grub2-mkconfig -o /boot/grub2/grub.cfg
     zfs inherit com.sun:auto-snapshot "%s"
+    mount -t proc proc /proc
+    mount -t sysfs sysfs /sys
+    dracut -Hfv %s %s
+    sync
+    umount /sys
+    umount /proc
     umount /boot
     rm -f /installbootloader
     sync
@@ -1245,7 +1373,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     echo b > /proc/sysrq-trigger
     sleep 5
     echo cannot power off VM.  Please kill qemu.
-    '''%(poolname,)
+    '''%(poolname, hostonly_initrd, kver)
         bootloaderpath = p("installbootloader")
         bootloader = file(bootloaderpath,"w")
         bootloader.write(bootloadertext)
@@ -1258,7 +1386,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 kerneltempdir = tempfile.mkdtemp(dir="/dev/shm")
             else:
                 kerneltempdir = tempfile.mkdtemp()
-            kernel, initrd = get_kernel_initrd()
             shutil.copy2(kernel, kerneltempdir)
             shutil.copy2(initrd, kerneltempdir)
         except (KeyboardInterrupt, Exception):
@@ -1285,119 +1412,26 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     cleanup()
 
     # install bootloader using qemu
-    vmuuid = str(uuid.uuid1())
-    emucmd, emuopts = detect_qemu(force_kvm)
-    if '-enable-kvm' in emuopts:
-        proper_timeout = qemu_timeout
-    else:
-        proper_timeout = qemu_timeout * qemu_full_emulation_factor
-        logging.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
-    dracut_cmdline = ("rd.info rd.debug rd.udev.debug systemd.show_status=1 "
-                      "systemd.log_target=console systemd.log_level=debug")
-    if interactive_qemu:
-        screenmode = [
-            "-nographic"
-            "-monitor","none",
-            "-chardev","stdio,id=char0",
-        ]
-    else:
-        screenmode = [
-            "-nographic",
-            "-monitor","none",
-            "-chardev","stdio,id=char0",
-            "-chardev","file,id=char1,path=/dev/stderr",
-            "-serial","chardev:char0",
-            "-mon","char1,mode=control,default",
-        ]
-    if lukspassword:
-        luks_cmdline = "rd.luks.uuid=%s "%(rootuuid,)
-    else:
-        luks_cmdline = ""
-    cmdline = '%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro init=/installbootloader' % (
-        dracut_cmdline,
-        luks_cmdline,
-        poolname
-    )
-    cmd = [
-        emucmd,
-        ] + screenmode + [
-        "-name", hostname,
-        "-M", "pc-1.2",
-        "-no-reboot",
-        '-m', '256',
-        '-uuid', vmuuid,
-        "-kernel", os.path.join(kerneltempdir, os.path.basename(kernel)),
-        '-initrd', os.path.join(kerneltempdir, os.path.basename(initrd)),
-        '-append', cmdline,
-    ]
-    cmd = cmd + emuopts
-    if original_bootdev:
-        cmd.extend([
-            '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%original_bootdev,
-            '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
-        ])
-    cmd.extend([
-        '-drive', 'file=%s,if=none,id=drive-ide0-0-1,format=raw' % original_voldev,
-        '-device', 'ide-hd,bus=ide.0,unit=1,drive=drive-ide0-0-1,id=ide0-0-1,bootindex=2',
-    ])
-
-    # check for stage stop
-    if break_before == "boot_bootloader":
-        logging.info(
-            "qemu process that would execute now: %s" % " ".join([
-                pipes.quote(s) for s in cmd
-            ])
-        )
-        logging.info("After using this command, remember to manually clean up files in %s" % kerneltempdir)
-        raise BreakingBefore(break_before)
-
-    def babysit(popenobject, timeout):
-        for _ in xrange(timeout):
-            if popenobject.returncode is not None:
-                return
-            time.sleep(1)
-        logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
-        popenobject.kill()
-
-    if interactive_qemu:
-        stdin, stdout, stderr = (None, None, None)
-        driver = None
-        vmiomaster = None
-    else:
-        vmiomaster, vmioslave = pty.openpty()
-        vmiomaster, vmioslave = os.fdopen(vmiomaster, "a+b"), os.fdopen(vmioslave, "rw+b")
-        stdin, stdout, stderr = (vmioslave, vmioslave, vmioslave)
-        logging.info("Creating a new BootDriver thread to input the passphrase if needed")
-        driver = BootDriver(lukspassword if lukspassword else "", vmiomaster)
-
-    machine_powered_off_okay = True if interactive_qemu else False
+    delete = True
     try:
-        qemu_process = Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, close_fds=True)
-        vmioslave.close() # After handing it off.
-        if not interactive_qemu:
-            babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
-            babysitter.setDaemon(True)
-            babysitter.start()
-        if driver:
-            driver.start()
-        retcode = qemu_process.wait()
-        if vmiomaster:
-            vmiomaster.close()
-        if retcode == 0:
-            pass
-        elif not interactive_qemu and retcode == -9:
-            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
-        else:
-            raise subprocess.CalledProcessError(retcode,cmd)
+        boot_image_in_qemu(hostname,
+                           poolname,
+                           original_voldev,
+                           original_bootdev,
+                           os.path.join(kerneltempdir, os.path.basename(kernel)),
+                           os.path.join(kerneltempdir, os.path.basename(initrd)),
+                           force_kvm,
+                           interactive_qemu,
+                           lukspassword,
+                           break_before,
+                           qemu_timeout)
+    except BreakBefore:
+        delete = False
+        raise
     finally:
-        shutil.rmtree(kerneltempdir)
-        if driver:
-            logging.info("Waiting to join the BootDriver thread")
-            driver.join()
-            if "reboot: Power down" in driver.get_output():
-                machine_powered_off_okay = True
-    if not machine_powered_off_okay:
-        raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
+        if delete:
+            shutil.rmtree(kerneltempdir)
+
 
 def test_cmd(cmdname, expected_ret):
     try: subprocess.check_call([cmdname], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
