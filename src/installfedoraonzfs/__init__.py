@@ -684,6 +684,51 @@ class ImpossiblePassphrase(Exception): pass
 
 class BreakingBefore(Exception): pass
 
+class Undoer:
+
+    def __init__(self):
+        self.actions = []
+
+        class Tracker:
+
+            def __init__(self, typ):
+                self.typ = typ
+
+            def append(me, o):
+                self.actions.append([me.typ, o])
+
+            def remove(me, o):
+                for n, (typ, origo) in reversed(list(enumerate(self.actions[:]))):
+                    if typ == me.typ and o == origo:
+                        self.actions.pop(n)
+                        break
+
+        self.to_close = Tracker("close")
+        self.to_un_losetup = Tracker("un_losetup")
+        self.to_luks_close = Tracker("luks_close")
+        self.to_export = Tracker("export")
+        self.to_rmdir = Tracker("rmdir")
+        self.to_unmount = Tracker("unmount")
+
+    def undo(self):
+        for typ, o in reversed(self.actions[:]):
+            if typ == "close":
+                o.close()
+            if typ == "unmount":
+                umount(o)
+            if typ == "rmdir":
+                os.rmdir(o)
+            if typ == "export":
+                check_call(["sync"])
+                check_call(["zpool", "export", o])
+            if typ == "luks_close":
+                check_call(["sync"])
+                check_call(["cryptsetup", "luksClose", o])
+            if typ == "un_losetup":
+                check_call(["sync"])
+                check_call(["losetup", "-d", o])
+
+
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
@@ -706,27 +751,16 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     original_voldev = voldev
     original_bootdev = bootdev
 
-    to_close = []
-    to_un_losetup = []
-    to_luks_close = []
-    to_export = []
-    to_rmdir = []
-    to_unmount = []
+    undoer = Undoer()
+    to_close = undoer.to_close
+    to_un_losetup = undoer.to_un_losetup
+    to_luks_close = undoer.to_luks_close
+    to_export = undoer.to_export
+    to_rmdir = undoer.to_rmdir
+    to_unmount = undoer.to_unmount
 
     def cleanup():
-        for f in to_close:
-            f.close()
-        check_call(['sync'])
-        for fs in reversed(to_unmount):
-            umount(fs)
-        for filename in to_rmdir:
-            os.rmdir(filename)
-        for pool in to_export:
-            check_call(["zpool", "export", pool])
-        for luksdev in to_luks_close:
-            check_call(["cryptsetup", "luksClose", luksdev])
-        for bdev in to_un_losetup:
-            check_call(["losetup", "-d", bdev])
+        undoer.undo()
 
     if not releasever:
         releasever = int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
@@ -1486,10 +1520,10 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                 check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
         else:
             check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
-        if os.path.ismount(target_rpms_path):
-            to_unmount.append(target_rpms_path)
         if os.path.isdir(target_rpms_path):
             to_rmdir.append(target_rpms_path)
+        if os.path.ismount(target_rpms_path):
+            to_unmount.append(target_rpms_path)
         prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
         prebuilt_rpms_to_install = set([
             os.path.basename(s)
