@@ -849,7 +849,7 @@ class Undoer:
         self.to_unmount = Tracker("unmount")
 
     def undo(self):
-        for typ, o in reversed(self.actions[:]):
+        for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
             if typ == "close":
                 o.close()
             if typ == "unmount":
@@ -865,6 +865,7 @@ class Undoer:
             if typ == "un_losetup":
                 check_call(["sync"])
                 check_call(["losetup", "-d", o])
+            self.actions.pop(n)
 
 
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
