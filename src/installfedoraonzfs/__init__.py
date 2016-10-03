@@ -383,6 +383,10 @@ class ChrootPackageManager(object):
                 subdir = os.path.join(self.cachedir, subdir)
                 if not os.path.isdir(subdir):
                     os.makedirs(subdir)
+            self.cachedir_lockfile = open(os.path.join(self.cachedir, "lockfile"), 'ab')
+            logging.debug("Trying to grab package manager lock %s", self.cachedir_lockfile)
+            fcntl.flock(self.cachedir_lockfile.fileno(), fcntl.LOCK_EX)
+            logging.debug("Package manager lock %s grabbed", self.cachedir_lockfile)
             cachemount = j(self.chroot, "var", "cache", self.strategy_outsidechroot)
             if not os.path.isdir(cachemount):
                 os.makedirs(cachemount)
@@ -401,11 +405,6 @@ class ChrootPackageManager(object):
                 reposdir="/nonexistent",
                 include=None,
             )
-            self.cachedir_lockfile = open(
-                os.path.join(self.cachedir, "lockfile"),
-                'wb'
-            )
-            fcntl.flock(self.cachedir_lockfile.fileno(), fcntl.LOCK_EX)
         else:
             parms = dict(
                 source=sourceconf,
@@ -440,6 +439,7 @@ class ChrootPackageManager(object):
 
     def __exit__(self, *ignored, **kwignored):
         if self.cachedir_lockfile:
+            logging.debug("Unlocking package manager lock %s", self.cachedir_lockfile)
             self.cachedir_lockfile.close()
             self.cachedir_lockfile = None
         if self.cachemount:
