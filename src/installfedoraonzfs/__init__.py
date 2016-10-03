@@ -554,7 +554,6 @@ class ChrootPackageManager(object):
             return self._run_pkgmgr_install(cmd, self.strategy_insidechroot)
 
     def _run_pkgmgr_install(self, cmd, strategy):
-        logging.debug("_run_pkgmgr_install running %s with strategy %s", cmd, strategy)
         assert strategy in "yum dnf", strategy
         installidx = None
         for x in ("install", "localinstall"):
