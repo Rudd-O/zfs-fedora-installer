@@ -780,18 +780,22 @@ class BootDriver(threading.Thread):
                     logging.info("QEMU slave PTY gone")
                     break
                 self.output.append(c)
-                sys.stdout.write(c)
                 if c == "\n":
+                    logging.debug("VM: %s", "".join(lastline))
                     lastline = []
                 else:
                     lastline.append(c)
                 s = "".join(lastline)
                 if self.password and "Please enter passphrase for disk" in s and pwendprompt in s:
                     # Zero out the last line to prevent future spurious matches.
+                    logging.debug("VM: %s", "".join(lastline))
                     lastline = []
                     self.write_password()
             except Exception, e:
+                logging.error("Boot driver experienced an error (postponed): %s", e)
                 self.error = e
+        if lastline:
+            logging.debug("VM: %s", "".join(lastline))
         logging.info("Boot driver gone")
 
     def get_output(self):
