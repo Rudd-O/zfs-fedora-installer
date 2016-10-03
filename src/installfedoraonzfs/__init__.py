@@ -326,6 +326,7 @@ def boot_image_in_qemu(hostname,
                        force_kvm,
                        interactive_qemu,
                        lukspassword,
+                       rootuuid,
                        break_before,
                        qemu_timeout):
     vmuuid = str(uuid.uuid1())
@@ -1407,6 +1408,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         force_kvm,
                         interactive_qemu,
                         lukspassword,
+                        rootuuid,
                         break_before,
                         qemu_timeout)
 
