@@ -840,7 +840,6 @@ class Undoer:
                         self.actions.pop(n)
                         break
 
-        self.to_close = Tracker("close")
         self.to_un_losetup = Tracker("un_losetup")
         self.to_luks_close = Tracker("luks_close")
         self.to_export = Tracker("export")
@@ -850,8 +849,6 @@ class Undoer:
 
     def undo(self):
         for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
-            if typ == "close":
-                o.close()
             if typ == "unmount":
                 umount(o)
             if typ == "rmrf":
@@ -894,7 +891,6 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     original_bootdev = bootdev
 
     undoer = Undoer()
-    to_close = undoer.to_close
     to_un_losetup = undoer.to_un_losetup
     to_luks_close = undoer.to_luks_close
     to_export = undoer.to_export
