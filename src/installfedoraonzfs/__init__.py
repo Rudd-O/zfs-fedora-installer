@@ -520,7 +520,7 @@ class ChrootPackageManager(object):
                 subdir = os.path.join(self.cachedir, subdir)
                 if not os.path.isdir(subdir):
                     os.makedirs(subdir)
-            self.cachedir_lockfile = open(os.path.join(self.cachedir, "lockfile"), 'ab')
+            self.cachedir_lockfile = open(os.path.expanduser("~/.yumcache-lockfile"), 'ab')
             logging.debug("Trying to grab package manager lock %s", self.cachedir_lockfile)
             fcntl.flock(self.cachedir_lockfile.fileno(), fcntl.LOCK_EX)
             logging.debug("Package manager lock %s grabbed", self.cachedir_lockfile)
