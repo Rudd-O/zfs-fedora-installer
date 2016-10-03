@@ -1029,7 +1029,7 @@ UUID=%s /boot ext4 noatime 0 1
         pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
 
         # install base packages
-        packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
+        packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted".split()
         if releasever >= 21:
             packages.append("dnf")
         else:
