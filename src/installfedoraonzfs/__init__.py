@@ -1414,17 +1414,21 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     except BreakingBefore, e:
         print >> sys.stderr, "------------------------------------------------"
         print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
+        if do_cleanup:
+            print >> sys.stderr, "Cleaning up now"
+            cleanup()
         raise
 
     # end operating with the devices
     except BaseException, e:
         logging.exception("Unexpected error")
-        raise
-
-    finally:
         if do_cleanup:
             print >> sys.stderr, "Cleaning up now"
             cleanup()
+        raise
+
+    # Truly delete all files left behind.
+    cleanup()
 
 
 def test_cmd(cmdname, expected_ret):
