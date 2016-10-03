@@ -700,7 +700,7 @@ class ChrootPackageManager(object):
         if installidx is not None:
             self._restore_downloaded_packages(strategy)
             precmd = cmd[:installidx] + ["--downloadonly"] + cmd[installidx:]
-            cmd = cmd[:installidx] + ["-C"] + cmd[installidx:]
+            cmd = cmd[:installidx] + ["-C", "--rpmverbosity=10"] + cmd[installidx:]
             check_call(precmd)
             self._save_downloaded_packages(strategy)
         check_call(cmd)
