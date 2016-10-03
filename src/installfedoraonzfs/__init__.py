@@ -1363,13 +1363,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     grub2-install /dev/sda
     grub2-mkconfig -o /boot/grub2/grub.cfg
     zfs inherit com.sun:auto-snapshot "%s"
-    mount -t proc proc /proc
-    mount -t sysfs sysfs /sys
     dracut -Hfv %s %s
     sync
-    umount /sys
-    umount /proc
-    umount /boot
+    umount /boot || true
     rm -f /installbootloader
     sync
     sync
