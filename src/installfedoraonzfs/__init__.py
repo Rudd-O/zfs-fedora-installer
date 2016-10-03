@@ -958,6 +958,10 @@ w
             check_call(["mount", "-t", "sysfs", "sysfs", p("sys")])
         to_unmount.append(p("sys"))
 
+        if not os.path.ismount(p(j("sys", "fs", "selinux"))):
+            check_call(["mount", "-t", "selinuxfs", "selinuxfs", p(j("sys", "fs", "selinux"))])
+        to_unmount.append(p(j("sys", "fs", "selinux")))
+
         if not os.path.ismount(p("proc")):
             check_call(["mount", "-t", "proc", "proc", p("proc")])
         to_unmount.append(p("proc"))
@@ -1109,7 +1113,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         check_call(['sync'])
         # workaround for blkid failing without the following block happening first
-        for fs in ["boot", "sys", "proc"]:
+        for fs in ["boot", j("sys", "fs", "selinux"), "sys", "proc"]:
             fs = p(fs)
             umount(fs)
             to_unmount.remove(fs)
