@@ -1361,7 +1361,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     mayhapszfsko = ""
                 # At this point, we regenerate the initrds.
                 if "zfs.ko" not in mayhapszfsko:
-                    check_call(in_chroot(["dracut", "-Nfv", q(initrd), q(kver)]))
+                    check_call(in_chroot(["dracut", "-Nf", q(initrd), q(kver)]))
 
                 # Kill the resolv.conf file written only to install packages.
                 if os.path.isfile(p(j("etc", "resolv.conf"))):
@@ -1386,7 +1386,7 @@ ln -sf /proc/self/mounts /etc/mtab
 grub2-install /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
 zfs inherit com.sun:auto-snapshot "%s"
-test -f %s || dracut -Hfv %s %s
+test -f %s || dracut -Hf %s %s
 sync
 umount /boot || true
 rm -f /installbootloader
