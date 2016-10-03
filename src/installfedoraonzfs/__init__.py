@@ -338,8 +338,8 @@ def boot_image_in_qemu(hostname,
     else:
         proper_timeout = qemu_timeout * qemu_full_emulation_factor
         logging.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
-    dracut_cmdline = ("rd.info rd.debug rd.udev.debug systemd.show_status=1 "
-                    "systemd.log_target=console systemd.log_level=info")
+    dracut_cmdline = ("rd.info rd.shell systemd.show_status=1 "
+                      "systemd.journald.forward_to_console=1 systemd.log_level=info")
     if interactive_qemu:
         screenmode = [
             "-nographic"
