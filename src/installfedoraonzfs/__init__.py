@@ -1427,7 +1427,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                            lukspassword,
                            break_before,
                            qemu_timeout)
-    except BreakBefore:
+    except BreakingBefore:
         delete = False
         raise
     finally:
