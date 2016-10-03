@@ -1486,8 +1486,10 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                 check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
         else:
             check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
-        to_unmount.append(target_rpms_path)
-        to_rmdir.append(target_rpms_path)
+        if os.path.ismount(target_rpms_path):
+            to_unmount.append(target_rpms_path)
+        if os.path.isdir(target_rpms_path):
+            to_rmdir.append(target_rpms_path)
         prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
         prebuilt_rpms_to_install = set([
             os.path.basename(s)
