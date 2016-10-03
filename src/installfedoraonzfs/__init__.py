@@ -651,7 +651,7 @@ class ChrootPackageManager(object):
                     cmd = [strategy,
                            'install',
                            '--disableplugin=*qubes*',
-                           '-y',
+                           '-y', "--rpmverbosity=10",
                            '--installroot=%s' % self.chroot,
                            '--releasever=%d' % self.releasever]
                 cmd = cmd + ['-c', yumconfig]
@@ -678,9 +678,9 @@ class ChrootPackageManager(object):
                     raise Exception("package file %r is not within the chroot" % package)
             logging.info("Installing packages: %s", packages)
             if self.strategy_insidechroot == "yum":
-                cmd = in_chroot(["yum", 'localinstall', '-y'])
+                cmd = in_chroot(["yum", 'localinstall', '-y', "--rpmverbosity=10"])
             elif self.strategy_insidechroot == "dnf":
-                cmd = in_chroot(["dnf", 'install', '-y'])
+                cmd = in_chroot(["dnf", 'install', '-y', "--rpmverbosity=10"])
             else:
                 assert 0, "unknown strategy %r" % self.strategy_insidechroot
             yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
@@ -700,7 +700,7 @@ class ChrootPackageManager(object):
         if installidx is not None:
             self._restore_downloaded_packages(strategy)
             precmd = cmd[:installidx] + ["--downloadonly"] + cmd[installidx:]
-            cmd = cmd[:installidx] + ["-C", "--rpmverbosity=10"] + cmd[installidx:]
+            cmd = cmd[:installidx] + ["-C"] + cmd[installidx:]
             check_call(precmd)
             self._save_downloaded_packages(strategy)
         check_call(cmd)
