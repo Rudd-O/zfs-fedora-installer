@@ -438,10 +438,6 @@ class ChrootPackageManager(object):
             self.pkgmgr_config_insidechroot.seek(0)
 
     def __exit__(self, *ignored, **kwignored):
-        if self.cachedir_lockfile:
-            logging.debug("Unlocking package manager lock %s", self.cachedir_lockfile)
-            self.cachedir_lockfile.close()
-            self.cachedir_lockfile = None
         if self.cachemount:
             umount(self.cachemount)
             self.cachemount = None
@@ -451,6 +447,10 @@ class ChrootPackageManager(object):
         if self.pkgmgr_config_outsidechroot:
             self.pkgmgr_config_outsidechroot.close()
             self.pkgmgr_config_outsidechroot = None
+        if self.cachedir_lockfile:
+            logging.debug("Unlocking package manager lock %s", self.cachedir_lockfile)
+            self.cachedir_lockfile.close()
+            self.cachedir_lockfile = None
         self.strategy_insidechroot = None
         self.strategy_outsidechroot = None
 
