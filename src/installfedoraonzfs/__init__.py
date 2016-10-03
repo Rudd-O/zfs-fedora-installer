@@ -459,6 +459,7 @@ class ChrootPackageManager(object):
         # https://github.com/rpm-software-management/dnf/pull/286
         # https://bugzilla.redhat.com/show_bug.cgi?id=1046244
         # Who the fuck does this shit?
+        logging.debug("Saving downloaded packages to cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
         if not self.cachedir:
             return
         if strategy != "dnf":
@@ -470,6 +471,7 @@ class ChrootPackageManager(object):
         ])
 
     def _restore_downloaded_packages(self, strategy):
+        logging.debug("Restoring downloaded packages from cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
         if not self.cachedir:
             return
         if strategy != "dnf":
@@ -552,16 +554,18 @@ class ChrootPackageManager(object):
             return self._run_pkgmgr_install(cmd, self.strategy_insidechroot)
 
     def _run_pkgmgr_install(self, cmd, strategy):
+        logging.debug("_run_pkgmgr_install running %s with strategy %s", cmd, strategy)
+        assert strategy in "yum dnf", strategy
         installidx = None
         for x in ("install", "localinstall"):
             if x in cmd:
                 installidx = cmd.index(x)
                 break
         if installidx is not None:
-            self._restore_downloaded_packages(self.strategy_insidechroot)
+            self._restore_downloaded_packages(strategy)
             precmd = cmd[:installidx] + ["--downloadonly"] + cmd[installidx:]
             check_call(precmd)
-            self._save_downloaded_packages(self.strategy_insidechroot)
+            self._save_downloaded_packages(strategy)
         check_call(cmd)
 
 
