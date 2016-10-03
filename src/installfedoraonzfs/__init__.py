@@ -592,31 +592,26 @@ class ChrootPackageManager(object):
         self.strategy_outsidechroot = None
 
     def _save_downloaded_packages(self, strategy):
+        logging.debug("Saving downloaded packages to cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
+        return self._shuffle_shit_around(strategy, "ephemeral", "permanent")
+
+    def _restore_downloaded_packages(self, strategy):
+        logging.debug("Restoring downloaded packages from cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
+        return self._shuffle_shit_around(strategy, "permanent", "ephemeral")
+
+    def _shuffle_shit_around(self, strategy, from_, to_):
         # DNF developers are criminals.
         # https://github.com/rpm-software-management/dnf/pull/286
         # https://bugzilla.redhat.com/show_bug.cgi?id=1046244
         # Who the fuck does this shit?
-        logging.debug("Saving downloaded packages to cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
         if not self.cachedir:
             return
         if strategy != "dnf":
             return
-        check_call([
+        return check_call([
             "rsync", "-axHAS",
-            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
-            self.cachedir + os.path.sep + "permanent" + os.path.sep,
-        ])
-
-    def _restore_downloaded_packages(self, strategy):
-        logging.debug("Restoring downloaded packages from cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
-        if not self.cachedir:
-            return
-        if strategy != "dnf":
-            return
-        check_call([
-            "rsync", "-axHAS",
-            self.cachedir + os.path.sep + "permanent" + os.path.sep,
-            self.cachedir + os.path.sep + "ephemeral" + os.path.sep,
+            self.cachedir + os.path.sep + from_ + os.path.sep,
+            self.cachedir + os.path.sep + to_ + os.path.sep,
         ])
 
     def ensure_packages_installed(self, packages, method="in_chroot"):
