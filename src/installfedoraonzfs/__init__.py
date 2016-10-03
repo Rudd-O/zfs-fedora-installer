@@ -117,6 +117,10 @@ def get_parser():
         action="store", default=None, help="change the group of the image files upon creation to this group"
     )
     parser.add_argument(
+        "--use-branch", dest="branch",
+        action="store", default="master", help="when building SPL and ZFS from source, check out this branch instead of master"
+    )
+    parser.add_argument(
         "--break-before", dest="break_before",
         choices=break_stages,
         action="store", default=None,
@@ -143,6 +147,10 @@ def get_deploy_parser():
     parser.add_argument(
         "--no-cleanup", dest="nocleanup",
         action="store_true", default=False, help="if an error occurs, do not clean up temporary mounts and files"
+    )
+    parser.add_argument(
+        "--use-branch", dest="branch",
+        action="store", default="master", help="when building SPL and ZFS from source, check out this branch instead of master"
     )
     return parser
 
@@ -746,6 +754,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    chown=None,
                    chgrp=None,
                    break_before=None,
+                   branch="master",
                    workdir='/var/lib/zfs-fedora-installer',
     ):
 
@@ -1136,6 +1145,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                               in_chroot=in_chroot,
                               pkgmgr=pkgmgr,
                               prebuilt_rpms_path=prebuilt_rpms_path,
+                              branch=branch,
                               break_before=break_before,
                               to_unmount=to_unmount,
                               to_rmdir=to_rmdir,)
@@ -1489,6 +1499,7 @@ def install_fedora_on_zfs():
             args.prebuiltrpms,
             args.yum_cachedir,
             args.force_kvm,
+            branch=args.branch,
             chown=args.chown,
             chgrp=args.chgrp,
             break_before=args.break_before,
@@ -1505,7 +1516,7 @@ def install_fedora_on_zfs():
     return 0
 
 
-def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
+def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                           prebuilt_rpms_path, break_before, to_unmount, to_rmdir):
     arch = platform.machine()
     stringtoexclude = "debuginfo"
@@ -1650,6 +1661,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
             [
                 "zlib-devel", "libuuid-devel", "bc", "libblkid-devel",
                 "libattr-devel", "lsscsi", "mdadm", "parted",
+                "libudev-devel",
             ],
         ),
     ):
@@ -1679,6 +1691,8 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                     logging.info("Cloning git repository: %s", repo)
                     cmd = ["git", "clone", repo, project_dir]
                     check_call(cmd)
+                    cmd = ["git", "checkout", branch]
+                    check_call(cmd, cwd=project_dir)
 
                 pkgmgr.ensure_packages_installed(mindeps)
 
@@ -1730,6 +1744,7 @@ def deploy_zfs():
                               in_chroot=in_chroot,
                               pkgmgr=pkgmgr,
                               prebuilt_rpms_path=args.prebuiltrpms,
+                              branch=args.branch,
                               break_before=None,
                               to_rmdir=to_rmdir,
                               to_unmount=to_unmount,)
