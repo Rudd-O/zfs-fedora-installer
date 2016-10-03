@@ -1299,7 +1299,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             "-mon","char1,mode=control,default",
         ]
     if lukspassword:
-        luks_cmdline = "rd.luks.uuid=%s rd.luks.key=/key "%(rootuuid,)
+        luks_cmdline = "rd.luks.uuid=%s "%(rootuuid,)
     else:
         luks_cmdline = ""
     cmdline = '%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro init=/installbootloader' % (
