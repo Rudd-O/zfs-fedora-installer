@@ -1119,6 +1119,7 @@ w
                 raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
 
         p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
+        q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
 
         # mount virtual file systems, creating their mount points as necessary
         for m in "boot sys proc etc".split():
@@ -1333,7 +1334,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             mayhapszfsko = ""
         # At this point, we regenerate the initrds.
         if "zfs.ko" not in mayhapszfsko:
-            check_call(in_chroot(["dracut", "-Nfv", initrd, kver]))
+            check_call(in_chroot(["dracut", "-Nfv", q(initrd), q(kver)]))
 
         # Kill the resolv.conf file written only to install packages.
         if os.path.isfile(p(j("etc", "resolv.conf"))):
