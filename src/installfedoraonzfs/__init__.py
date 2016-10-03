@@ -391,7 +391,6 @@ def boot_image_in_qemu(hostname,
                 pipes.quote(s) for s in cmd
             ])
         )
-        logging.info("These files remain behind: %s and %s" % (kernelfile, initrdfile))
         raise BreakingBefore(break_before)
 
     def babysit(popenobject, timeout):
@@ -847,6 +846,7 @@ class Undoer:
         self.to_export = Tracker("export")
         self.to_rmdir = Tracker("rmdir")
         self.to_unmount = Tracker("unmount")
+        self.to_rmrf = Tracker("rmrf")
 
     def undo(self):
         for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
@@ -854,6 +854,8 @@ class Undoer:
                 o.close()
             if typ == "unmount":
                 umount(o)
+            if typ == "rmrf":
+                shutil.rmtree(o)
             if typ == "rmdir":
                 os.rmdir(o)
             if typ == "export":
@@ -898,6 +900,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     to_export = undoer.to_export
     to_rmdir = undoer.to_rmdir
     to_unmount = undoer.to_unmount
+    to_rmrf = undoer.to_rmrf
 
     def cleanup():
         undoer.undo()
@@ -1394,45 +1397,38 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             shutil.rmtree(kerneltempdir)
             raise
 
+        cleanup()
+
+        to_rmrf.append(kerneltempdir)
+
+        # install bootloader using qemu
+        boot_image_in_qemu(hostname,
+                        poolname,
+                        original_voldev,
+                        original_bootdev,
+                        os.path.join(kerneltempdir, os.path.basename(kernel)),
+                        os.path.join(kerneltempdir, os.path.basename(initrd)),
+                        force_kvm,
+                        interactive_qemu,
+                        lukspassword,
+                        break_before,
+                        qemu_timeout)
+
     # tell the user we broke
     except BreakingBefore, e:
         print >> sys.stderr, "------------------------------------------------"
         print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
-        if do_cleanup:
-            print >> sys.stderr, "Cleaning up now"
-            cleanup()
         raise
 
     # end operating with the devices
     except BaseException, e:
         logging.exception("Unexpected error")
-        if do_cleanup:
-            logging.info("Cleaning up now")
-            cleanup()
         raise
 
-    cleanup()
-
-    # install bootloader using qemu
-    delete = True
-    try:
-        boot_image_in_qemu(hostname,
-                           poolname,
-                           original_voldev,
-                           original_bootdev,
-                           os.path.join(kerneltempdir, os.path.basename(kernel)),
-                           os.path.join(kerneltempdir, os.path.basename(initrd)),
-                           force_kvm,
-                           interactive_qemu,
-                           lukspassword,
-                           break_before,
-                           qemu_timeout)
-    except BreakingBefore:
-        delete = False
-        raise
     finally:
-        if delete:
-            shutil.rmtree(kerneltempdir)
+        if do_cleanup:
+            print >> sys.stderr, "Cleaning up now"
+            cleanup()
 
 
 def test_cmd(cmdname, expected_ret):
