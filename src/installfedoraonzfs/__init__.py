@@ -387,14 +387,14 @@ class ChrootPackageManager(object):
             if not os.path.isdir(cachemount):
                 os.makedirs(cachemount)
             if not os.path.ismount(cachemount):
-                check_call(["mount", "--bind", self.cachedir, cachemount])
+                check_call(["mount", "--bind", j(self.cachedir, "ephemeral"), cachemount])
             self.cachemount = cachemount
             if not os.path.isdir(j(self.chroot, "var", "lib", self.strategy_outsidechroot)):
                 os.makedirs(j(self.chroot, "var", "lib", self.strategy_outsidechroot))
             parms = dict(
                 source=sourceconf,
                 directory=os.getenv("TMPDIR") or "/tmp",
-                cachedir=j("/var", "cache", self.strategy_outsidechroot, "ephemeral"),
+                cachedir=j("/var", "cache", self.strategy_outsidechroot),
                 persistdir=j("/var", "lib", self.strategy_outsidechroot),
                 logfile="/dev/null",
                 debuglevel=2,
