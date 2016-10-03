@@ -1390,8 +1390,14 @@ test -f %s || dracut -Hf %s %s
 sync
 umount /boot || true
 rm -f /installbootloader
+# Very superstitious,
+# writing's on the platter.
 sync
+# When you believe in things,
+# that you don't understand
+# then you suffer.
 sync
+# Superstition ain't the way.
 echo 1 > /proc/sys/kernel/sysrq
 echo o > /proc/sysrq-trigger
 sleep 5
