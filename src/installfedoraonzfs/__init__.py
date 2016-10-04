@@ -797,7 +797,7 @@ echo cannot power off VM.  Please kill qemu.
         biiq("init=/installbootloader")
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
-            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, rootuuid, luksuuid, bootpartuuid):
+            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
                 shutil.copy2(hostonly_initrd, kerneltempdir)
 
         to_rmrf.remove(kerneltempdir)
