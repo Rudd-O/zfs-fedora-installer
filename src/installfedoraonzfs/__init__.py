@@ -1085,8 +1085,10 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                 if not os.path.isdir(project_dir):
                     repo = "https://github.com/Rudd-O/%s" % project
                     logging.info("Cloning git repository: %s", repo)
-                    cmd = ["git", "clone", "-b", branch, repo, project_dir]
+                    cmd = ["git", "clone", repo, project_dir]
                     check_call(cmd)
+                    cmd = ["git", "checkout", branch]
+                    check_call(cmd, cwd= project_dir)
 
                 pkgmgr.ensure_packages_installed(mindeps)
 
