@@ -177,7 +177,7 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm(method)
         try:
-            with lock:
+            with lock as lf:
                 try:
                     check_call(in_chroot(["rpm", "-q"] + packages),
                                         stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
@@ -198,8 +198,8 @@ class ChrootPackageManager(object):
                     if pkgmgr != "dnf":
                         cmd = cmd + ['--']
                     cmd = cmd + packages
-                    lock.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
-                    lock.flush()
+                    lf.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
+                    lf.flush()
                     return check_call(cmd)
         finally:
             self.ungrab_pm()
@@ -210,7 +210,7 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm("in_chroot")
         try:
-            with lock:
+            with lock as lf:
                 # always happens in chroot
                 # packages must be a list of paths to RPMs valid within the chroot
 
@@ -231,8 +231,8 @@ class ChrootPackageManager(object):
                 if pkgmgr != "dnf":
                     cmd = cmd + ['--']
                 cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-                lock.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
-                lock.flush()
+                lf.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
+                lf.flush()
                 return check_call(cmd)
         finally:
             self.ungrab_pm()
