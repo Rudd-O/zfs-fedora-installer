@@ -55,23 +55,24 @@ def bindmount(source, target):
     return mount(source, target, "--bind")
 
 
-def lockf(f):
+def _lockf(f):
     fcntl.flock(f.fileno(), fcntl.LOCK_EX)
     return f
 
 
-def unlockf(f):
+def _unlockf(f):
     fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    return f
 
 
 def isbindmount(target):
     f = file("/etc/mtab")
-    lockf(f)
+    _lockf(f)
     try:
         mountpoints = [x.strip().split()[1].decode("string_escape") for x in f.readlines()]
         return target in mountpoints
     finally:
-        unlockf(f)
+        _unlockf(f)
         f.close()
 
 
@@ -180,6 +181,10 @@ def makedirs(ds):
 
 @contextlib.contextmanager
 def lockfile(path):
-    lf = lockf(open(path, 'ab'))
+    lf = _lockf(open(path, 'wb'))
+    lf.write(str(os.getpid()))
+    lf.flush()
     yield lf
+    lf.truncate()
+    lf.flush()
     lf.close()
