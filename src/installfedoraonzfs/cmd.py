@@ -182,7 +182,7 @@ def makedirs(ds):
 @contextlib.contextmanager
 def lockfile(path):
     lf = _lockf(open(path, 'wb'))
-    lf.write(str(os.getpid()))
+    lf.write(str(os.getpid())+"\n")
     lf.flush()
     yield lf
     lf.truncate()
