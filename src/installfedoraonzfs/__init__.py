@@ -768,7 +768,9 @@ echo cannot power off VM.  Please kill qemu.
 
                 # copy necessary boot files to a temp dir
                 try:
-                    kerneltempdir = tempfile.mkdtemp()
+                    kerneltempdir = tempfile.mkdtemp(
+                        prefix="install-fedora-on-zfs-bootbits-"
+                    )
                     to_rmrf.append(kerneltempdir)
                     shutil.copy2(kernel, kerneltempdir)
                     shutil.copy2(initrd, kerneltempdir)
