@@ -1089,6 +1089,8 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     check_call(cmd)
                     cmd = ["git", "checkout", branch]
                     check_call(cmd, cwd= project_dir)
+                    cmd = ["git", "show"]
+                    check_call(cmd, cwd= project_dir)
 
                 pkgmgr.ensure_packages_installed(mindeps)
 
