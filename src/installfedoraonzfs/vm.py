@@ -14,7 +14,6 @@ from installfedoraonzfs.cmd import Popen
 
 
 logger = logging.getLogger("VM")
-qemu_timeout = 120
 qemu_full_emulation_factor = 10
 
 
