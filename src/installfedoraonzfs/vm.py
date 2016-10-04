@@ -133,11 +133,14 @@ def boot_image_in_qemu(hostname,
         raise BreakingBefore(break_before)
 
     def babysit(popenobject, timeout):
-        for _ in xrange(timeout):
+        logger = logging.getLogger("VM.babysitter")
+        for x in xrange(timeout):
             if popenobject.returncode is not None:
                 return
+            if x and (x % 60 == 0):
+            logger.error("%s seconds elapsed", x)
             time.sleep(1)
-        logger.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
+        logger.error("killing lame duck emulator after %s seconds", timeout)
         popenobject.kill()
 
     if interactive_qemu:
