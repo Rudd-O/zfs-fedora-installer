@@ -5,6 +5,7 @@ import contextlib
 import fcntl
 import os
 from os.path import join as j
+import pipes
 import re
 import tempfile
 import logging
@@ -182,7 +183,7 @@ class ChrootPackageManager(object):
                                         stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
                     logger.info("All required packages are available")
                 except subprocess.CalledProcessError:
-                    logger.info("Installing packages %s: %s", method, packages)
+                    logger.info("Installing packages %s: %s", method, ", ".join(packages))
                     if method == 'in_chroot':
                         cmd = in_chroot([pkgmgr, 'install', '-q', '-y',
                                         '-c', config.name[len(self.chroot):]])
@@ -197,6 +198,8 @@ class ChrootPackageManager(object):
                     if pkgmgr != "dnf":
                         cmd = cmd + ['--']
                     cmd = cmd + packages
+                    lock.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
+                    lock.flush()
                     return check_call(cmd)
         finally:
             self.ungrab_pm()
@@ -217,7 +220,7 @@ class ChrootPackageManager(object):
                         raise Exception("package file %r does not exist" % package)
                     if not package.startswith(self.chroot + os.path.sep):
                         raise Exception("package file %r is not within the chroot" % package)
-                logger.info("Installing packages: %s", packages)
+                logger.info("Installing packages: %s", ", ".join(packages))
                 if pkgmgr == "yum":
                     cmd = in_chroot([pkgmgr , 'localinstall', '-q', '-y'])
                 elif pkgmgr  == "dnf":
@@ -228,6 +231,8 @@ class ChrootPackageManager(object):
                 if pkgmgr != "dnf":
                     cmd = cmd + ['--']
                 cmd = cmd + [ p[len(self.chroot):] for p in packages ]
+                lock.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
+                lock.flush()
                 return check_call(cmd)
         finally:
             self.ungrab_pm()
@@ -248,7 +253,7 @@ class SystemPackageManager(object):
                        stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
             logger.info("All required packages are available")
         except subprocess.CalledProcessError:
-            logger.info("Installing packages %s: %s", method, packages)
+            logger.info("Installing packages %s: %s", method, ", ".join(packages))
             cmd = [self.strategy, 'install', '-q', '-y']
             if self.strategy != "dnf":
                 cmd = cmd + ['--']
@@ -263,7 +268,7 @@ class SystemPackageManager(object):
         for package in packages:
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
-        logger.info("Installing packages: %s", packages)
+        logger.info("Installing packages: %s", ", ".join(packages))
         if self.strategy == "yum":
             cmd = ['yum', 'localinstall', '-q', '-y', '--']
         elif self.strategy == "dnf":
