@@ -226,10 +226,9 @@ class BootDriver(threading.Thread):
                     lastline.append(c)
                 s = "".join(lastline)
                 if (self.password and
-                    "Please" in s and
-                    "enter" in s and
-                    "passphrase" in s and
-                    "for disk" in s and
+                    # Please enter passphrase for disk QEMU...
+                    # Enter passphrase for /dev/...
+                    "nter passphrase for" in s and
                     pwendprompt in s):
                     # Zero out the last line to prevent future spurious matches.
                     consolelogger.debug("".join(lastline))
