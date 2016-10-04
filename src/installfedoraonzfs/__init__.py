@@ -1359,6 +1359,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # At this point, we regenerate the initrds.
                 if "zfs.ko" not in mayhapszfsko:
                     check_call(in_chroot(["dracut", "-Nf", q(initrd), q(kver)]))
+                    for l in check_output(["lsinitrd", initrd]).splitlines(False):
+                        logging.debug("initramfs: %s", l)
 
                 # Kill the resolv.conf file written only to install packages.
                 if os.path.isfile(p(j("etc", "resolv.conf"))):
@@ -1383,7 +1385,10 @@ ln -sf /proc/self/mounts /etc/mtab
 grub2-install /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
 zfs inherit com.sun:auto-snapshot "%s"
-test -f %s || dracut -Hf %s %s
+test -f %s || {
+    dracut -Hf %s %s
+    lsinitrd %s
+}
 sync
 umount /boot || true
 rm -f /installbootloader
@@ -1401,7 +1406,7 @@ sleep 5
 echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
-'''%(poolname, q(hostonly_initrd), q(hostonly_initrd), kver)
+'''%(poolname, q(hostonly_initrd), q(hostonly_initrd), kver, q(hostonly_initrd))
                 bootloaderpath = p("installbootloader")
                 bootloader = file(bootloaderpath,"w")
                 bootloader.write(bootloadertext)
