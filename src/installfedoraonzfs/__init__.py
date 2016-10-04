@@ -710,7 +710,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     mayhapszfsko = ""
                 # At this point, we regenerate the initrds.
                 if "zfs.ko" not in mayhapszfsko:
-                    check_call(in_chroot(["dracut", "-Nf", q(initrd), q(kver)]))
+                    check_call(in_chroot(["dracut", "-Nf", q(initrd), kver]))
                     for l in check_output(["lsinitrd", initrd]).splitlines(False):
                         logging.debug("initramfs: %s", l)
 
