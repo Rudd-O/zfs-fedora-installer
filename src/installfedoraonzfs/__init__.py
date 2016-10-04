@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import contextlib
 import sys
 import os
 import argparse
@@ -12,28 +13,20 @@ import glob
 import platform
 import tempfile
 import logging
-import uuid
 import re
 import shlex
-import collections
-import threading
-import fnmatch
 import multiprocessing
 import pipes
+import errno
+
+from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
+from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
+from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
+from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
-break_stages = collections.OrderedDict()
-break_stages["beginning"] = "doing anything"
-break_stages["install_prebuilt_rpms"] = "installing prebuilt RPMs specified on the command line"
-break_stages["install_grub_zfs_fixer"] = "installing GRUB2 fixer RPM"
-break_stages["deploy_spl"] = "deploying SPL"
-break_stages["deploy_zfs"] = "deploying ZFS"
-break_stages["reload_chroot"] = "reloading the final chroot"
-break_stages["install_bootloader"] = "installing the bootloader"
-
-qemu_timeout = 120
-qemu_full_emulation_factor = 10
 BASIC_FORMAT = '%(levelname)8s:%(name)s:%(funcName)20s@%(lineno)4d\t%(message)s'
+qemu_timeout = 180
 
 
 def get_parser():
@@ -82,7 +75,7 @@ def get_parser():
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
-        action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption)"
+        action="store", default=None, help="LUKS password to encrypt the ZFS volume with (default no encryption); unprintable glyphs whose ASCII value lies below 32 (the space character) will be rejected"
     )
     parser.add_argument(
         "--luks-options", dest="luksoptions", metavar="LUKSOPTIONS", type=str,
@@ -113,6 +106,10 @@ def get_parser():
         action="store", default=None, help="change the group of the image files upon creation to this group"
     )
     parser.add_argument(
+        "--use-branch", dest="branch",
+        action="store", default="master", help="when building SPL and ZFS from source, check out this branch instead of master"
+    )
+    parser.add_argument(
         "--break-before", dest="break_before",
         choices=break_stages,
         action="store", default=None,
@@ -140,35 +137,12 @@ def get_deploy_parser():
         "--no-cleanup", dest="nocleanup",
         action="store_true", default=False, help="if an error occurs, do not clean up temporary mounts and files"
     )
+    parser.add_argument(
+        "--use-branch", dest="branch",
+        action="store", default="master", help="when building SPL and ZFS from source, check out this branch instead of master"
+    )
     return parser
 
-
-def format_cmdline(lst):
-    return " ".join(pipes.quote(x) for x in lst)
-
-def check_call(*args,**kwargs):
-    cwd = kwargs.get("cwd", os.getcwd())
-    cmd = args[0]
-    logging.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
-    return subprocess.check_call(*args,**kwargs)
-
-def check_output(*args,**kwargs):
-    cwd = kwargs.get("cwd", os.getcwd())
-    cmd = args[0]
-    logging.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
-    output = subprocess.check_output(*args,**kwargs)
-    if output:
-        firstline=output.splitlines()[0].strip()
-        logging.debug("First line of output from command: %s", firstline)
-    else:
-        logging.debug("No output from command")
-    return output
-
-def Popen(*args,**kwargs):
-    cwd = kwargs.get("cwd", os.getcwd())
-    cmd = args[0]
-    logging.debug("Popening %s in cwd %r", format_cmdline(cmd), cwd)
-    return subprocess.Popen(*args,**kwargs)
 
 def filetype(dev):
     '''returns 'file' or 'blockdev' or 'doesntexist' for dev'''
@@ -181,8 +155,6 @@ def filetype(dev):
     if stat.S_ISREG(s.st_mode): return 'file'
     assert 0, 'specified path %r is not a block device or a file'
 
-def with_flock(lst, directory, filelock="lockfile"):
-    return ["flock" , j(directory, filelock)] + lst
 
 def get_associated_lodev(path):
     output = ":".join(check_output(
@@ -222,345 +194,58 @@ def delete_contents(directory):
     if ps:
         check_call(["rm", "-rf"] + ps)
 
-def mpdecode(encoded_mountpoint):
-    chars = []
-    pos = 0
-    while pos < len(encoded_mountpoint):
-        c = encoded_mountpoint[pos]
-        if c == "\\":
-          try:
-            if encoded_mountpoint[pos+1] == "\\":
-                chars.append("\\")
-                pos = pos + 1
-            elif (
-                encoded_mountpoint[pos+1] in "0123456789" and
-                encoded_mountpoint[pos+2] in "0123456789" and
-                encoded_mountpoint[pos+3] in "0123456789"
-                ):
-                chunk = encoded_mountpoint[pos+1] + encoded_mountpoint[pos+2] + encoded_mountpoint[pos+3]
-                chars.append(chr(int(chunk, 8)))
-                pos = pos + 3
-            else:
-                raise ValueError("Unparsable mount point %r at pos %s" % (encoded_mountpoint, pos))
-          except IndexError, e:
-              raise ValueError("Unparsable mount point %r at pos %s: %s" % (encoded_mountpoint, pos, e))
-        else:
-            chars.append(c)
-        pos = pos + 1
-    return "".join(chars)
-
-def check_for_open_files(prefix):
-  """Check that there are open files or mounted file systems within the prefix.
-
-  Returns a  dictionary where the keys are the files, and the values are lists
-  that contain tuples (pid, command line) representing the processes that are
-  keeping those files open, or tuples ("<mount>", description) representing
-  the file systems mounted there."""
-  results = dict()
-  files = glob.glob("/proc/*/fd/*") + glob.glob("/proc/*/cwd")
-  for f in files:
-    try:
-      d = os.readlink(f)
-    except Exception:
-      continue
-    if d.startswith(prefix + os.path.sep) or d == prefix:
-      pid = f.split(os.path.sep)[2]
-      if pid == "self": continue
-      c = os.path.join("/", *(f.split(os.path.sep)[1:3] + ["cmdline"]))
-      try:
-        cmd = format_cmdline(file(c).read().split("\0"))
-      except Exception:
-        continue
-      if len(cmd) > 60:
-        cmd = cmd[:57] + "..."
-      if d not in results:
-        results[d] = []
-      results[d].append((pid, cmd))
-  for l in file("/proc/self/mounts").readlines():
-      fields = l[:-1].split(" ")
-      dev = mpdecode(fields[0])
-      mp = mpdecode(fields[1])
-      if mp.startswith(prefix + os.path.sep):
-        if mp not in results:
-            results[mp] = []
-        results[mp].append(("<mount>", dev))
-  return results
-
-def umount(mountpoint, tries=5):
-    try:
-        check_call(["umount", mountpoint])
-    except subprocess.CalledProcessError:
-        if tries < 1:
-            raise
-        openfiles = check_for_open_files(mountpoint)
-        if openfiles:
-            logging.info("There are open files in %r:", mountpoint)
-            for of, procs in openfiles.items():
-                logging.info("%r:", of)
-                for pid, cmd in procs:
-                    logging.info("  %7s  %s", pid, cmd)
-        logging.info("Syncing and sleeping 1 second")
-        check_call(['sync'])
-        time.sleep(1)
-        umount(mountpoint, tries - 1)
-
-def make_temp_yum_config(source, directory, **kwargs):
-    tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
-    yumconfigtext = file(source).read()
-    for optname, optval in kwargs.items():
-        if optval is None:
-            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M)
-        else:
-            if optname == "cachedir":
-                optval = optval + "/$basearch/$releasever"
-            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
-            if not repls:
-                yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
-                assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
-    tempyumconfig.write(yumconfigtext)
-    tempyumconfig.flush()
-    tempyumconfig.seek(0)
-    return tempyumconfig
-
-fedora_repos_template = """
-[fedora]
-name=Fedora $releasever - $basearch
-failovermethod=priority
-#baseurl=http://download.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everything/$basearch/os/
-metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-$releasever&arch=$basearch
-enabled=1
-metadata_expire=7d
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
-skip_if_unavailable=False
-
-[updates]
-name=Fedora $releasever - $basearch - Updates
-failovermethod=priority
-#baseurl=http://download.fedoraproject.org/pub/fedora/linux/updates/$releasever/$basearch/
-metalink=https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$releasever&arch=$basearch
-enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
-skip_if_unavailable=False
-"""
-
-class ChrootPackageManager(object):
-
-    chroot = None
-    cachedir = None
-
-    cachemount = None
-    pkgmgr_config_outsidechroot = None
-    pkgmgr_config_insidechroot = None
-    strategy_outsidechroot = None
-    strategy_insidechroot = None
-
-    def __init__(self, chroot, releasever, cachedir=None):
-        self.releasever = releasever
-        self.chroot = chroot
-        self.cachedir = None if cachedir is None else os.path.abspath(cachedir)
-
-    def __enter__(self):
-        if self.pkgmgr_config_outsidechroot:
-            return
-
-        if os.path.exists("/etc/dnf/dnf.conf"):
-            sourceconf = "/etc/dnf/dnf.conf"
-            self.strategy_outsidechroot = "dnf"
-        else:
-            sourceconf = "/etc/yum.conf"
-            self.strategy_outsidechroot = "yum"
-
-        # prepare yum cache directory
-        if self.cachedir:
-            if not os.path.isdir(self.cachedir):
-                os.makedirs(self.cachedir)
-            cachemount = j(self.chroot, "var", "cache", self.strategy_outsidechroot)
-            if not os.path.isdir(cachemount):
-                os.makedirs(cachemount)
-            if not os.path.ismount(cachemount):
-                check_call(["mount", "--bind", self.cachedir, cachemount])
-            self.cachemount = cachemount
-            if not os.path.isdir(j(self.chroot, "var", "lib", self.strategy_outsidechroot)):
-                os.makedirs(j(self.chroot, "var", "lib", self.strategy_outsidechroot))
-            parms = dict(
-                source=sourceconf,
-                directory=os.getenv("TMPDIR") or "/tmp",
-                cachedir=j("/var", "cache", self.strategy_outsidechroot),
-                persistdir=j("/var", "lib", self.strategy_outsidechroot),
-                keepcache=1,
-                logfile="/dev/null",
-                debuglevel=2,
-                reposdir="/nonexistent",
-                include=None,
-            )
-        else:
-            parms = dict(
-                source=sourceconf,
-                directory=os.getenv("TMPDIR") or "/tmp",
-                reposdir="/nonexistent",
-                include=None,
-            )
-
-        self.pkgmgr_config_outsidechroot = make_temp_yum_config(**parms)
-        # write fedora repos configuration
-        self.pkgmgr_config_outsidechroot.seek(0, 2)
-        self.pkgmgr_config_outsidechroot.write(fedora_repos_template)
-        self.pkgmgr_config_outsidechroot.flush()
-        self.pkgmgr_config_outsidechroot.seek(0)
-
-        if os.path.isfile(j(self.chroot, "etc", "dnf", "dnf.conf")):
-            parms["source"] = j(self.chroot, "etc", "dnf", "dnf.conf")
-            self.strategy_insidechroot = "dnf"
-
-        elif os.path.isfile(j(self.chroot, "etc", "yum.conf")):
-            parms["source"] = j(self.chroot, "etc", "yum.conf")
-            self.strategy_insidechroot = "yum"
-
-        if self.strategy_insidechroot:
-            parms["directory"] = j(self.chroot, "tmp")
-            self.pkgmgr_config_insidechroot = make_temp_yum_config(**parms)
-            # write fedora repos configuration
-            self.pkgmgr_config_insidechroot.seek(0, 2)
-            self.pkgmgr_config_insidechroot.write(fedora_repos_template)
-            self.pkgmgr_config_insidechroot.flush()
-            self.pkgmgr_config_insidechroot.seek(0)
-
-    def __exit__(self, *ignored, **kwignored):
-        if self.cachemount:
-            umount(self.cachemount)
-            self.cachemount = None
-        if self.pkgmgr_config_insidechroot:
-            self.pkgmgr_config_insidechroot.close()
-            self.pkgmgr_config_insidechroot = None
-        if self.pkgmgr_config_outsidechroot:
-            self.pkgmgr_config_outsidechroot.close()
-            self.pkgmgr_config_outsidechroot = None
-        self.strategy_insidechroot = None
-        self.strategy_outsidechroot = None
-
-    def ensure_packages_installed(self, packages, method="in_chroot"):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
-        with self:
-            # method can be out_of_chroot or in_chroot
-            if method == 'in_chroot':
-                if not self.strategy_insidechroot:
-                    raise Exception("Cannot use in_chroot method without a working yum or DNF inside the chroot")
-                strategy = self.strategy_insidechroot
-            elif method == 'out_of_chroot':
-                if not self.strategy_outsidechroot:
-                    raise Exception("Cannot use out_of_chroot method without a working yum or DNF installed on your system")
-                strategy = self.strategy_outsidechroot
-            else:
-                assert 0, "unknown method %r" % method
-
-            try:
-                logging.info("Checking packages are available: %s", packages)
-                check_call(in_chroot(["rpm", "-q"] + packages),
-                                    stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-                logging.info("All required packages are available")
-            except subprocess.CalledProcessError:
-                logging.info("Installing packages %s: %s", method, packages)
-                if method == 'in_chroot':
-                    yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
-                    cmd = in_chroot([strategy, 'install', '-y'])
-                elif method == 'out_of_chroot':
-                    yumconfig = self.pkgmgr_config_outsidechroot.name
-                    cmd = [strategy, 'install', '-y', '--installroot=%s' % self.chroot, '--releasever=%d' % self.releasever]
-                if self.cachemount:
-                    cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
-                else:
-                    cmd = cmd + ['-c', yumconfig]
-                if strategy != "dnf":
-                    cmd = cmd + ['--']
-                cmd = cmd + packages
-                check_call(cmd)
-
-    def install_local_packages(self, packages):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
-        with self:
-            # always happens in chroot
-            # packages must be a list of paths to RPMs valid within the chroot
-            if not self.strategy_insidechroot:
-                raise Exception("Cannot install local packages without a working yum or DNF inside the chroot")
-
-            packages = [ os.path.abspath(p) for p in packages ]
-            for package in packages:
-                if not os.path.isfile(package):
-                    raise Exception("package file %r does not exist" % package)
-                if not package.startswith(self.chroot + os.path.sep):
-                    raise Exception("package file %r is not within the chroot" % package)
-            logging.info("Installing packages: %s", packages)
-            if self.strategy_insidechroot == "yum":
-                cmd = in_chroot(["yum", 'localinstall', '-y'])
-            elif self.strategy_insidechroot == "dnf":
-                cmd = in_chroot(["dnf", 'install', '-y'])
-            else:
-                assert 0, "unknown strategy %r" % self.strategy_insidechroot
-            yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
-            if self.cachemount:
-                cmd = with_flock(cmd + ['-c', yumconfig], self.cachemount)
-            else:
-                cmd = cmd + ['-c', yumconfig]
-            if self.strategy_insidechroot != "dnf":
-                cmd = cmd + ['--']
-            cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-            check_call(cmd)
 
 
-class SystemPackageManager(object):
-
-    def __init__(self):
-        if os.path.exists("/etc/dnf/dnf.conf"):
-            self.strategy = "dnf"
-        else:
-            self.strategy = "yum"
-
-    def ensure_packages_installed(self, packages, method="in_chroot"):
-        logging.info("Checking packages are available: %s", packages)
-        try:
-            check_call(["rpm", "-q"] + packages,
-                       stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-            logging.info("All required packages are available")
-        except subprocess.CalledProcessError:
-            logging.info("Installing packages %s: %s", method, packages)
-            cmd = [self.strategy, 'install', '-y']
-            if self.strategy != "dnf":
-                cmd = cmd + ['--']
-            cmd = cmd + packages
-            check_call(cmd)
-
-    def install_local_packages(self, packages):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
-        packages = [ os.path.abspath(p) for p in packages ]
-        for package in packages:
-            if not os.path.isfile(package):
-                raise Exception("package file %r does not exist" % package)
-        logging.info("Installing packages: %s", packages)
-        if self.strategy == "yum":
-            cmd = ['yum', 'localinstall', '-y', '--']
-        elif self.strategy == "dnf":
-            cmd = ['dnf', 'install', '-y']
-        else:
-            assert 0, "unknown strategy %r" % self.strategy
-        cmd = cmd + packages
-        check_call(cmd)
-
-
-class BootloaderWedged(Exception): pass
-class MachineNeverShutoff(Exception): pass
 class ZFSMalfunction(Exception): pass
 class ZFSBuildFailure(Exception): pass
+class ImpossiblePassphrase(Exception): pass
 
 
-class BreakingBefore(Exception): pass
+class Undoer:
+
+    def __init__(self):
+        self.actions = []
+
+        class Tracker:
+
+            def __init__(self, typ):
+                self.typ = typ
+
+            def append(me, o):
+                self.actions.append([me.typ, o])
+
+            def remove(me, o):
+                for n, (typ, origo) in reversed(list(enumerate(self.actions[:]))):
+                    if typ == me.typ and o == origo:
+                        self.actions.pop(n)
+                        break
+
+        self.to_un_losetup = Tracker("un_losetup")
+        self.to_luks_close = Tracker("luks_close")
+        self.to_export = Tracker("export")
+        self.to_rmdir = Tracker("rmdir")
+        self.to_unmount = Tracker("unmount")
+        self.to_rmrf = Tracker("rmrf")
+
+    def undo(self):
+        for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
+            if typ == "unmount":
+                umount(o)
+            if typ == "rmrf":
+                shutil.rmtree(o)
+            if typ == "rmdir":
+                os.rmdir(o)
+            if typ == "export":
+                check_call(["sync"])
+                check_call(["zpool", "export", o])
+            if typ == "luks_close":
+                check_call(["sync"])
+                check_call(["cryptsetup", "luksClose", o])
+            if typ == "un_losetup":
+                check_call(["sync"])
+                check_call(["losetup", "-d", o])
+            self.actions.pop(n)
+
 
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
@@ -575,41 +260,32 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    chown=None,
                    chgrp=None,
                    break_before=None,
+                   branch="master",
                    workdir='/var/lib/zfs-fedora-installer',
     ):
+
+    if lukspassword and not BootDriver.can_handle_passphrase(lukspassword):
+        raise ImpossiblePassphrase("passphrase %r cannot be handled by the boot driver" % lukspassword)
 
     original_voldev = voldev
     original_bootdev = bootdev
 
-    to_close = []
-    to_un_losetup = []
-    to_luks_close = []
-    to_export = []
-    to_rmdir = []
-    to_unmount = []
+    undoer = Undoer()
+    to_un_losetup = undoer.to_un_losetup
+    to_luks_close = undoer.to_luks_close
+    to_export = undoer.to_export
+    to_rmdir = undoer.to_rmdir
+    to_unmount = undoer.to_unmount
+    to_rmrf = undoer.to_rmrf
 
     def cleanup():
-        for f in to_close:
-            f.close()
-        check_call(['sync'])
-        for fs in reversed(to_unmount):
-            umount(fs)
-        for filename in to_rmdir:
-            os.rmdir(filename)
-        for pool in to_export:
-            check_call(["zpool", "export", pool])
-        for luksdev in to_luks_close:
-            check_call(["cryptsetup", "luksClose", luksdev])
-        for bdev in to_un_losetup:
-            check_call(["losetup", "-d", bdev])
+        undoer.undo()
 
     if not releasever:
-        releasever = int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
+        releasever = ChrootPackageManager.get_my_releasever()
 
-    try:
-        # check for stage stop
-        if break_before == "beginning":
-            raise BreakingBefore(break_before)
+    @contextlib.contextmanager
+    def setup_blockdevs(voldev, bootdev):
 
         voltype = filetype(voldev)
         if bootdev: boottype = filetype(bootdev)
@@ -734,6 +410,11 @@ w
             if not os.path.exists(rootpart):
                 assert 0, "partition 2 in device %r failed to be created"%voldev
 
+        yield rootpart, bootpart
+
+    @contextlib.contextmanager
+    def setup_filesystems(rootpart, bootpart, lukspassword, luksoptions):
+
         try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
@@ -798,6 +479,8 @@ w
         try:
             check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT", "os")],
                                 stdout=file(os.devnull,"w"))
+            if not os.path.ismount(rootmountpoint):
+                check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
         except subprocess.CalledProcessError, e:
             check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
         to_unmount.append(rootmountpoint)
@@ -820,117 +503,131 @@ w
                 raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
 
         p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
+        q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
 
         # mount virtual file systems, creating their mount points as necessary
         for m in "boot sys proc etc".split():
             if not os.path.isdir(p(m)): os.mkdir(p(m))
 
         if not os.path.ismount(p("boot")):
-            check_call(["mount", bootpart, p("boot")])
+            mount(bootpart, p("boot"))
         to_unmount.append(p("boot"))
 
         if not os.path.ismount(p("sys")):
-            check_call(["mount", "-t", "sysfs", "sysfs", p("sys")])
+            mount("sysfs", p("sys"), "-t", "sysfs")
         to_unmount.append(p("sys"))
 
+        selinuxfs= p(j("sys", "fs", "selinux"))
+        if not os.path.ismount(selinuxfs):
+            mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
+        to_unmount.append(selinuxfs)
+
         if not os.path.ismount(p("proc")):
-            check_call(["mount", "-t", "proc", "proc", p("proc")])
+            mount("proc", p("proc"), "-t", "proc")
         to_unmount.append(p("proc"))
-
-        # sync device files
-        check_call(["rsync", "-ax", "--numeric-ids",
-#                            "--exclude=mapper",
-                            "--exclude=zvol",
-#                            "--exclude=disk",
-                            "--exclude=sd*",
-#                            "--exclude=zd*",
-                            "--delete", "--delete-excluded",
-                            "/dev/", p("dev/")])
-
-        # sync RPM GPG keys
-        for m in "etc/pki etc/pki/rpm-gpg".split():
-            if not os.path.isdir(p(m)): os.mkdir(p(m))
-        check_call(
-            ["rsync", "-ax", "--numeric-ids"] + \
-            glob.glob("/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*") + \
-            [p("etc/pki/rpm-gpg/")]
-        )
-
-        # make up a nice locale.conf file. neutral. international
-        localeconf = \
-'''LANG="en_US.UTF-8"
-'''
-        file(p(j("etc", "locale.conf")),"w").write(localeconf)
-
-        # make up a nice vconsole.conf file. neutral. international
-        vconsoleconf = \
-'''KEYMAP="us"
-'''
-        file(p(j("etc", "vconsole.conf")), "w").write(vconsoleconf)
-
-        # make up a nice fstab file
-        fstab = \
-'''%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
-UUID=%s /boot ext4 noatime 0 1
-/dev/zvol/%s/swap swap swap discard 0 0
-'''%(poolname, bootpartuuid, poolname)
-        file(p(j("etc", "fstab")),"w").write(fstab)
-
-        # create a number of important files
-        if not os.path.exists(p(j("etc", "mtab"))):
-            os.symlink("../proc/self/mounts", p(j("etc", "mtab")))
-        if not os.path.isfile(p(j("etc", "resolv.conf"))):
-            file(p(j("etc", "resolv.conf")),"w").write(file(j("/etc", "resolv.conf")).read())
-        if not os.path.exists(p(j("etc", "hostname"))):
-            file(p(j("etc", "hostname")),"w").write(hostname)
-        if not os.path.exists(p(j("etc", "hostid"))):
-            randomness = file("/dev/urandom").read(4)
-            file(p(j("etc", "hostid")),"w").write(randomness)
-        if not os.path.exists(p(j("etc", "locale.conf"))):
-            file(p(j("etc", "locale.conf")),"w").write("LANG=en_US.UTF-8\n")
-        hostid = file(p(j("etc", "hostid"))).read().encode("hex")
-        hostid = "%s%s%s%s"%(hostid[6:8],hostid[4:6],hostid[2:4],hostid[0:2])
-
-        if lukspassword:
-            crypttab = \
-'''%s UUID=%s none discard
-'''%(luksuuid,rootuuid)
-            file(p(j("etc", "crypttab")),"w").write(crypttab)
-            os.chmod(p(j("etc", "crypttab")), 0600)
 
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
 
-        pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
+        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid
 
-        # install base packages
-        packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd".split()
-        if releasever >= 21:
-            packages.append("dnf")
-        else:
-            packages.append("yum")
-        # install initial boot packages
-        packages = packages + "grub2 grub2-tools grubby".split()
-        pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
+    try:
+        # check for stage stop
+        if break_before == "beginning":
+            raise BreakingBefore(break_before)
 
-        # omit zfs modules when dracutting
-        if not os.path.exists(p("usr/bin/dracut.real")):
-            check_call(in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"]))
-            file(p("usr/bin/dracut"), "w").write("""#!/bin/bash
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+                # sync device files
+                check_call(["rsync", "-ax", "--numeric-ids",
+#                           "--exclude=mapper",
+                            "--exclude=zvol",
+#                           "--exclude=disk",
+                            "--exclude=sd*",
+#                           "--exclude=zd*",
+                            "--delete", "--delete-excluded",
+                            "/dev/", p("dev/")])
 
-echo NOT Executing fake dracut that omits ZFS dracut modules >&2
-exit 0
-exec /usr/bin/dracut.real -o "zfs zfsexpandknowledge zfssystemd" "$@"
+                # sync RPM GPG keys
+                for m in "etc/pki etc/pki/rpm-gpg".split():
+                    if not os.path.isdir(p(m)): os.mkdir(p(m))
+                check_call(
+                    ["rsync", "-ax", "--numeric-ids"] + \
+                    glob.glob("/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*") + \
+                    [p("etc/pki/rpm-gpg/")]
+                )
+
+                # make up a nice locale.conf file. neutral. international
+                localeconf = \
+'''LANG="en_US.UTF-8"
+'''
+                file(p(j("etc", "locale.conf")),"w").write(localeconf)
+
+                # make up a nice vconsole.conf file. neutral. international
+                vconsoleconf = \
+'''KEYMAP="us"
+'''
+                file(p(j("etc", "vconsole.conf")), "w").write(vconsoleconf)
+
+                # make up a nice fstab file
+                fstab = \
+'''%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
+UUID=%s /boot ext4 noatime 0 1
+/dev/zvol/%s/swap swap swap discard 0 0
+'''%(poolname, bootpartuuid, poolname)
+                file(p(j("etc", "fstab")),"w").write(fstab)
+
+                # create a number of important files
+                if not os.path.exists(p(j("etc", "mtab"))):
+                    os.symlink("../proc/self/mounts", p(j("etc", "mtab")))
+                resolvconf = p(j("etc", "resolv.conf"))
+                if not os.path.isfile(resolvconf) and not os.path.islink(resolvconf):
+                    file(resolvconf,"w").write(file(j("/etc", "resolv.conf")).read())
+                if not os.path.exists(p(j("etc", "hostname"))):
+                    file(p(j("etc", "hostname")),"w").write(hostname)
+                if not os.path.exists(p(j("etc", "hostid"))):
+                    randomness = file("/dev/urandom").read(4)
+                    file(p(j("etc", "hostid")),"w").write(randomness)
+                if not os.path.exists(p(j("etc", "locale.conf"))):
+                    file(p(j("etc", "locale.conf")),"w").write("LANG=en_US.UTF-8\n")
+                hostid = file(p(j("etc", "hostid"))).read().encode("hex")
+                hostid = "%s%s%s%s"%(hostid[6:8],hostid[4:6],hostid[2:4],hostid[0:2])
+
+                if lukspassword:
+                    crypttab = \
+'''%s UUID=%s none discard
+'''%(luksuuid,rootuuid)
+                    file(p(j("etc", "crypttab")),"w").write(crypttab)
+                    os.chmod(p(j("etc", "crypttab")), 0600)
+
+                pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
+
+                # install base packages
+                packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux".split()
+                if releasever >= 21:
+                    packages.append("dnf")
+                else:
+                    packages.append("yum")
+                # install initial boot packages
+                packages = packages + "grub2 grub2-tools grubby".split()
+                pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
+
+                # omit zfs modules when dracutting
+                if not os.path.exists(p("usr/bin/dracut.real")):
+                    check_call(in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"]))
+                    file(p("usr/bin/dracut"), "w").write("""#!/bin/bash
+
+echo This is a fake dracut.
 """)
-            os.chmod(p("usr/bin/dracut"), 0755)
+                    os.chmod(p("usr/bin/dracut"), 0755)
 
-        if lukspassword:
-            luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards"%(rootuuid,)
-        else:
-            luksstuff = ""
+                if lukspassword:
+                    luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards"%(rootuuid,)
+                else:
+                    luksstuff = ""
 
-        # write grub config
-        grubconfig = """GRUB_TIMEOUT=0
+                # write grub config
+                grubconfig = """GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=3
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
@@ -942,156 +639,172 @@ GRUB_TERMINAL_OUTPUT="vga_text"
 GRUB_DISABLE_LINUX_UUID=true
 GRUB_PRELOAD_MODULES='part_msdos ext2'
 """%(luksstuff,)
-        file(p(j("etc","default","grub")),"w").write(grubconfig)
+                file(p(j("etc","default","grub")),"w").write(grubconfig)
 
-        # write kernel command line
-        if not os.path.isdir(p(j("etc","kernel"))):
-            os.mkdir(p(j("etc","kernel")))
-        grubconfig = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
+                # write kernel command line
+                if not os.path.isdir(p(j("etc","kernel"))):
+                    os.mkdir(p(j("etc","kernel")))
+                grubconfig = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
 """%(poolname,luksstuff,)
-        file(p(j("etc","kernel","cmdline")),"w").write(grubconfig)
+                file(p(j("etc","kernel","cmdline")),"w").write(grubconfig)
 
-        # install kernel packages
-        packages = "kernel kernel-devel".split()
-        pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
+                # install kernel packages
+                packages = "kernel kernel-devel".split()
+                pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
 
-        # set password
-        pwfile = file(p(j("etc", "shadow"))).readlines()
-        pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
-        if pwnotset:
-            cmd = in_chroot(["passwd", "--stdin", "root"])
-            pw = Popen(cmd, stdin=subprocess.PIPE)
-            pw.communicate(rootpassword + "\n")
-            retcode = pw.wait()
-            if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
+                # set password
+                pwfile = file(p(j("etc", "shadow"))).readlines()
+                pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
+                if pwnotset:
+                    cmd = in_chroot(["passwd", "--stdin", "root"])
+                    pw = Popen(cmd, stdin=subprocess.PIPE)
+                    pw.communicate(rootpassword + "\n")
+                    retcode = pw.wait()
+                    if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
 
-        deploy_zfs_in_machine(p=p,
-                              in_chroot=in_chroot,
-                              pkgmgr=pkgmgr,
-                              prebuilt_rpms_path=prebuilt_rpms_path,
-                              break_before=break_before,
-                              to_unmount=to_unmount,
-                              to_rmdir=to_rmdir,)
+                deploy_zfs_in_machine(p=p,
+                                    in_chroot=in_chroot,
+                                    pkgmgr=pkgmgr,
+                                    prebuilt_rpms_path=prebuilt_rpms_path,
+                                    branch=branch,
+                                    break_before=break_before,
+                                    to_unmount=to_unmount,
+                                    to_rmdir=to_rmdir,)
 
-        # check for stage stop
-        if break_before == "reload_chroot":
-            raise BreakingBefore(break_before)
+                # release disk space now that installation is done
+                for pkgm in ('dnf', 'yum'):
+                    for directory in ("cache", "lib"):
+                        delete_contents(p(j("var", directory, pkgm)))
 
-        # release disk space now that installation is done
-        for pkgm in ('dnf', 'yum'):
-            for directory in ("cache", "lib"):
-                delete_contents(p(j("var", directory, pkgm)))
+                # check for stage stop
+                if break_before == "reload_chroot":
+                    raise BreakingBefore(break_before)
+
+        # The following reload in a different context scope is a workaround
+        # for blkid failing without the reload happening first.
 
         check_call(['sync'])
-        # workaround for blkid failing without the following block happening first
-        for fs in ["boot", "sys", "proc"]:
-            fs = p(fs)
-            umount(fs)
-            to_unmount.remove(fs)
 
-        umount(rootmountpoint)
-        to_unmount.remove(rootmountpoint)
+        cleanup()
 
-        check_call(["zpool", "export", poolname])
-        to_export.remove(poolname)
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
 
-        check_call(["zpool", "import", "-f",
-                    "-R", rootmountpoint,
-                    poolname])
-        to_export.append(poolname)
-        to_unmount.append(rootmountpoint)
+                if os.path.exists(p("usr/bin/dracut.real")):
+                    check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
+                def get_kernel_initrd_kver():
+                    if os.path.isdir(p(j("boot", "loader"))):
+                        kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
+                        kver = os.path.basename(os.path.dirname(kernel))
+                        initrd = p(j("boot", "loader", kver, "initrd"))
+                        hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
+                    else:
+                        kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
+                        kver = os.path.basename(kernel)[len("vmlinuz-"):]
+                        initrd = p(j("boot", "initramfs-%s.img"%kver))
+                        hostonly = p(j("boot", "initramfs-hostonly-%s.img"%kver))
+                    return kernel, initrd, hostonly, kver
+                kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver()
+                if os.path.isfile(initrd):
+                    mayhapszfsko = check_output(["lsinitrd", initrd])
+                else:
+                    mayhapszfsko = ""
+                # At this point, we regenerate the initrds.
+                if "zfs.ko" not in mayhapszfsko:
+                    check_call(in_chroot(["dracut", "-Nf", q(initrd), kver]))
+                    for l in check_output(["lsinitrd", initrd]).splitlines(False):
+                        logging.debug("initramfs: %s", l)
 
-        check_call(["mount", bootpart, p("boot")])
-        to_unmount.append(p("boot"))
+                # Kill the resolv.conf file written only to install packages.
+                if os.path.isfile(p(j("etc", "resolv.conf"))):
+                    os.unlink(p(j("etc", "resolv.conf")))
 
-        check_call(["mount", "-t", "sysfs", "sysfs", p("sys")])
-        to_unmount.append(p("sys"))
+                # check for stage stop
+                if break_before == "install_bootloader":
+                    raise BreakingBefore(break_before)
 
-        check_call(["mount", "-t", "proc", "proc", p("proc")])
-        to_unmount.append(p("proc"))
+                # create bootloader installer
+                bootloadertext = \
+'''#!/bin/bash -xe
+error() {
+    retval=$?
+    echo There was an unrecoverable error finishing setup >&2
+    exit $retval
+}
+trap error ERR
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+mount /boot
+ln -sf /proc/self/mounts /etc/mtab
+grub2-install /dev/sda
+grub2-mkconfig -o /boot/grub2/grub.cfg
+zfs inherit com.sun:auto-snapshot "%s"
+test -f %s || {
+    dracut -Hf %s %s
+    lsinitrd %s
+}
+sync
+umount /boot || true
+rm -f /installbootloader
+# Very superstitious,
+# writing's on the platter.
+sync
+# When you believe in things,
+# that you don't understand
+# then you suffer.
+sync
+# Superstition ain't the way.
+echo 1 > /proc/sys/kernel/sysrq
+echo o > /proc/sysrq-trigger
+sleep 5
+echo b > /proc/sysrq-trigger
+sleep 5
+echo cannot power off VM.  Please kill qemu.
+'''%(poolname, q(hostonly_initrd), q(hostonly_initrd), kver, q(hostonly_initrd))
+                bootloaderpath = p("installbootloader")
+                bootloader = file(bootloaderpath,"w")
+                bootloader.write(bootloadertext)
+                bootloader.close()
+                os.chmod(bootloaderpath, 0755)
 
-        # regenerate initramfs
-        # we need to use -o systemd because otherwise the system remains
-        # forever prompting for the password and ignores rd.luks.key
-        # this is a bug: https://bugzilla.redhat.com/show_bug.cgi?id=905683
-        if os.path.exists(p("usr/bin/dracut.real")):
-            check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
-        # At this point, we regenerate the initrds, but we omit the systemd
-        # module because not omitting it causes the keydev=/key parameter
-        # to be ignored. They keep unwittingly destroying support for
-        # important shit in Fedora.  Fuck.
-        check_call(in_chroot(["dracut", "-o", "systemd", "--no-hostonly", "-fv", "--regenerate-all"]))
+                # copy necessary boot files to a temp dir
+                try:
+                    kerneltempdir = tempfile.mkdtemp(
+                        prefix="install-fedora-on-zfs-bootbits-"
+                    )
+                    to_rmrf.append(kerneltempdir)
+                    shutil.copy2(kernel, kerneltempdir)
+                    shutil.copy2(initrd, kerneltempdir)
+                except (KeyboardInterrupt, Exception):
+                    shutil.rmtree(kerneltempdir)
+                    raise
 
-        # check for stage stop
-        if break_before == "install_bootloader":
-            raise BreakingBefore(break_before)
+        to_rmrf.remove(kerneltempdir)
+        cleanup()
+        to_rmrf.append(kerneltempdir)
 
-        # create bootloader installer
-        bootloadertext = \
-    '''#!/bin/bash -xe
-    error() {
-        retval=$?
-        echo There was an unrecoverable error finishing setup >&2
-        exit $retval
-    }
-    trap error ERR
-    export PATH=/sbin:/usr/sbin:/bin:/usr/bin
-    mount /boot
-    ln -sf /proc/self/mounts /etc/mtab
-    grub2-install /dev/sda
-    grub2-mkconfig -o /boot/grub2/grub.cfg
-    zfs inherit com.sun:auto-snapshot "%s"
-    zpool set cachefile=/etc/zfs/zpool.cache "%s"
-    rm -f /etc/zfs/zpool.cache
-    dracut --no-hostonly --regenerate-all -fv
-    umount /boot
-    rm -f /installbootloader
-    sync
-    sync
-    echo 1 > /proc/sys/kernel/sysrq
-    echo o > /proc/sysrq-trigger
-    sleep 5
-    echo b > /proc/sysrq-trigger
-    sleep 5
-    echo cannot power off VM.  Please kill qemu.
-    '''%(poolname, poolname)
-        bootloaderpath = p("installbootloader")
-        bootloader = file(bootloaderpath,"w")
-        bootloader.write(bootloadertext)
-        bootloader.close()
-        os.chmod(bootloaderpath, 0755)
+        biiq = lambda init: boot_image_in_qemu(
+            hostname, init, poolname,
+            original_voldev, original_bootdev,
+            os.path.join(kerneltempdir, os.path.basename(kernel)),
+            os.path.join(kerneltempdir, os.path.basename(initrd)),
+            force_kvm, interactive_qemu,
+            lukspassword, rootuuid,
+            break_before, qemu_timeout
+        )
 
-        # copy necessary boot files to a temp dir
-        try:
-            if os.path.ismount("/dev/shm"):
-                kerneltempdir = tempfile.mkdtemp(dir="/dev/shm")
-            else:
-                kerneltempdir = tempfile.mkdtemp()
-            if os.path.isdir(p(j("boot","loader"))):
-                kernel = glob.glob(p(j("boot","*","*","linux")))
-                initrd = glob.glob(p(j("boot","*","*","initrd")))
-                shutil.copy2(kernel[0], kerneltempdir)
-                shutil.copy2(initrd[0], kerneltempdir)
-            else:
-                kernel = glob.glob(p(j("boot","vmlinuz-*")))
-                initrd = glob.glob(p(j("boot","initramfs-*")))
-                shutil.copy2(kernel[0], kerneltempdir)
-                shutil.copy2(initrd[0], kerneltempdir)
-            if lukspassword:
-                create_file(j(kerneltempdir, "keydev.img"), 1024*100)
-                check_call(["mkfs.ext4", '-F', j(kerneltempdir, "keydev.img")])
-                if not os.path.isdir(j(kerneltempdir, "keydev")):
-                    os.mkdir(j(kerneltempdir, "keydev"))
-                if not os.path.ismount(j(kerneltempdir, "keydev.img")):
-                    check_call(["mount", j(kerneltempdir, "keydev.img"), j(kerneltempdir, "keydev")])
-                    to_unmount.append(j(kerneltempdir, "keydev"))
-                keyfile = file(j(kerneltempdir, "keydev", "key"), "w")
-                keyfile.write(lukspassword)
-                keyfile.flush()
-                keyfile.close()
-        except (KeyboardInterrupt, Exception):
-            shutil.rmtree(kerneltempdir)
-            raise
+        # install bootloader using qemu
+        biiq("init=/installbootloader")
+
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+                shutil.copy2(hostonly_initrd, kerneltempdir)
+
+        to_rmrf.remove(kerneltempdir)
+        cleanup()
+        to_rmrf.append(kerneltempdir)
+
+        # test hostonly initrd using qemu
+        biiq("systemd.unit=poweroff.target")
 
     # tell the user we broke
     except BreakingBefore, e:
@@ -1106,98 +819,13 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
     except BaseException, e:
         logging.exception("Unexpected error")
         if do_cleanup:
-            logging.info("Cleaning up now")
+            print >> sys.stderr, "Cleaning up now"
             cleanup()
         raise
 
+    # Truly delete all files left behind.
     cleanup()
 
-    # install bootloader using qemu
-    vmuuid = str(uuid.uuid1())
-    emucmd, emuopts = detect_qemu(force_kvm)
-    if '-enable-kvm' in emuopts:
-        proper_timeout = qemu_timeout
-    else:
-        proper_timeout = qemu_timeout * qemu_full_emulation_factor
-        logging.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
-    dracut_cmdline = ("rd.info rd.debug rd.udev.debug systemd.show_status=1 "
-                      "systemd.log_target=kmsg systemd.log_level=info")
-    if interactive_qemu:
-        screenmode = [ "-curses" ]
-        console_cmdline = ""
-    else:
-        screenmode = [ "-nographic", "-serial", "/dev/stdout" ]
-        console_cmdline = "console=ttyS0 "
-    if lukspassword:
-        luks_cmdline = "rd.luks.uuid=%s rd.luks.key=/key "%(rootuuid,)
-    else:
-        luks_cmdline = ""
-    cmdline = '%s %s%sroot=ZFS=%s/ROOT/os ro init=/installbootloader' % (
-        dracut_cmdline,
-        luks_cmdline,
-        console_cmdline,
-        poolname
-    )
-    cmd = [
-        emucmd,
-        ] + screenmode + [
-        "-name", hostname,
-        "-M", "pc-1.2",
-        "-no-reboot",
-        '-m', '1024',
-        '-uuid', vmuuid,
-        "-kernel", os.path.join(kerneltempdir,os.path.basename(kernel[0])),
-        '-initrd', os.path.join(kerneltempdir,os.path.basename(initrd[0])),
-        '-append', cmdline,
-    ]
-    cmd = cmd + emuopts
-    if original_bootdev:
-        cmd.extend([
-            '-drive', 'file=%s,if=none,id=drive-ide0-0-0,format=raw'%original_bootdev,
-            '-device', 'ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1',
-        ])
-    cmd.extend([
-        '-drive', 'file=%s,if=none,id=drive-ide0-0-1,format=raw' % original_voldev,
-        '-device', 'ide-hd,bus=ide.0,unit=1,drive=drive-ide0-0-1,id=ide0-0-1,bootindex=2',
-    ])
-    if lukspassword:
-        cmd.extend([
-            '-drive', 'file=%s,if=none,id=drive-ide1-0-0,format=raw'%j(kerneltempdir,"keydev.img"),
-            '-device', 'ide-hd,bus=ide.1,unit=0,drive=drive-ide1-0-0,id=ide1-0-0,bootindex=3',
-        ])
-    def babysit(popenobject, timeout):
-        for _ in xrange(timeout):  # 5 minutes
-            if popenobject.returncode is not None:
-                return
-            time.sleep(1)
-        logging.error("QEMU babysitter is killing stubborn qemu process after %s seconds", timeout)
-        popenobject.kill()
-
-    with tempfile.TemporaryFile() as logf:
-        machine_powered_off_okay = False
-        try:
-            qemu_process = Popen(cmd, stdin=file(os.devnull, "r"), stdout=logf, stderr=logf)
-            if not interactive_qemu:
-                babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
-                babysitter.setDaemon(True)
-                babysitter.start()
-            retcode = qemu_process.wait()
-            if retcode == 0:
-                pass
-            elif not interactive_qemu and retcode == -9:
-                raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
-            else:
-                raise subprocess.CalledProcessError(retcode,cmd)
-        finally:
-            logf.seek(0)
-            for line in logf.xreadlines():
-                print >> sys.stderr, line
-                if "reboot: Power down" in line:
-                    machine_powered_off_okay = True
-            logf.close()
-            shutil.rmtree(kerneltempdir)
-        if not machine_powered_off_okay:
-            raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
 
 def test_cmd(cmdname, expected_ret):
     try: subprocess.check_call([cmdname], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
@@ -1214,9 +842,6 @@ def test_mkfs_ext4():
 
 def test_zfs():
     return test_cmd("zfs", 2)
-
-def test_flock():
-    return test_cmd("flock", 64)
 
 def test_rsync():
     return test_cmd("rsync", 1)
@@ -1238,32 +863,6 @@ def test_yum():
             raise
     return any(pkgmgrs.values())
 
-def cpuinfo(): return file("/proc/cpuinfo").read()
-
-def detect_qemu(force_kvm=None):
-    emucmd = "qemu-system-x86_64"
-    emuopts = []
-    if force_kvm is False:
-        pass
-    elif force_kvm is True:
-       emucmd = "qemu-kvm"
-       emuopts = ['-enable-kvm']
-    else:
-        if ("vmx" in cpuinfo() or "svm" in cpuinfo()):
-           emucmd = "qemu-kvm"
-           emuopts = ['-enable-kvm']
-    return emucmd, emuopts
-
-def test_qemu():
-    try: subprocess.check_call([detect_qemu()[0], "--help"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
-        if e.returncode == 0: return True
-        raise
-    except OSError, e:
-        if e.errno == 2: return False
-        raise
-    return True
-
 def install_fedora_on_zfs():
     logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
     args = get_parser().parse_args()
@@ -1282,9 +881,6 @@ def install_fedora_on_zfs():
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
-    if args.yum_cachedir and not test_flock():
-        print >> sys.stderr, "error: flock is not installed properly, but it is necessary to safely use --yum-cachedir. Please use your package manager to install flock (specifically, util-linux)."
-        return 5
     if not test_qemu():
         print >> sys.stderr, "error: qemu-system-x86_64 is not installed properly. Please use your package manager to install QEMU (specifically, qemu-system-x86)."
         return 5
@@ -1299,11 +895,15 @@ def install_fedora_on_zfs():
             args.prebuiltrpms,
             args.yum_cachedir,
             args.force_kvm,
+            branch=args.branch,
             chown=args.chown,
             chgrp=args.chgrp,
             break_before=args.break_before,
             workdir=args.workdir,
         )
+    except (ImpossiblePassphrase), e:
+        print >> sys.stderr, "error:", e
+        return os.EX_USAGE
     except (ZFSMalfunction, ZFSBuildFailure), e:
         print >> sys.stderr, "error:", e
         return 9
@@ -1312,7 +912,7 @@ def install_fedora_on_zfs():
     return 0
 
 
-def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
+def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                           prebuilt_rpms_path, break_before, to_unmount, to_rmdir):
     arch = platform.machine()
     stringtoexclude = "debuginfo"
@@ -1325,14 +925,16 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
         target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
         if not os.path.isdir(target_rpms_path):
             os.mkdir(target_rpms_path)
-        if os.path.ismount(target_rpms_path):
+        if ismount(target_rpms_path):
             if os.stat(prebuilt_rpms_path).st_ino != os.stat(target_rpms_path):
                 umount(target_rpms_path)
-                check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
+                bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
         else:
-            check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
-        to_unmount.append(target_rpms_path)
-        to_rmdir.append(target_rpms_path)
+            bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
+        if os.path.isdir(target_rpms_path):
+            to_rmdir.append(target_rpms_path)
+        if ismount(target_rpms_path):
+            to_unmount.append(target_rpms_path)
         prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
         prebuilt_rpms_to_install = set([
             os.path.basename(s)
@@ -1455,6 +1057,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
             [
                 "zlib-devel", "libuuid-devel", "bc", "libblkid-devel",
                 "libattr-devel", "lsscsi", "mdadm", "parted",
+                "libudev-devel",
             ],
         ),
     ):
@@ -1484,6 +1087,10 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr,
                     logging.info("Cloning git repository: %s", repo)
                     cmd = ["git", "clone", repo, project_dir]
                     check_call(cmd)
+                    cmd = ["git", "checkout", branch]
+                    check_call(cmd, cwd= project_dir)
+                    cmd = ["git", "show"]
+                    check_call(cmd, cwd= project_dir)
 
                 pkgmgr.ensure_packages_installed(mindeps)
 
@@ -1535,6 +1142,7 @@ def deploy_zfs():
                               in_chroot=in_chroot,
                               pkgmgr=pkgmgr,
                               prebuilt_rpms_path=args.prebuiltrpms,
+                              branch=args.branch,
                               break_before=None,
                               to_rmdir=to_rmdir,
                               to_unmount=to_unmount,)
