@@ -185,13 +185,13 @@ class ChrootPackageManager(object):
                 except subprocess.CalledProcessError:
                     logger.info("Installing packages %s: %s", method, ", ".join(packages))
                     if method == 'in_chroot':
-                        cmd = in_chroot([pkgmgr, 'install', '-q', '-y',
+                        cmd = in_chroot([pkgmgr, 'install', '-y',
                                         '-c', config.name[len(self.chroot):]])
                     elif method == 'out_of_chroot':
                         cmd = [pkgmgr,
                             'install',
                             '--disableplugin=*qubes*',
-                            '-q', '-y',
+                            '-y',
                             '-c', config.name,
                             '--installroot=%s' % self.chroot,
                             '--releasever=%d' % self.releasever]
@@ -220,9 +220,9 @@ class ChrootPackageManager(object):
                         raise Exception("package file %r is not within the chroot" % package)
                 logger.info("Installing packages: %s", ", ".join(packages))
                 if pkgmgr == "yum":
-                    cmd = in_chroot([pkgmgr , 'localinstall', '-q', '-y'])
+                    cmd = in_chroot([pkgmgr , 'localinstall', '-y'])
                 elif pkgmgr  == "dnf":
-                    cmd = in_chroot([pkgmgr , 'install', '-q', '-y'])
+                    cmd = in_chroot([pkgmgr , 'install', '-y'])
                 else:
                     assert 0, "unknown package manager %r" % pkgmgr
                 cmd = cmd + ['-c', config.name[len(self.chroot):]]
@@ -250,7 +250,7 @@ class SystemPackageManager(object):
             logger.info("All required packages are available")
         except subprocess.CalledProcessError:
             logger.info("Installing packages %s: %s", method, ", ".join(packages))
-            cmd = [self.strategy, 'install', '-q', '-y']
+            cmd = [self.strategy, 'install', '-y']
             if self.strategy != "dnf":
                 cmd = cmd + ['--']
             cmd = cmd + packages
@@ -266,9 +266,9 @@ class SystemPackageManager(object):
                 raise Exception("package file %r does not exist" % package)
         logger.info("Installing packages: %s", ", ".join(packages))
         if self.strategy == "yum":
-            cmd = ['yum', 'localinstall', '-q', '-y', '--']
+            cmd = ['yum', 'localinstall', '-y', '--']
         elif self.strategy == "dnf":
-            cmd = ['dnf', 'install', '-q', '-y']
+            cmd = ['dnf', 'install', '-y']
         else:
             assert 0, "unknown strategy %r" % self.strategy
         cmd = cmd + packages
