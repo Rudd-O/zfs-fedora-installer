@@ -26,7 +26,7 @@ from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
 BASIC_FORMAT = '%(levelname)8s:%(name)s:%(funcName)20s@%(lineno)4d\t%(message)s'
-qemu_timeout = 120
+qemu_timeout = 180
 
 
 def get_parser():
