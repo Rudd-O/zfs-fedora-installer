@@ -198,8 +198,6 @@ class ChrootPackageManager(object):
                     if pkgmgr != "dnf":
                         cmd = cmd + ['--']
                     cmd = cmd + packages
-                    lf.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
-                    lf.flush()
                     return check_call(cmd)
         finally:
             self.ungrab_pm()
@@ -231,8 +229,6 @@ class ChrootPackageManager(object):
                 if pkgmgr != "dnf":
                     cmd = cmd + ['--']
                 cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-                lf.write(" ".join(pipes.quote(x) for x in cmd) + "\n")
-                lf.flush()
                 return check_call(cmd)
         finally:
             self.ungrab_pm()
