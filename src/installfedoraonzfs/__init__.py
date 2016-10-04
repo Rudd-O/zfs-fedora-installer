@@ -768,10 +768,7 @@ echo cannot power off VM.  Please kill qemu.
 
                 # copy necessary boot files to a temp dir
                 try:
-                    if os.path.ismount("/dev/shm"):
-                        kerneltempdir = tempfile.mkdtemp(dir="/dev/shm")
-                    else:
-                        kerneltempdir = tempfile.mkdtemp()
+                    kerneltempdir = tempfile.mkdtemp()
                     to_rmrf.append(kerneltempdir)
                     shutil.copy2(kernel, kerneltempdir)
                     shutil.copy2(initrd, kerneltempdir)
