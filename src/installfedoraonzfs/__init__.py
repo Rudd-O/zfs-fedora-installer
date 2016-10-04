@@ -781,6 +781,8 @@ class BootDriver(threading.Thread):
                 if c == "\n":
                     logging.debug("VM: %s", "".join(lastline))
                     lastline = []
+                elif c == "\r":
+                    pass
                 else:
                     lastline.append(c)
                 s = "".join(lastline)
