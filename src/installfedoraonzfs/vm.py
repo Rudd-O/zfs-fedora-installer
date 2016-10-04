@@ -15,7 +15,7 @@ from installfedoraonzfs.cmd import Popen
 
 
 logger = logging.getLogger("VM")
-qemu_full_emulation_factor = 10
+qemu_full_emulation_factor = 20
 
 
 class BootloaderWedged(Exception): pass
