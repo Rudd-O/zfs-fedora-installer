@@ -198,6 +198,7 @@ class BootDriver(threading.Thread):
 
     def run(self):
         logger.info("Boot driver started")
+        consolelogger = logging.getLogger("VM.console")
         pwendprompt = "".join(['!', ' ', '\x1b', '[', '0', 'm'])
         if self.password:
             logger.info("Expecting password prompt")
@@ -216,7 +217,7 @@ class BootDriver(threading.Thread):
                     break
                 self.output.append(c)
                 if c == "\n":
-                    logger.debug("Console: %s", "".join(lastline))
+                    consolelogger.debug("".join(lastline))
                     lastline = []
                 elif c == "\r":
                     pass
@@ -230,7 +231,7 @@ class BootDriver(threading.Thread):
                     "for disk" in s and
                     pwendprompt in s):
                     # Zero out the last line to prevent future spurious matches.
-                    logger.debug("Console: %s", "".join(lastline))
+                    consolelogger.debug("".join(lastline))
                     lastline = []
                     self.write_password()
             except Exception, e:
@@ -238,7 +239,7 @@ class BootDriver(threading.Thread):
                 self.error = e
                 break
         if lastline:
-            logger.debug("Console: %s", "".join(lastline))
+            consolelogger.debug("".join(lastline))
         logger.info("Boot driver gone")
 
     def get_output(self):
