@@ -19,11 +19,12 @@ import re
 import shlex
 import collections
 import threading
-import fnmatch
 import multiprocessing
 import pipes
-import fcntl
 import errno
+
+from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
+from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
 
 
 break_stages = collections.OrderedDict()
@@ -156,33 +157,6 @@ def get_deploy_parser():
     return parser
 
 
-def format_cmdline(lst):
-    return " ".join(pipes.quote(x) for x in lst)
-
-def check_call(*args,**kwargs):
-    cwd = kwargs.get("cwd", os.getcwd())
-    cmd = args[0]
-    logging.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
-    return subprocess.check_call(*args,**kwargs)
-
-def check_output(*args,**kwargs):
-    cwd = kwargs.get("cwd", os.getcwd())
-    cmd = args[0]
-    logging.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
-    output = subprocess.check_output(*args,**kwargs)
-    if output:
-        firstline=output.splitlines()[0].strip()
-        logging.debug("First line of output from command: %s", firstline)
-    else:
-        logging.debug("No output from command")
-    return output
-
-def Popen(*args,**kwargs):
-    cwd = kwargs.get("cwd", os.getcwd())
-    cmd = args[0]
-    logging.debug("Popening %s in cwd %r", format_cmdline(cmd), cwd)
-    return subprocess.Popen(*args,**kwargs)
-
 def filetype(dev):
     '''returns 'file' or 'blockdev' or 'doesntexist' for dev'''
     try:
@@ -232,90 +206,6 @@ def delete_contents(directory):
     ps = [ j(directory, p) for p in os.listdir(directory) ]
     if ps:
         check_call(["rm", "-rf"] + ps)
-
-def mpdecode(encoded_mountpoint):
-    chars = []
-    pos = 0
-    while pos < len(encoded_mountpoint):
-        c = encoded_mountpoint[pos]
-        if c == "\\":
-          try:
-            if encoded_mountpoint[pos+1] == "\\":
-                chars.append("\\")
-                pos = pos + 1
-            elif (
-                encoded_mountpoint[pos+1] in "0123456789" and
-                encoded_mountpoint[pos+2] in "0123456789" and
-                encoded_mountpoint[pos+3] in "0123456789"
-                ):
-                chunk = encoded_mountpoint[pos+1] + encoded_mountpoint[pos+2] + encoded_mountpoint[pos+3]
-                chars.append(chr(int(chunk, 8)))
-                pos = pos + 3
-            else:
-                raise ValueError("Unparsable mount point %r at pos %s" % (encoded_mountpoint, pos))
-          except IndexError, e:
-              raise ValueError("Unparsable mount point %r at pos %s: %s" % (encoded_mountpoint, pos, e))
-        else:
-            chars.append(c)
-        pos = pos + 1
-    return "".join(chars)
-
-def check_for_open_files(prefix):
-  """Check that there are open files or mounted file systems within the prefix.
-
-  Returns a  dictionary where the keys are the files, and the values are lists
-  that contain tuples (pid, command line) representing the processes that are
-  keeping those files open, or tuples ("<mount>", description) representing
-  the file systems mounted there."""
-  results = dict()
-  files = glob.glob("/proc/*/fd/*") + glob.glob("/proc/*/cwd")
-  for f in files:
-    try:
-      d = os.readlink(f)
-    except Exception:
-      continue
-    if d.startswith(prefix + os.path.sep) or d == prefix:
-      pid = f.split(os.path.sep)[2]
-      if pid == "self": continue
-      c = os.path.join("/", *(f.split(os.path.sep)[1:3] + ["cmdline"]))
-      try:
-        cmd = format_cmdline(file(c).read().split("\0"))
-      except Exception:
-        continue
-      if len(cmd) > 60:
-        cmd = cmd[:57] + "..."
-      if d not in results:
-        results[d] = []
-      results[d].append((pid, cmd))
-  for l in file("/proc/self/mounts").readlines():
-      fields = l[:-1].split(" ")
-      dev = mpdecode(fields[0])
-      mp = mpdecode(fields[1])
-      if mp.startswith(prefix + os.path.sep):
-        if mp not in results:
-            results[mp] = []
-        results[mp].append(("<mount>", dev))
-  return results
-
-def umount(mountpoint, tries=5):
-    if not os.path.ismount(mountpoint):
-        return
-    try:
-        check_call(["umount", mountpoint])
-    except subprocess.CalledProcessError:
-        if tries < 1:
-            raise
-        openfiles = check_for_open_files(mountpoint)
-        if openfiles:
-            logging.info("There are open files in %r:", mountpoint)
-            for of, procs in openfiles.items():
-                logging.info("%r:", of)
-                for pid, cmd in procs:
-                    logging.info("  %7s  %s", pid, cmd)
-        logging.info("Syncing and sleeping 1 second")
-        check_call(['sync'])
-        time.sleep(1)
-        umount(mountpoint, tries - 1)
 
 
 def boot_image_in_qemu(hostname,
@@ -443,303 +333,6 @@ def boot_image_in_qemu(hostname,
                 machine_powered_off_okay = True
     if not machine_powered_off_okay:
         raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
-
-
-def make_temp_yum_config(source, directory, **kwargs):
-    tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
-    yumconfigtext = file(source).read()
-    for optname, optval in kwargs.items():
-        if optval is None:
-            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M)
-        else:
-            if optname == "cachedir":
-                optval = optval + "/$basearch/$releasever"
-            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
-            if not repls:
-                yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
-                assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
-    tempyumconfig.write(yumconfigtext)
-    tempyumconfig.flush()
-    tempyumconfig.seek(0)
-    return tempyumconfig
-
-fedora_repos_template = """
-[fedora]
-name=Fedora $releasever - $basearch
-failovermethod=priority
-#baseurl=http://download.fedoraproject.org/pub/fedora/linux/releases/$releasever/Everything/$basearch/os/
-metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-$releasever&arch=$basearch
-enabled=1
-metadata_expire=7d
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
-skip_if_unavailable=False
-
-[updates]
-name=Fedora $releasever - $basearch - Updates
-failovermethod=priority
-#baseurl=http://download.fedoraproject.org/pub/fedora/linux/updates/$releasever/$basearch/
-metalink=https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$releasever&arch=$basearch
-enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch
-skip_if_unavailable=False
-"""
-
-class ChrootPackageManager(object):
-
-    chroot = None
-    cachedir = None
-    cachedir_lockfile = None
-
-    cachemount = None
-    pkgmgr_config_outsidechroot = None
-    pkgmgr_config_insidechroot = None
-    strategy_outsidechroot = None
-    strategy_insidechroot = None
-
-    def __init__(self, chroot, releasever, cachedir=None):
-        self.releasever = releasever
-        self.chroot = chroot
-        self.cachedir = None if cachedir is None else os.path.abspath(cachedir)
-
-    def __enter__(self):
-        if self.pkgmgr_config_outsidechroot:
-            return
-
-        if os.path.exists("/etc/dnf/dnf.conf"):
-            sourceconf = "/etc/dnf/dnf.conf"
-            self.strategy_outsidechroot = "dnf"
-        else:
-            sourceconf = "/etc/yum.conf"
-            self.strategy_outsidechroot = "yum"
-
-        # prepare yum cache directory
-        if self.cachedir:
-            for subdir in ["ephemeral", "permanent"]:
-                subdir = os.path.join(self.cachedir, subdir)
-                if not os.path.isdir(subdir):
-                    os.makedirs(subdir)
-            self.cachedir_lockfile = open(os.path.expanduser("~/.yumcache-lockfile"), 'ab')
-            logging.debug("Trying to grab package manager lock %s", self.cachedir_lockfile)
-            fcntl.flock(self.cachedir_lockfile.fileno(), fcntl.LOCK_EX)
-            logging.debug("Package manager lock %s grabbed", self.cachedir_lockfile)
-            cachemount = j(self.chroot, "var", "cache", self.strategy_outsidechroot)
-            if not os.path.isdir(cachemount):
-                os.makedirs(cachemount)
-            if not os.path.ismount(cachemount):
-                check_call(["mount", "--bind", j(self.cachedir, "ephemeral"), cachemount])
-            self.cachemount = cachemount
-            if not os.path.isdir(j(self.chroot, "var", "lib", self.strategy_outsidechroot)):
-                os.makedirs(j(self.chroot, "var", "lib", self.strategy_outsidechroot))
-            parms = dict(
-                source=sourceconf,
-                directory=os.getenv("TMPDIR") or "/tmp",
-                cachedir=j("/var", "cache", self.strategy_outsidechroot),
-                persistdir=j("/var", "lib", self.strategy_outsidechroot),
-                logfile="/dev/null",
-                debuglevel=2,
-                reposdir="/nonexistent",
-                include=None,
-            )
-        else:
-            parms = dict(
-                source=sourceconf,
-                directory=os.getenv("TMPDIR") or "/tmp",
-                reposdir="/nonexistent",
-                include=None,
-            )
-
-        self.pkgmgr_config_outsidechroot = make_temp_yum_config(**parms)
-        # write fedora repos configuration
-        self.pkgmgr_config_outsidechroot.seek(0, 2)
-        self.pkgmgr_config_outsidechroot.write(fedora_repos_template)
-        self.pkgmgr_config_outsidechroot.flush()
-        self.pkgmgr_config_outsidechroot.seek(0)
-
-        if os.path.isfile(j(self.chroot, "etc", "dnf", "dnf.conf")):
-            parms["source"] = j(self.chroot, "etc", "dnf", "dnf.conf")
-            self.strategy_insidechroot = "dnf"
-
-        elif os.path.isfile(j(self.chroot, "etc", "yum.conf")):
-            parms["source"] = j(self.chroot, "etc", "yum.conf")
-            self.strategy_insidechroot = "yum"
-
-        if self.strategy_insidechroot:
-            parms["directory"] = j(self.chroot, "tmp")
-            self.pkgmgr_config_insidechroot = make_temp_yum_config(**parms)
-            # write fedora repos configuration
-            self.pkgmgr_config_insidechroot.seek(0, 2)
-            self.pkgmgr_config_insidechroot.write(fedora_repos_template)
-            self.pkgmgr_config_insidechroot.flush()
-            self.pkgmgr_config_insidechroot.seek(0)
-
-    def __exit__(self, *ignored, **kwignored):
-        if self.cachemount:
-            umount(self.cachemount)
-            self.cachemount = None
-        if self.pkgmgr_config_insidechroot:
-            self.pkgmgr_config_insidechroot.close()
-            self.pkgmgr_config_insidechroot = None
-        if self.pkgmgr_config_outsidechroot:
-            self.pkgmgr_config_outsidechroot.close()
-            self.pkgmgr_config_outsidechroot = None
-        if self.cachedir_lockfile:
-            logging.debug("Unlocking package manager lock %s", self.cachedir_lockfile)
-            self.cachedir_lockfile.close()
-            self.cachedir_lockfile = None
-        self.strategy_insidechroot = None
-        self.strategy_outsidechroot = None
-
-    def _save_downloaded_packages(self, strategy):
-        logging.debug("Saving downloaded packages to cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
-        return self._shuffle_shit_around(strategy, "ephemeral", "permanent")
-
-    def _restore_downloaded_packages(self, strategy):
-        logging.debug("Restoring downloaded packages from cachedir %s/permanent and with strategy %s", self.cachedir, strategy)
-        return self._shuffle_shit_around(strategy, "permanent", "ephemeral")
-
-    def _shuffle_shit_around(self, strategy, from_, to_):
-        # DNF developers are criminals.
-        # https://github.com/rpm-software-management/dnf/pull/286
-        # https://bugzilla.redhat.com/show_bug.cgi?id=1046244
-        # Who the fuck does this shit?
-        if not self.cachedir:
-            return
-        if strategy != "dnf":
-            return
-        return check_call([
-            "rsync", "-axHAS",
-            self.cachedir + os.path.sep + from_ + os.path.sep,
-            self.cachedir + os.path.sep + to_ + os.path.sep,
-        ])
-
-    def ensure_packages_installed(self, packages, method="in_chroot"):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
-        with self:
-            # method can be out_of_chroot or in_chroot
-            if method == 'in_chroot':
-                if not self.strategy_insidechroot:
-                    raise Exception("Cannot use in_chroot method without a working yum or DNF inside the chroot")
-                strategy = self.strategy_insidechroot
-            elif method == 'out_of_chroot':
-                if not self.strategy_outsidechroot:
-                    raise Exception("Cannot use out_of_chroot method without a working yum or DNF installed on your system")
-                strategy = self.strategy_outsidechroot
-            else:
-                assert 0, "unknown method %r" % method
-
-            try:
-                logging.info("Checking packages are available: %s", packages)
-                check_call(in_chroot(["rpm", "-q"] + packages),
-                                    stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-                logging.info("All required packages are available")
-            except subprocess.CalledProcessError:
-                logging.info("Installing packages %s: %s", method, packages)
-                if method == 'in_chroot':
-                    yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
-                    cmd = in_chroot([strategy, 'install', '-y'])
-                elif method == 'out_of_chroot':
-                    yumconfig = self.pkgmgr_config_outsidechroot.name
-                    cmd = [strategy,
-                           'install',
-                           '--disableplugin=*qubes*',
-                           '-y', "--rpmverbosity=10",
-                           '--installroot=%s' % self.chroot,
-                           '--releasever=%d' % self.releasever]
-                cmd = cmd + ['-c', yumconfig]
-                if strategy != "dnf":
-                    cmd = cmd + ['--']
-                cmd = cmd + packages
-                return self._run_pkgmgr_install(cmd, strategy)
-
-    def install_local_packages(self, packages):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
-        with self:
-            # always happens in chroot
-            # packages must be a list of paths to RPMs valid within the chroot
-            if not self.strategy_insidechroot:
-                raise Exception("Cannot install local packages without a working yum or DNF inside the chroot")
-
-            packages = [ os.path.abspath(p) for p in packages ]
-            for package in packages:
-                if not os.path.isfile(package):
-                    raise Exception("package file %r does not exist" % package)
-                if not package.startswith(self.chroot + os.path.sep):
-                    raise Exception("package file %r is not within the chroot" % package)
-            logging.info("Installing packages: %s", packages)
-            if self.strategy_insidechroot == "yum":
-                cmd = in_chroot(["yum", 'localinstall', '-y', "--rpmverbosity=10"])
-            elif self.strategy_insidechroot == "dnf":
-                cmd = in_chroot(["dnf", 'install', '-y', "--rpmverbosity=10"])
-            else:
-                assert 0, "unknown strategy %r" % self.strategy_insidechroot
-            yumconfig = self.pkgmgr_config_insidechroot.name[len(self.chroot):]
-            cmd = cmd + ['-c', yumconfig]
-            if self.strategy_insidechroot != "dnf":
-                cmd = cmd + ['--']
-            cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-            return self._run_pkgmgr_install(cmd, self.strategy_insidechroot)
-
-    def _run_pkgmgr_install(self, cmd, strategy):
-        assert strategy in "yum dnf", strategy
-        installidx = None
-        for x in ("install", "localinstall"):
-            if x in cmd:
-                installidx = cmd.index(x)
-                break
-        if installidx is not None:
-            self._restore_downloaded_packages(strategy)
-            precmd = cmd[:installidx] + ["--downloadonly"] + cmd[installidx:]
-            cmd = cmd[:installidx] + ["-C"] + cmd[installidx:]
-            check_call(precmd)
-            self._save_downloaded_packages(strategy)
-        check_call(cmd)
-
-
-class SystemPackageManager(object):
-
-    def __init__(self):
-        if os.path.exists("/etc/dnf/dnf.conf"):
-            self.strategy = "dnf"
-        else:
-            self.strategy = "yum"
-
-    def ensure_packages_installed(self, packages, method="in_chroot"):
-        logging.info("Checking packages are available: %s", packages)
-        try:
-            check_call(["rpm", "-q"] + packages,
-                       stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-            logging.info("All required packages are available")
-        except subprocess.CalledProcessError:
-            logging.info("Installing packages %s: %s", method, packages)
-            cmd = [self.strategy, 'install', '-y']
-            if self.strategy != "dnf":
-                cmd = cmd + ['--']
-            cmd = cmd + packages
-            check_call(cmd)
-
-    def install_local_packages(self, packages):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
-        packages = [ os.path.abspath(p) for p in packages ]
-        for package in packages:
-            if not os.path.isfile(package):
-                raise Exception("package file %r does not exist" % package)
-        logging.info("Installing packages: %s", packages)
-        if self.strategy == "yum":
-            cmd = ['yum', 'localinstall', '-y', '--']
-        elif self.strategy == "dnf":
-            cmd = ['dnf', 'install', '-y']
-        else:
-            assert 0, "unknown strategy %r" % self.strategy
-        cmd = cmd + packages
-        check_call(cmd)
 
 
 class BootDriver(threading.Thread):
@@ -912,7 +505,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         undoer.undo()
 
     if not releasever:
-        releasever = int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
+        releasever = ChrootPackageManager.get_my_releasever()
 
     @contextlib.contextmanager
     def setup_blockdevs(voldev, bootdev):
@@ -1140,22 +733,26 @@ w
             if not os.path.isdir(p(m)): os.mkdir(p(m))
 
         if not os.path.ismount(p("boot")):
-            check_call(["mount", bootpart, p("boot")])
+            mount(bootpart, p("boot"))
         to_unmount.append(p("boot"))
 
         if not os.path.ismount(p("sys")):
-            check_call(["mount", "-t", "sysfs", "sysfs", p("sys")])
+            mount("sysfs", p("sys"), "-t", "sysfs")
         to_unmount.append(p("sys"))
 
-        if not os.path.ismount(p(j("sys", "fs", "selinux"))):
-            check_call(["mount", "-t", "selinuxfs", "selinuxfs", p(j("sys", "fs", "selinux"))])
-        to_unmount.append(p(j("sys", "fs", "selinux")))
+        selinuxfs= p(j("sys", "fs", "selinux"))
+        if not os.path.ismount(selinuxfs):
+            mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
+        to_unmount.append(selinuxfs)
 
         if not os.path.ismount(p("proc")):
-            check_call(["mount", "-t", "proc", "proc", p("proc")])
+            mount("proc", p("proc"), "-t", "proc")
         to_unmount.append(p("proc"))
 
-        yield rootmountpoint, p, q, rootuuid, luksuuid, bootpartuuid
+        def in_chroot(lst):
+            return ["chroot", rootmountpoint] + lst
+
+        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid
 
     try:
         # check for stage stop
@@ -1163,7 +760,7 @@ w
             raise BreakingBefore(break_before)
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
-            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, rootuuid, luksuuid, bootpartuuid):
+            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
                 # sync device files
                 check_call(["rsync", "-ax", "--numeric-ids",
 #                           "--exclude=mapper",
@@ -1225,9 +822,6 @@ UUID=%s /boot ext4 noatime 0 1
 '''%(luksuuid,rootuuid)
                     file(p(j("etc", "crypttab")),"w").write(crypttab)
                     os.chmod(p(j("etc", "crypttab")), 0600)
-
-                def in_chroot(lst):
-                    return ["chroot", rootmountpoint] + lst
 
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
 
@@ -1300,42 +894,24 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                                     to_unmount=to_unmount,
                                     to_rmdir=to_rmdir,)
 
-                # check for stage stop
-                if break_before == "reload_chroot":
-                    raise BreakingBefore(break_before)
-
                 # release disk space now that installation is done
                 for pkgm in ('dnf', 'yum'):
                     for directory in ("cache", "lib"):
                         delete_contents(p(j("var", directory, pkgm)))
 
-                check_call(['sync'])
-                # workaround for blkid failing without the following block happening first
-                for fs in ["boot", j("sys", "fs", "selinux"), "sys", "proc"]:
-                    fs = p(fs)
-                    umount(fs)
-                    to_unmount.remove(fs)
+                # check for stage stop
+                if break_before == "reload_chroot":
+                    raise BreakingBefore(break_before)
 
-                umount(rootmountpoint)
-                to_unmount.remove(rootmountpoint)
+        # The following reload in a different context scope is a workaround
+        # for blkid failing without the reload happening first.
 
-                check_call(["zpool", "export", poolname])
-                to_export.remove(poolname)
+        check_call(['sync'])
 
-                check_call(["zpool", "import", "-f",
-                            "-R", rootmountpoint,
-                            poolname])
-                to_export.append(poolname)
-                to_unmount.append(rootmountpoint)
+        cleanup()
 
-                check_call(["mount", bootpart, p("boot")])
-                to_unmount.append(p("boot"))
-
-                check_call(["mount", "-t", "sysfs", "sysfs", p("sys")])
-                to_unmount.append(p("sys"))
-
-                check_call(["mount", "-t", "proc", "proc", p("proc")])
-                to_unmount.append(p("proc"))
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
 
                 if os.path.exists(p("usr/bin/dracut.real")):
                     check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
@@ -1491,9 +1067,6 @@ def test_mkfs_ext4():
 def test_zfs():
     return test_cmd("zfs", 2)
 
-def test_flock():
-    return test_cmd("flock", 64)
-
 def test_rsync():
     return test_cmd("rsync", 1)
 
@@ -1558,9 +1131,6 @@ def install_fedora_on_zfs():
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
-    if args.yum_cachedir and not test_flock():
-        print >> sys.stderr, "error: flock is not installed properly, but it is necessary to safely use --yum-cachedir. Please use your package manager to install flock (specifically, util-linux)."
-        return 5
     if not test_qemu():
         print >> sys.stderr, "error: qemu-system-x86_64 is not installed properly. Please use your package manager to install QEMU (specifically, qemu-system-x86)."
         return 5
@@ -1605,15 +1175,15 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
         target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
         if not os.path.isdir(target_rpms_path):
             os.mkdir(target_rpms_path)
-        if os.path.ismount(target_rpms_path):
+        if ismount(target_rpms_path):
             if os.stat(prebuilt_rpms_path).st_ino != os.stat(target_rpms_path):
                 umount(target_rpms_path)
-                check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
+                bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
         else:
-            check_call(["mount", "--bind", os.path.abspath(prebuilt_rpms_path), target_rpms_path])
+            bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
         if os.path.isdir(target_rpms_path):
             to_rmdir.append(target_rpms_path)
-        if os.path.ismount(target_rpms_path):
+        if ismount(target_rpms_path):
             to_unmount.append(target_rpms_path)
         prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
         prebuilt_rpms_to_install = set([
