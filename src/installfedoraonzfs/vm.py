@@ -138,7 +138,7 @@ def boot_image_in_qemu(hostname,
             if popenobject.returncode is not None:
                 return
             if x and (x % 60 == 0):
-            logger.error("%s seconds elapsed", x)
+                logger.info("%s seconds elapsed", x)
             time.sleep(1)
         logger.error("killing lame duck emulator after %s seconds", timeout)
         popenobject.kill()
