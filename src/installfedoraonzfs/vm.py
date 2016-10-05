@@ -65,7 +65,8 @@ def boot_image_in_qemu(hostname,
                        lukspassword,
                        rootuuid,
                        break_before,
-                       qemu_timeout):
+                       qemu_timeout,
+                       expected_break_before):
     vmuuid = str(uuid.uuid1())
     emucmd, emuopts = detect_qemu(force_kvm)
     if '-enable-kvm' in emuopts:
@@ -124,7 +125,7 @@ def boot_image_in_qemu(hostname,
     ])
 
     # check for stage stop
-    if break_before == "boot_bootloader":
+    if break_before == expected_break_before:
         logger.info(
             "qemu process that would execute now: %s" % " ".join([
                 pipes.quote(s) for s in cmd

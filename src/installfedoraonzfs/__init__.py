@@ -31,7 +31,8 @@ qemu_timeout = 180
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        description="Install a minimal Fedora system inside a ZFS pool within a disk image or device"
+        description="Install a minimal Fedora system inside a ZFS pool within a disk image or device",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "voldev", metavar="VOLDEV", type=str, nargs=1,
@@ -113,15 +114,19 @@ def get_parser():
         "--break-before", dest="break_before",
         choices=break_stages,
         action="store", default=None,
-        help="break before the specified stage: %s; useful to examine "
-             "the file systems at a predetermined build stage" % (
-            ", ".join("'%s' (%s)" % s for s in break_stages.items()),
-        )
+        help="break before the specified stage (see below); useful to examine "
+             "the file systems and files at a predetermined build stage; it is "
+             "also useful to combine it with --no-cleanup to prevent the file "
+             "systems and mounts from being undone, leaving you with a system "
+             "ready to inspect"
     )
     parser.add_argument(
         "--workdir", dest="workdir",
         action="store", default='/var/lib/zfs-fedora-installer',
         help="use this directory as a working (scratch) space for the mount points of the created pool"
+    )
+    parser.epilog = "Stages for the --break_before argument:\n%s" % (
+        "".join("\n* %s:%s%s" % (k, " "*(max(len(x) for x in break_stages)-len(k)+1), v) for k,v in break_stages.items()),
     )
     return parser
 
@@ -729,7 +734,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     os.unlink(p(j("etc", "resolv.conf")))
 
                 # check for stage stop
-                if break_before == "install_bootloader":
+                if break_before == "prepare_bootloader_install":
                     raise BreakingBefore(break_before)
 
                 # create bootloader installer
@@ -791,18 +796,18 @@ echo cannot power off VM.  Please kill qemu.
         cleanup()
         to_rmrf.append(kerneltempdir)
 
-        biiq = lambda init: boot_image_in_qemu(
+        biiq = lambda init, bb: boot_image_in_qemu(
             hostname, init, poolname,
             original_voldev, original_bootdev,
             os.path.join(kerneltempdir, os.path.basename(kernel)),
             os.path.join(kerneltempdir, os.path.basename(initrd)),
             force_kvm, interactive_qemu,
             lukspassword, rootuuid,
-            break_before, qemu_timeout
+            break_before, qemu_timeout, bb
         )
 
         # install bootloader using qemu
-        biiq("init=/installbootloader")
+        biiq("init=/installbootloader", "boot_to_install_bootloader")
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
             with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
@@ -813,7 +818,7 @@ echo cannot power off VM.  Please kill qemu.
         to_rmrf.append(kerneltempdir)
 
         # test hostonly initrd using qemu
-        biiq("systemd.unit=poweroff.target")
+        biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
 
     # tell the user we broke
     except BreakingBefore, e:
