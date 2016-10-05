@@ -250,7 +250,10 @@ class Undoer:
                 check_call(["cryptsetup", "luksClose", o])
             if typ == "un_losetup":
                 check_call(["sync"])
-                check_call(["losetup", "-d", o])
+                if get_associated_lodev(o):
+                    check_call(["losetup", "-d", o])
+                if get_associated_lodev(o):
+                    logging.error("losetup -d failed with device %s", o)
             self.actions.pop(n)
 
 
