@@ -21,7 +21,8 @@ import errno
 
 from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
-from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu, retry
+from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
+from installfedoraonzfs.retry import retry
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
