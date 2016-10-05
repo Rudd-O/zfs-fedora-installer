@@ -18,11 +18,82 @@ logger = logging.getLogger("VM")
 qemu_full_emulation_factor = 20
 
 
+class Retryable: pass
+
+
 class BootloaderWedged(Exception): pass
+
+
+class SystemdSegfault(Retryable, Exception): pass
 
 
 class MachineNeverShutoff(Exception): pass
 
+
+class retry(object):
+    """Returns a callable that will retry the callee up to N times,
+    if the callee raises an exception of type Retryable.
+    To be clear: if N == 0, then the function will not retry.
+    So, to get three tries, you must pass N == 2."""
+
+    def __init__(self, N):
+        self.N = N
+
+    def __call__(self, kallable):
+
+        def retryer(*a, **kw):
+            logger = logging.getLogger("retry")
+            while True:
+                try:
+                    return kallable(*a, **kw)
+                except Retryable:
+                    if self.N >= 1:
+                        logger.error(
+                            "Received retryable error running %s, trying %s more times",
+                            kallable,
+                            self.N
+                        )
+                    else:
+                        raise
+                self.N -= 1
+
+        return retryer
+
+
+class Babysitter(threading.Thread):
+
+    def __init__(self, popenobject, timeout):
+        threading.Thread.__init__(self)
+        self.setDaemon(True)
+        self.popenobject = popenobject
+        self.timeout = timeout
+        self._stopped_cond = threading.Condition()
+        self._stopped_val = False
+
+    def run(self):
+        logger = logging.getLogger("VM.babysitter")
+        popenobject = self.popenobject
+        timeout = self.timeout
+        stopped = False
+        for x in xrange(timeout):
+            if stopped:
+                return
+            if popenobject.returncode is not None:
+                return
+            if x and (x % 60 == 0):
+                logger.info("%s minutes elapsed", x / 60)
+            self._stopped_cond.acquire()
+            self._stopped_cond.wait(1.0)
+            stopped = self._stopped_val
+            self._stopped_cond.release()
+        logger.error("Killing lame duck emulator after %s seconds", timeout)
+        popenobject.kill()
+
+    def stop(self):
+        self._stopped_cond.acquire()
+        self._stopped_val = True
+        self._stopped_cond.notify()
+        self._stopped_cond.release()
 
 def cpuinfo(): return file("/proc/cpuinfo").read()
 
@@ -130,17 +201,7 @@ def boot_image_in_qemu(hostname,
         )
         raise BreakingBefore(break_before)
 
-    def babysit(popenobject, timeout):
-        logger = logging.getLogger("VM.babysitter")
-        for x in xrange(timeout):
-            if popenobject.returncode is not None:
-                return
-            if x and (x % 60 == 0):
-                logger.info("%s seconds elapsed", x)
-            time.sleep(1)
-        logger.error("killing lame duck emulator after %s seconds", timeout)
-        popenobject.kill()
-
+    babysitter = None
     if interactive_qemu:
         vmiomaster, vmioslave = None, None
         stdin, stdout, stderr = None, None, None
@@ -149,37 +210,58 @@ def boot_image_in_qemu(hostname,
         vmiomaster, vmioslave = pty.openpty()
         vmiomaster, vmioslave = os.fdopen(vmiomaster, "a+b"), os.fdopen(vmioslave, "rw+b")
         stdin, stdout, stderr = vmioslave, vmioslave, vmioslave
-        logger.info("Creating a new BootDriver thread to input the passphrase if needed")
+        logger.info("Creating BootDriver to supervise boot and input passphrases if needed")
         driver = BootDriver(lukspassword if lukspassword else "", vmiomaster)
 
-    machine_powered_off_okay = True if interactive_qemu else False
     try:
         qemu_process = Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, close_fds=True)
         if vmioslave:
-            vmioslave.close() # After handing it off.
-        if not interactive_qemu:
-            babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
-            babysitter.setDaemon(True)
-            babysitter.start()
+            vmioslave.close()
         if driver:
+            babysitter = Babysitter(qemu_process, proper_timeout)
+            babysitter.start()
             driver.start()
-        retcode = qemu_process.wait()
+            e = None
+            try:
+                logger.info("Waiting to join BootDriver")
+                driver.join()
+            except MachineNeverShutoff, e:
+                # The driver got an EOF or something, before
+                # it had a chance to read the normal shutdown
+                # text from the VM.
+                # If this was because qemu was killed by the
+                # babysitter, we must decide about it later.
+                pass
+            except BaseException:
+                # Something else went wrong, so we kill the
+                # qemu process and raise the exception.
+                qemu_process.kill()
+                qemu_process.wait()
+                raise
+            retcode = qemu_process.wait()
+            if retcode == -9:
+                # If qemu got SIGKILL, that means the babysitter did it.
+                # We assume the bootloader got wedged, thus killed.
+                raise BootloaderWedged("The bootloader appears wedged.")
+            elif retcode != 0:
+                # Abnormal return code from qemu, we must raise it.
+                raise subprocess.CalledProcessError(retcode, cmd)
+            elif e:
+                # qemu returned normally, but the machine does not.
+                # appear to have shut off cleanly, so we raise it.
+                raise e
+        else:
+            retcode = qemu_process.wait()
+            if retcode != 0:
+                raise subprocess.CalledProcessError(retcode, cmd)
+    finally:
+        if babysitter:
+            babysitter.stop()
+            babysitter.join()
+        if vmioslave:
+            vmioslave.close()
         if vmiomaster:
             vmiomaster.close()
-        if retcode == 0:
-            pass
-        elif not interactive_qemu and retcode == -9:
-            raise BootloaderWedged("The bootloader appears wedged.  Check the QEMU boot log for errors or unexpected behavior.")
-        else:
-            raise subprocess.CalledProcessError(retcode,cmd)
-    finally:
-        if driver:
-            logger.info("Waiting to join the BootDriver thread")
-            driver.join()
-            if "reboot: Power down" in driver.get_output():
-                machine_powered_off_okay = True
-    if not machine_powered_off_okay:
-        raise MachineNeverShutoff("The bootable image never shut off.  Check the QEMU boot log for errors or unexpected behavior.")
 
 
 class BootDriver(threading.Thread):
@@ -233,16 +315,23 @@ class BootDriver(threading.Thread):
                     "nter passphrase for" in s and
                     pwendprompt in s):
                     # Zero out the last line to prevent future spurious matches.
-                    consolelogger.debug("".join(lastline))
+                    consolelogger.debug(s)
                     lastline = []
                     self.write_password()
+                elif "traps: systemd[1] general protection" in s:
+                    # Zero out the last line to prevent future spurious matches.
+                    consolelogger.debug(s)
+                    lastline = []
+                    raise SystemdSegfault("systemd appears to have segfaulted.")
             except Exception, e:
-                logger.error("Boot driver experienced an error (postponed): %s(%s)", e.__class__, e)
                 self.error = e
                 break
         if lastline:
             consolelogger.debug("".join(lastline))
-        logger.info("Boot driver gone")
+        logger.info("Boot driver ended")
+        if not self.error:
+            if "reboot: Power down" not in self.get_output():
+                self.error = MachineNeverShutoff("The bootable image never shut off.")
 
     def get_output(self):
         return "".join(self.output)

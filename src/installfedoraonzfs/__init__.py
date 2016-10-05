@@ -21,7 +21,7 @@ import errno
 
 from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
-from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
+from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu, retry
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
@@ -796,6 +796,10 @@ echo cannot power off VM.  Please kill qemu.
         cleanup()
         to_rmrf.append(kerneltempdir)
 
+        # All the time
+        # booting in and out of time
+        # Hear the blowing of the fans on your computer
+
         biiq = lambda init, bb: boot_image_in_qemu(
             hostname, init, poolname,
             original_voldev, original_bootdev,
@@ -806,8 +810,24 @@ echo cannot power off VM.  Please kill qemu.
             break_before, qemu_timeout, bb
         )
 
+        # Girl, we need some, girl, we need some retries
+        # if we're gonna make it like a true bootloader
+        # We need some retries
+        # If we wanna make a good initrd
+
+        # There's this thing about systemd on F24 randomly segfaulting.
+        # We retry in those cases.
+
+        @retry(2)
+        def biiq_bootloader():
+            return biiq("init=/installbootloader", "boot_to_install_bootloader")
+
+        @retry(2)
+        def biiq_test():
+            biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
+
         # install bootloader using qemu
-        biiq("init=/installbootloader", "boot_to_install_bootloader")
+        biiq_bootloader()
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
             with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
@@ -818,7 +838,7 @@ echo cannot power off VM.  Please kill qemu.
         to_rmrf.append(kerneltempdir)
 
         # test hostonly initrd using qemu
-        biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
+        biiq_test()
 
     # tell the user we broke
     except BreakingBefore, e:
