@@ -25,7 +25,7 @@ from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
-BASIC_FORMAT = '%(levelname)8s:%(name)s:%(funcName)20s@%(lineno)4d\t%(message)s'
+BASIC_FORMAT = '%(levelname)8s:%(name)14s:%(funcName)20s@%(lineno)4d\t%(message)s'
 qemu_timeout = 180
 
 
