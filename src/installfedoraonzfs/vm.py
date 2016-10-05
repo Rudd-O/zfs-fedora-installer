@@ -303,7 +303,8 @@ class BootDriver(threading.Thread):
                         logger.info("Writing passphrase.")
                         self.write_password()
                         password_prompt_state = written
-                if "traps: systemd[1] general protection" in s:
+                if ("traps: systemd[1] general protection" in s or
+                    "Freezing execution." in s):
                     # systemd exploded.  Raise retryable SystemdSegfault later.
                     segfaulted = True
             except Exception, e:
