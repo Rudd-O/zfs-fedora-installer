@@ -423,7 +423,7 @@ w
         try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
-            check_call(["mkfs.ext4", "-L", poolname + "_boot", bootpart])
+            check_call(["mkfs.ext4", "-L", "boot_" + poolname, bootpart])
         bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
 
         if lukspassword:
