@@ -431,8 +431,9 @@ w
         if lukspassword:
             needsdoing = False
             try:
-                output = check_output(["blkid", "-c", "/dev/null", rootpart])
-                rootuuid = re.findall(' UUID="(.*?)"', output)[0]
+                rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
+                if not rootuuid:
+                    raise IndexError("no UUID for %s" % rootpart)
                 luksuuid = "luks-" + rootuuid
             except IndexError:
                 needsdoing = True
@@ -446,8 +447,9 @@ w
                 proc.communicate(lukspassword)
                 retcode = proc.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-                output = check_output(["blkid", "-c", "/dev/null", rootpart])
-                rootuuid = re.findall(' UUID="(.*?)"', output)[0]
+                rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
+                if not rootuuid:
+                    raise IndexError("still no UUID for %s" % rootpart)
                 luksuuid = "luks-" + rootuuid
             if not os.path.exists(j("/dev","mapper",luksuuid)):
                 cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
