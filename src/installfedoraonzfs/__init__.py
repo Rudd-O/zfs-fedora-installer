@@ -528,9 +528,10 @@ w
         to_unmount.append(p("sys"))
 
         selinuxfs= p(j("sys", "fs", "selinux"))
-        if not os.path.ismount(selinuxfs):
-            mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
-        to_unmount.append(selinuxfs)
+        if os.path.isdir(selinuxfs):
+            if not os.path.ismount(selinuxfs):
+                mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
+            to_unmount.append(selinuxfs)
 
         if not os.path.ismount(p("proc")):
             mount("proc", p("proc"), "-t", "proc")
