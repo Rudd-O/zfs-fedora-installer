@@ -90,34 +90,23 @@ def get_output_exitcode(cmd, **kwargs):
     if stderr == subprocess.STDOUT:
         assert 0, "you cannot specify subprocess.STDOUT on this function"
 
-    f = None
-    outpiper, outpipew = None, None
-    errpiper, errpipew = None, None
+    f = tempfile.TemporaryFile()
     try:
-        f = tempfile.TemporaryFile()
-        outpiper, outpipew = os.pipe()
-        outpiper, outpipew = os.fdopen(outpiper, "rb"), os.fdopen(outpipew, "wb")
-        errpiper, errpipew = os.pipe()
-        errpiper, errpipew = os.fdopen(errpiper, "rb"), os.fdopen(errpipew, "wb")
-        t = Tee((outpiper, f, stdout), (errpiper, f, stderr))
-        t.start()
         logger.debug("Get output exitcode %s in cwd %r", format_cmdline(cmd), cwd)
-        p = subprocess.Popen(cmd, stdin=stdin, stdout=outpipew, stderr=errpipew, **kwargs)
-        outpipew.close()
-        errpipew.close()
-        outpipew = None
-        errpipew = None
+        p = subprocess.Popen(cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+        t = Tee((p.stdout, f, stdout), (p.stderr, f, stderr))
+        t.start()
         retval = p.wait()
         t.join()
         f.seek(0)
         output = f.read()
     finally:
-        if f: f.close()
-        if outpiper: outpiper.close()
-        if errpiper: errpiper.close()
-        if outpipew: outpipew.close()
-        if errpipew: errpipew.close()
+        f.close()
     return output, retval
+
+
+if __name__ == "__main__":
+    print get_output_exitcode(["bash", "-c", "echo yes ; echo YFU >&2 ; false"])
 
 
 def Popen(*args,**kwargs):
