@@ -12,6 +12,7 @@ import shutil
 import glob
 import platform
 import tempfile
+import time
 import logging
 import re
 import shlex
@@ -500,13 +501,16 @@ w
             check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
         swappart = os.path.join("/dev/zvol", poolname, "swap")
 
+        for _ in range(5):
+            if not os.path.exists(swappart):
+                time.sleep(5)
+        if not os.path.exists(swappart):
+            raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
+
         try: output = check_output(["blkid", "-c", "/dev/null", swappart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="swap"' not in output:
-            try:
-                check_call(["mkswap", '-f', swappart])
-            except subprocess.CalledProcessError, e:
-                raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
+            check_call(["mkswap", '-f', swappart])
 
         p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
         q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
