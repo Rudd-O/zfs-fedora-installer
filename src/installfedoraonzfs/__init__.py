@@ -88,7 +88,7 @@ def get_parser():
     )
     parser.add_argument(
         "--interactive-qemu", dest="interactive_qemu",
-        action="store_true", default=False, help="QEMU will run interactively in curses mode and it won't be stopped after %s seconds; useful to manually debug problems installing the bootloader" % qemu_timeout
+        action="store_true", default=False, help="QEMU will run interactively, with the console of your Linux system connected to your terminal, and the normal timeout of %s seconds will not apply; useful to manually debug problems installing the bootloader; in this mode you are responsible for typing the password to any LUKS devices you have requested to be created" % qemu_timeout
     )
     parser.add_argument(
         "--yum-cachedir", dest="yum_cachedir",
