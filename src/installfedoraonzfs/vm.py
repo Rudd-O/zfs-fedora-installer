@@ -252,10 +252,18 @@ class BootDriver(threading.Thread):
     def run(self):
         logger.info("Boot driver started")
         consolelogger = logging.getLogger("VM.console")
-        pwendprompt = "".join(['!', ' ', '\x1b', '[', '0', 'm'])
         if self.password:
             logger.info("Expecting password prompt")
         lastline = []
+
+        unseen = "unseen"
+        waiting_for_escape_sequence = "waiting_for_escape_sequence"
+        pending_write = "pending_write"
+        written = "written"
+        password_prompt_state = unseen
+
+        segfaulted = False
+
         while True:
             try:
                 try:
@@ -272,25 +280,32 @@ class BootDriver(threading.Thread):
                 if c == "\n":
                     consolelogger.debug("".join(lastline))
                     lastline = []
+                    if segfaulted:
+                        raise SystemdSegfault("systemd appears to have segfaulted.")
                 elif c == "\r":
                     pass
                 else:
                     lastline.append(c)
                 s = "".join(lastline)
-                if (self.password and
-                    # Please enter passphrase for disk QEMU...
-                    # Enter passphrase for /dev/...
-                    "nter passphrase for" in s and
-                    pwendprompt in s):
-                    # Zero out the last line to prevent future spurious matches.
-                    consolelogger.debug(s)
-                    lastline = []
-                    self.write_password()
-                elif "traps: systemd[1] general protection" in s:
-                    # Zero out the last line to prevent future spurious matches.
-                    consolelogger.debug(s)
-                    lastline = []
-                    raise SystemdSegfault("systemd appears to have segfaulted.")
+                if self.password:
+                    if password_prompt_state == unseen:
+                        if "nter passphrase for" in s:
+                            # Please enter passphrase for disk QEMU...
+                            # Enter passphrase for /dev/...
+                            # Password prompt appeared.  Enter password later.
+                            logger.info("Passphrase prompt begun appearing.")
+                            password_prompt_state = waiting_for_escape_sequence
+                    if password_prompt_state == waiting_for_escape_sequence:
+                        if "[0m" in s:
+                            logger.info("Passphrase prompt done appearing.")
+                            password_prompt_state = pending_write
+                    if password_prompt_state == pending_write:
+                        logger.info("Writing passphrase.")
+                        self.write_password()
+                        password_prompt_state = written
+                if "traps: systemd[1] general protection" in s:
+                    # systemd exploded.  Raise retryable SystemdSegfault later.
+                    segfaulted = True
             except Exception, e:
                 self.error = e
                 break
@@ -312,7 +327,6 @@ class BootDriver(threading.Thread):
     def write_password(self):
         pw = []
         time.sleep(0.25)
-        logger.info("Writing password to console now")
         for char in self.password:
             self.pty.write(char)
             self.pty.flush()
