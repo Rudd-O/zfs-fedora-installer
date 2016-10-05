@@ -31,7 +31,8 @@ qemu_timeout = 180
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        description="Install a minimal Fedora system inside a ZFS pool within a disk image or device"
+        description="Install a minimal Fedora system inside a ZFS pool within a disk image or device",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "voldev", metavar="VOLDEV", type=str, nargs=1,
@@ -87,7 +88,7 @@ def get_parser():
     )
     parser.add_argument(
         "--interactive-qemu", dest="interactive_qemu",
-        action="store_true", default=False, help="QEMU will run interactively in curses mode and it won't be stopped after %s seconds; useful to manually debug problems installing the bootloader" % qemu_timeout
+        action="store_true", default=False, help="QEMU will run interactively, with the console of your Linux system connected to your terminal; the normal timeout of %s seconds will not apply, and Ctrl+C will interrupt the emulation; this is useful to manually debug problems installing the bootloader; in this mode you are responsible for typing the password to any LUKS devices you have requested to be created" % qemu_timeout
     )
     parser.add_argument(
         "--yum-cachedir", dest="yum_cachedir",
@@ -113,15 +114,19 @@ def get_parser():
         "--break-before", dest="break_before",
         choices=break_stages,
         action="store", default=None,
-        help="break before the specified stage: %s; useful to examine "
-             "the file systems at a predetermined build stage" % (
-            ", ".join("'%s' (%s)" % s for s in break_stages.items()),
-        )
+        help="break before the specified stage (see below); useful to examine "
+             "the file systems and files at a predetermined build stage; it is "
+             "also useful to combine it with --no-cleanup to prevent the file "
+             "systems and mounts from being undone, leaving you with a system "
+             "ready to inspect"
     )
     parser.add_argument(
         "--workdir", dest="workdir",
         action="store", default='/var/lib/zfs-fedora-installer',
         help="use this directory as a working (scratch) space for the mount points of the created pool"
+    )
+    parser.epilog = "Stages for the --break_before argument:\n%s" % (
+        "".join("\n* %s:%s%s" % (k, " "*(max(len(x) for x in break_stages)-len(k)+1), v) for k,v in break_stages.items()),
     )
     return parser
 
@@ -418,7 +423,7 @@ w
         try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
-            check_call(["mkfs.ext4", "-L", poolname + "_boot", bootpart])
+            check_call(["mkfs.ext4", "-L", "boot_" + poolname, bootpart])
         bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
 
         if lukspassword:
@@ -538,6 +543,10 @@ w
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
             with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+                # Save the partitions' UUIDS for cross checking later.
+                first_bootpartuuid = bootpartuuid
+                first_rootuuid = rootuuid
+
                 # sync device files
                 check_call(["rsync", "-ax", "--numeric-ids",
 #                           "--exclude=mapper",
@@ -689,6 +698,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
             with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+                # Check that our UUIDs haven't changed from under us.
+                if bootpartuuid != first_bootpartuuid:
+                    raise Exception("The boot partition UUID changed from %s to %s between remounts!" % (first_bootpartuuid, bootpartuuid))
+                if rootuuid != first_rootuuid:
+                    raise Exception("The root device UUID changed from %s to %s between remounts!" % (first_rootuuid, rootuuid))
 
                 if os.path.exists(p("usr/bin/dracut.real")):
                     check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
@@ -720,7 +734,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     os.unlink(p(j("etc", "resolv.conf")))
 
                 # check for stage stop
-                if break_before == "install_bootloader":
+                if break_before == "prepare_bootloader_install":
                     raise BreakingBefore(break_before)
 
                 # create bootloader installer
@@ -782,18 +796,18 @@ echo cannot power off VM.  Please kill qemu.
         cleanup()
         to_rmrf.append(kerneltempdir)
 
-        biiq = lambda init: boot_image_in_qemu(
+        biiq = lambda init, bb: boot_image_in_qemu(
             hostname, init, poolname,
             original_voldev, original_bootdev,
             os.path.join(kerneltempdir, os.path.basename(kernel)),
             os.path.join(kerneltempdir, os.path.basename(initrd)),
             force_kvm, interactive_qemu,
             lukspassword, rootuuid,
-            break_before, qemu_timeout
+            break_before, qemu_timeout, bb
         )
 
         # install bootloader using qemu
-        biiq("init=/installbootloader")
+        biiq("init=/installbootloader", "boot_to_install_bootloader")
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
             with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
@@ -804,7 +818,7 @@ echo cannot power off VM.  Please kill qemu.
         to_rmrf.append(kerneltempdir)
 
         # test hostonly initrd using qemu
-        biiq("systemd.unit=poweroff.target")
+        biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
 
     # tell the user we broke
     except BreakingBefore, e:
@@ -1089,7 +1103,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     check_call(cmd)
                     cmd = ["git", "checkout", branch]
                     check_call(cmd, cwd= project_dir)
-                    cmd = ["git", "show"]
+                    cmd = ["git", "--no-pager", "show"]
                     check_call(cmd, cwd= project_dir)
 
                 pkgmgr.ensure_packages_installed(mindeps)

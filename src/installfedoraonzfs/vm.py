@@ -65,7 +65,8 @@ def boot_image_in_qemu(hostname,
                        lukspassword,
                        rootuuid,
                        break_before,
-                       qemu_timeout):
+                       qemu_timeout,
+                       expected_break_before):
     vmuuid = str(uuid.uuid1())
     emucmd, emuopts = detect_qemu(force_kvm)
     if '-enable-kvm' in emuopts:
@@ -74,20 +75,17 @@ def boot_image_in_qemu(hostname,
         proper_timeout = qemu_timeout * qemu_full_emulation_factor
         logger.warning("No hardware (KVM) emulation available.  The next step is going to take a while.")
     dracut_cmdline = ("rd.info rd.shell systemd.show_status=1 "
-                      "systemd.journald.forward_to_console=1 systemd.log_level=info")
-    if interactive_qemu:
-        screenmode = [
-            "-nographic"
-            "-monitor","none",
-            "-chardev","stdio,id=char0",
-        ]
-    else:
-        screenmode = [
-            "-nographic",
-            "-monitor","none",
-            "-chardev","stdio,id=char0",
+                      "systemd.journald.forward_to_console=1 systemd.log_level=info "
+                      "systemd.log_target=console")
+    screenmode = [
+        "-nographic",
+        "-monitor","none",
+        "-chardev","stdio,id=char0",
+        "-serial","chardev:char0",
+    ]
+    if not interactive_qemu:
+        screenmode += [
             "-chardev","file,id=char1,path=/dev/stderr",
-            "-serial","chardev:char0",
             "-mon","char1,mode=control,default",
         ]
     if lukspassword:
@@ -124,7 +122,7 @@ def boot_image_in_qemu(hostname,
     ])
 
     # check for stage stop
-    if break_before == "boot_bootloader":
+    if break_before == expected_break_before:
         logger.info(
             "qemu process that would execute now: %s" % " ".join([
                 pipes.quote(s) for s in cmd
@@ -144,20 +142,21 @@ def boot_image_in_qemu(hostname,
         popenobject.kill()
 
     if interactive_qemu:
-        stdin, stdout, stderr = (None, None, None)
+        vmiomaster, vmioslave = None, None
+        stdin, stdout, stderr = None, None, None
         driver = None
-        vmiomaster = None
     else:
         vmiomaster, vmioslave = pty.openpty()
         vmiomaster, vmioslave = os.fdopen(vmiomaster, "a+b"), os.fdopen(vmioslave, "rw+b")
-        stdin, stdout, stderr = (vmioslave, vmioslave, vmioslave)
+        stdin, stdout, stderr = vmioslave, vmioslave, vmioslave
         logger.info("Creating a new BootDriver thread to input the passphrase if needed")
         driver = BootDriver(lukspassword if lukspassword else "", vmiomaster)
 
     machine_powered_off_okay = True if interactive_qemu else False
     try:
         qemu_process = Popen(cmd, stdin=stdin, stdout=stdout, stderr=stderr, close_fds=True)
-        vmioslave.close() # After handing it off.
+        if vmioslave:
+            vmioslave.close() # After handing it off.
         if not interactive_qemu:
             babysitter = threading.Thread(target=babysit, args=(qemu_process, proper_timeout))
             babysitter.setDaemon(True)
