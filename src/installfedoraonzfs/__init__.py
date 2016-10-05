@@ -22,7 +22,7 @@ import errno
 from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
 from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
-from installfedoraonzfs.retry import retry
+import installfedoraonzfs.retry as retrymod
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
@@ -611,8 +611,8 @@ UUID=%s /boot ext4 noatime 0 1
                     os.chmod(p(j("etc", "crypttab")), 0600)
 
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
-                pkgmgr.ensure_packages_installed = retry(1)(pkgmgr.ensure_packages_installed)
-                pkgmgr.install_local_packages = retry(1)(pkgmgr.install_local_packages)
+                pkgmgr.ensure_packages_installed = retrymod.retry(1)(pkgmgr.ensure_packages_installed)
+                pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
                 # install base packages
                 packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux".split()
@@ -821,11 +821,11 @@ echo cannot power off VM.  Please kill qemu.
         # There's this thing about systemd on F24 randomly segfaulting.
         # We retry in those cases.
 
-        @retry(2)
+        @retrymod.retry(2)
         def biiq_bootloader():
             return biiq("init=/installbootloader", "boot_to_install_bootloader")
 
-        @retry(2)
+        @retrymod.retry(2)
         def biiq_test():
             biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
 
@@ -1165,8 +1165,8 @@ def deploy_zfs():
     in_chroot = lambda x: x
 
     pkgmgr = SystemPackageManager()
-    pkgmgr.ensure_packages_installed = retry(1)(pkgmgr.ensure_packages_installed)
-    pkgmgr.install_local_packages = retry(1)(pkgmgr.install_local_packages)
+    pkgmgr.ensure_packages_installed = retrymod.retry(1)(pkgmgr.ensure_packages_installed)
+    pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
     to_rmdir = []
     to_unmount = []

@@ -13,10 +13,10 @@ import sys
 import subprocess
 
 from installfedoraonzfs.cmd import check_call, check_output, bindmount, umount, ismount, makedirs, lockfile, get_output_exitcode
-from installfedoraonzfs.retry import Retryable, retry
+import installfedoraonzfs.retry as retrymod
 
 
-class TemporaryRpmdbCorruptionError(Retryable, subprocess.CalledProcessError): pass
+class TemporaryRpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): pass
 
 
 def check_call_retry_rpmdberror(cmd):
