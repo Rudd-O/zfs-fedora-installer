@@ -64,7 +64,7 @@ def make_temp_yum_config(source, directory, **kwargs):
 
 @contextlib.contextmanager
 def dummylock():
-    yield lf
+    yield
 
 
 class ChrootPackageManager(object):
@@ -177,7 +177,7 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm(method)
         try:
-            with lock as lf:
+            with lock:
                 try:
                     check_call(in_chroot(["rpm", "-q"] + packages),
                                         stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
@@ -208,7 +208,7 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm("in_chroot")
         try:
-            with lock as lf:
+            with lock:
                 # always happens in chroot
                 # packages must be a list of paths to RPMs valid within the chroot
 
