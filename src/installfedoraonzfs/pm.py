@@ -12,7 +12,20 @@ import logging
 import sys
 import subprocess
 
-from installfedoraonzfs.cmd import check_call, check_output, bindmount, umount, ismount, makedirs, lockfile
+from installfedoraonzfs.cmd import check_call, check_output, bindmount, umount, ismount, makedirs, lockfile, get_output_exitcode
+import installfedoraonzfs.retry as retrymod
+
+
+class TemporaryRpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): pass
+
+
+def check_call_retry_rpmdberror(cmd):
+    out, ret = get_output_exitcode(cmd)
+    if ret == 1 and "Rpmdb checksum is invalid" in out:
+        raise TemporaryRpmdbCorruptionError(ret, cmd)
+    elif ret != 0:
+        raise subprocess.CalledProcessError(ret, cmd)
+    return out, ret
 
 
 logger = logging.getLogger("PM")
@@ -64,7 +77,7 @@ def make_temp_yum_config(source, directory, **kwargs):
 
 @contextlib.contextmanager
 def dummylock():
-    yield lf
+    yield
 
 
 class ChrootPackageManager(object):
@@ -177,7 +190,7 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm(method)
         try:
-            with lock as lf:
+            with lock:
                 try:
                     check_call(in_chroot(["rpm", "-q"] + packages),
                                         stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
@@ -198,7 +211,7 @@ class ChrootPackageManager(object):
                     if pkgmgr != "dnf":
                         cmd = cmd + ['--']
                     cmd = cmd + packages
-                    return check_call(cmd)
+                    return check_call_retry_rpmdberror(cmd)
         finally:
             self.ungrab_pm()
 
@@ -208,7 +221,7 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm("in_chroot")
         try:
-            with lock as lf:
+            with lock:
                 # always happens in chroot
                 # packages must be a list of paths to RPMs valid within the chroot
 
@@ -229,7 +242,7 @@ class ChrootPackageManager(object):
                 if pkgmgr != "dnf":
                     cmd = cmd + ['--']
                 cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-                return check_call(cmd)
+                return check_call_retry_rpmdberror(cmd)
         finally:
             self.ungrab_pm()
 
@@ -254,7 +267,7 @@ class SystemPackageManager(object):
             if self.strategy != "dnf":
                 cmd = cmd + ['--']
             cmd = cmd + packages
-            check_call(cmd)
+            return check_call_retry_rpmdberror(cmd)
 
     def install_local_packages(self, packages):
         def in_chroot(lst):
@@ -272,7 +285,7 @@ class SystemPackageManager(object):
         else:
             assert 0, "unknown strategy %r" % self.strategy
         cmd = cmd + packages
-        check_call(cmd)
+        return check_call_retry_rpmdberror(cmd)
 
 
 def get_parser():

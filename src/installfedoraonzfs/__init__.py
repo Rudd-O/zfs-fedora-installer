@@ -12,6 +12,7 @@ import shutil
 import glob
 import platform
 import tempfile
+import time
 import logging
 import re
 import shlex
@@ -22,10 +23,11 @@ import errno
 from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
 from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
+import installfedoraonzfs.retry as retrymod
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
-BASIC_FORMAT = '%(levelname)8s:%(name)s:%(funcName)20s@%(lineno)4d\t%(message)s'
+BASIC_FORMAT = '%(levelname)8s:%(name)14s:%(funcName)20s@%(lineno)4d\t%(message)s'
 qemu_timeout = 180
 
 
@@ -499,13 +501,16 @@ w
             check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
         swappart = os.path.join("/dev/zvol", poolname, "swap")
 
+        for _ in range(5):
+            if not os.path.exists(swappart):
+                time.sleep(5)
+        if not os.path.exists(swappart):
+            raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
+
         try: output = check_output(["blkid", "-c", "/dev/null", swappart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="swap"' not in output:
-            try:
-                check_call(["mkswap", '-f', swappart])
-            except subprocess.CalledProcessError, e:
-                raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
+            check_call(["mkswap", '-f', swappart])
 
         p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
         q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
@@ -610,6 +615,8 @@ UUID=%s /boot ext4 noatime 0 1
                     os.chmod(p(j("etc", "crypttab")), 0600)
 
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
+                pkgmgr.ensure_packages_installed = retrymod.retry(1)(pkgmgr.ensure_packages_installed)
+                pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
                 # install base packages
                 packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux".split()
@@ -669,7 +676,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     pw = Popen(cmd, stdin=subprocess.PIPE)
                     pw.communicate(rootpassword + "\n")
                     retcode = pw.wait()
-                    if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
+                    if retcode != 0: raise subprocess.CalledProcessError(retcode, cmd)
 
                 deploy_zfs_in_machine(p=p,
                                     in_chroot=in_chroot,
@@ -796,6 +803,10 @@ echo cannot power off VM.  Please kill qemu.
         cleanup()
         to_rmrf.append(kerneltempdir)
 
+        # All the time
+        # booting in and out of time
+        # Hear the blowing of the fans on your computer
+
         biiq = lambda init, bb: boot_image_in_qemu(
             hostname, init, poolname,
             original_voldev, original_bootdev,
@@ -806,8 +817,24 @@ echo cannot power off VM.  Please kill qemu.
             break_before, qemu_timeout, bb
         )
 
+        # Girl, we need some, girl, we need some retries
+        # if we're gonna make it like a true bootloader
+        # We need some retries
+        # If we wanna make a good initrd
+
+        # There's this thing about systemd on F24 randomly segfaulting.
+        # We retry in those cases.
+
+        @retrymod.retry(2)
+        def biiq_bootloader():
+            return biiq("init=/installbootloader", "boot_to_install_bootloader")
+
+        @retrymod.retry(2)
+        def biiq_test():
+            biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
+
         # install bootloader using qemu
-        biiq("init=/installbootloader", "boot_to_install_bootloader")
+        biiq_bootloader()
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
             with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
@@ -818,7 +845,7 @@ echo cannot power off VM.  Please kill qemu.
         to_rmrf.append(kerneltempdir)
 
         # test hostonly initrd using qemu
-        biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
+        biiq_test()
 
     # tell the user we broke
     except BreakingBefore, e:
@@ -1140,7 +1167,10 @@ def deploy_zfs():
         return 5
     p = lambda withinchroot: j("/", withinchroot.lstrip(os.path.sep))
     in_chroot = lambda x: x
+
     pkgmgr = SystemPackageManager()
+    pkgmgr.ensure_packages_installed = retrymod.retry(1)(pkgmgr.ensure_packages_installed)
+    pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
     to_rmdir = []
     to_unmount = []

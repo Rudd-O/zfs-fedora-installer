@@ -6,7 +6,11 @@ import glob
 import logging
 import os
 import pipes
+import select
 import subprocess
+import sys
+import tempfile
+import threading
 import time
 
 
@@ -35,6 +39,74 @@ def check_output(*args,**kwargs):
     else:
         logger.debug("No output from command")
     return output
+
+
+class Tee(threading.Thread):
+
+    def __init__(self, *filesets):
+        threading.Thread.__init__(self)
+        self.setDaemon(True)
+        self.filesets = filesets
+        self.err = None
+
+    def run(self):
+        pollables = dict((f[0], f[1:]) for f in self.filesets)
+        for inf in pollables.keys():
+            flag = fcntl.fcntl(inf.fileno(), fcntl.F_GETFL)
+            fcntl.fcntl(inf.fileno(), fcntl.F_SETFL, flag | os.O_NONBLOCK)
+        while pollables:
+            readables, _, _ = select.select(pollables.keys(), [], [])
+            data = readables[0].read()
+            if not data:
+                # Other side of file descriptor closed / EOF.
+                readables[0].close()
+                # We will not be polling it again
+                del pollables[readables[0]]
+                continue
+            try:
+                for w in pollables[readables[0]]:
+                    w.write(data)
+            except Exception, e:
+                readables[0].close()
+                del pollables[readables[0]]
+                if not self.err:
+                    self.err = e
+
+    def join(self):
+        threading.Thread.join(self)
+        if self.err:
+            raise self.err
+
+
+def get_output_exitcode(cmd, **kwargs):
+    """Gets the output (stdout / stderr) of a command, and its exit code.
+
+    stdout and stderr will be mixed in the output.
+    """
+    cwd = kwargs.get("cwd", os.getcwd())
+    stdin = kwargs.get("stdin")
+    stdout = kwargs.get("stdout", sys.stdout)
+    stderr = kwargs.get("stderr", sys.stderr)
+    if stderr == subprocess.STDOUT:
+        assert 0, "you cannot specify subprocess.STDOUT on this function"
+
+    f = tempfile.TemporaryFile()
+    try:
+        logger.debug("Get output exitcode %s in cwd %r", format_cmdline(cmd), cwd)
+        p = subprocess.Popen(cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+        t = Tee((p.stdout, f, stdout), (p.stderr, f, stderr))
+        t.start()
+        retval = p.wait()
+        t.join()
+        f.seek(0)
+        output = f.read()
+    finally:
+        f.close()
+    return output, retval
+
+
+if __name__ == "__main__":
+    print get_output_exitcode(["bash", "-c", "echo yes ; echo YFU >&2 ; false"])
 
 
 def Popen(*args,**kwargs):
