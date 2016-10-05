@@ -670,7 +670,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     pw = Popen(cmd, stdin=subprocess.PIPE)
                     pw.communicate(rootpassword + "\n")
                     retcode = pw.wait()
-                    if retcode != 0: raise subprocess.CalledProcessError(retcode, [cmd])
+                    if retcode != 0: raise subprocess.CalledProcessError(retcode, cmd)
 
                 deploy_zfs_in_machine(p=p,
                                     in_chroot=in_chroot,
