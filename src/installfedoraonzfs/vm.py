@@ -148,6 +148,7 @@ def boot_image_in_qemu(hostname,
         "-kernel", kernelfile,
         '-initrd', initrdfile,
         '-append', cmdline,
+        '-net', 'none',
     ]
     cmd = cmd + emuopts
     if bootdev:
