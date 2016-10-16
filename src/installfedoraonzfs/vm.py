@@ -22,6 +22,9 @@ qemu_full_emulation_factor = 20
 class BootloaderWedged(Exception): pass
 
 
+class OOMed(Exception): pass
+
+
 class SystemdSegfault(Retryable, Exception): pass
 
 
@@ -264,6 +267,7 @@ class BootDriver(threading.Thread):
         password_prompt_state = unseen
 
         segfaulted = False
+        oom = False
 
         while True:
             try:
@@ -283,6 +287,8 @@ class BootDriver(threading.Thread):
                     lastline = []
                     if segfaulted:
                         raise SystemdSegfault("systemd appears to have segfaulted.")
+                    if oom:
+                        raise OOMed("a process appears to have been OOMed.")
                 elif c == "\r":
                     pass
                 else:
@@ -308,6 +314,9 @@ class BootDriver(threading.Thread):
                     "Freezing execution." in s):
                     # systemd exploded.  Raise retryable SystemdSegfault later.
                     segfaulted = True
+                if (" Killed" in s):
+                    # OOM.  Raise non-retryable OOMed.
+                    oomed = True
             except Exception, e:
                 self.error = e
                 break
