@@ -747,8 +747,14 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 if os.path.isfile(p(j("etc", "resolv.conf"))):
                     os.unlink(p(j("etc", "resolv.conf")))
 
+                # Remove host device files
+                shutil.rmtree(p("dev"))
+                # sync /dev but only itself and /dev/zfs
+                check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/", p("dev/")])
+                check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/zfs", p("dev/zfs")])
+
                 # Restore SELinux contexts.
-                if os.path.isfile(j(rootmountpoint, ".autorelabel")):
+                if os.path.isfile(p(".autorelabel")):
                     check_call(in_chroot([
                         "/usr/sbin/genhomedircon"
                     ]))
@@ -756,7 +762,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         "/usr/sbin/restorecon", "-v", "-R", "/",
                         "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run", "-e", "/dev"
                     ]))
-                    os.unlink(j(rootmountpoint, ".autorelabel"))
+                    os.unlink(p(".autorelabel"))
 
                 # Snapshot the system as it is, now that it is fully done.
                 try:
