@@ -758,6 +758,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     ]))
                     os.unlink(j(rootmountpoint, ".autorelabel"))
 
+                # Snapshot the system as it is, now that it is fully done.
+                try:
+                    check_call(["zfs", "list", "-t", "snapshot",
+                                "-H", "-o", "name", j(poolname, "ROOT", "os@initial")],
+                               stdout=file(os.devnull,"w"))
+                except subprocess.CalledProcessError, e:
+                    check_call(["sync"])
+                    check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
+
                 # check for stage stop
                 if break_before == "prepare_bootloader_install":
                     raise BreakingBefore(break_before)
