@@ -274,7 +274,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    workdir='/var/lib/zfs-fedora-installer',
     ):
 
-    if lukspassword and not BootDriver.can_handle_passphrase(lukspassword):
+    if lukspassword and not BootDriver.can_handle_luks_passphrase(lukspassword):
         raise ImpossiblePassphrase("passphrase %r cannot be handled by the boot driver" % lukspassword)
 
     original_voldev = voldev
