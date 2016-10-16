@@ -311,8 +311,9 @@ class BootDriver(threading.Thread):
                         self.write_password()
                         password_prompt_state = written
                 if ("traps: systemd[1] general protection" in s or
+                    "memory corruption" in s or
                     "Freezing execution." in s):
-                    # systemd exploded.  Raise retryable SystemdSegfault later.
+                    # systemd or udevd exploded.  Raise retryable SystemdSegfault later.
                     segfaulted = True
                 if (" Killed" in s):
                     # OOM.  Raise non-retryable OOMed.
