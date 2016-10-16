@@ -239,16 +239,17 @@ def boot_image_in_qemu(hostname,
 class BootDriver(threading.Thread):
 
     @staticmethod
-    def can_handle_passphrase(passphrase):
+    def can_handle_luks_passphrase(passphrase):
         for p in passphrase:
             if ord(p) < 32:
                 return False
         return True
 
-    def __init__(self, password, pty):
+    def __init__(self, luks_passphrase, pty):
         threading.Thread.__init__(self)
         self.setDaemon(True)
-        self.password = password # fixme validate password
+        assert self.can_handle_luks_passphrase(luks_passphrase), "Cannot handle passphrase %r" % luks_passphrase
+        self.luks_passphrase = luks_passphrase
         self.pty = pty
         self.output = []
         self.error = None
@@ -256,15 +257,15 @@ class BootDriver(threading.Thread):
     def run(self):
         logger.info("Boot driver started")
         consolelogger = logging.getLogger("VM.console")
-        if self.password:
-            logger.info("Expecting password prompt")
+        if self.luks_passphrase:
+            logger.info("Expecting LUKS passphrase prompt")
         lastline = []
 
         unseen = "unseen"
         waiting_for_escape_sequence = "waiting_for_escape_sequence"
         pending_write = "pending_write"
         written = "written"
-        password_prompt_state = unseen
+        luks_passphrase_prompt_state = unseen
 
         segfaulted = False
         oom = False
@@ -294,22 +295,22 @@ class BootDriver(threading.Thread):
                 else:
                     lastline.append(c)
                 s = "".join(lastline)
-                if self.password:
-                    if password_prompt_state == unseen:
+                if self.luks_passphrase:
+                    if luks_passphrase_prompt_state == unseen:
                         if "nter passphrase for" in s:
                             # Please enter passphrase for disk QEMU...
                             # Enter passphrase for /dev/...
-                            # Password prompt appeared.  Enter password later.
+                            # LUKS passphrase prompt appeared.  Enter it later.
                             logger.info("Passphrase prompt begun appearing.")
-                            password_prompt_state = waiting_for_escape_sequence
-                    if password_prompt_state == waiting_for_escape_sequence:
+                            luks_passphrase_prompt_state = waiting_for_escape_sequence
+                    if luks_passphrase_prompt_state == waiting_for_escape_sequence:
                         if "[0m" in s or ")!" in s:
                             logger.info("Passphrase prompt done appearing.")
-                            password_prompt_state = pending_write
-                    if password_prompt_state == pending_write:
+                            luks_passphrase_prompt_state = pending_write
+                    if luks_passphrase_prompt_state == pending_write:
                         logger.info("Writing passphrase.")
-                        self.write_password()
-                        password_prompt_state = written
+                        self.write_luks_passphrase()
+                        luks_passphrase_prompt_state = written
                 if ("traps: systemd[1] general protection" in s or
                     "memory corruption" in s or
                     "Freezing execution." in s):
@@ -336,10 +337,10 @@ class BootDriver(threading.Thread):
         if self.error:
             raise self.error
 
-    def write_password(self):
+    def write_luks_passphrase(self):
         pw = []
         time.sleep(0.25)
-        for char in self.password:
+        for char in self.luks_passphrase:
             self.pty.write(char)
             self.pty.flush()
         self.pty.write("\n")
