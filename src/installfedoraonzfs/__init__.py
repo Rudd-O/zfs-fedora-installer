@@ -769,6 +769,7 @@ test -f %s || {
     dracut -Hf %s %s
     lsinitrd %s
 }
+fixfiles -v -R -a restore
 sync
 umount /boot || true
 rm -f /installbootloader
