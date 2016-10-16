@@ -847,7 +847,7 @@ echo cannot power off VM.  Please kill qemu.
             os.path.join(kerneltempdir, os.path.basename(kernel)),
             os.path.join(kerneltempdir, os.path.basename(whichinitrd)),
             force_kvm, interactive_qemu,
-            lukspassword, rootuuid,
+            lukspassword, rootpassword, rootuuid,
             break_before, qemu_timeout, bb
         )
 
@@ -865,7 +865,7 @@ echo cannot power off VM.  Please kill qemu.
 
         @retrymod.retry(2)
         def biiq_test():
-            biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly", hostonly_initrd)
+            biiq("systemd.unit=multi-user.target", "boot_to_test_hostonly", hostonly_initrd)
 
         # install bootloader and create hostonly initrd using qemu
         biiq_bootloader()
