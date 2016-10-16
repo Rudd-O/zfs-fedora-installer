@@ -746,6 +746,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 if os.path.isfile(p(j("etc", "resolv.conf"))):
                     os.unlink(p(j("etc", "resolv.conf")))
 
+                # Restore SELinux contexts.
+                check_call(in_chroot([
+                    "/usr/sbin/genhomedircon"
+                ]))
+                check_call(in_chroot([
+                    "/usr/sbin/restorecon", "-v", "-R", "/",
+                    "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run", "-e", "/dev"
+                ]))
+
                 # check for stage stop
                 if break_before == "prepare_bootloader_install":
                     raise BreakingBefore(break_before)
@@ -769,7 +778,6 @@ test -f %s || {
     dracut -Hf %s %s
     lsinitrd %s
 }
-fixfiles -v -R -a restore
 sync
 umount /boot || true
 rm -f /installbootloader
