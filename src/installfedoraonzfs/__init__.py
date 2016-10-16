@@ -760,7 +760,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     ]))
                     check_call(in_chroot([
                         "/usr/sbin/restorecon", "-v", "-R", "/",
-                        "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run", "-e", "/dev"
+                        "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run"
                     ]))
                     os.unlink(p(".autorelabel"))
 
