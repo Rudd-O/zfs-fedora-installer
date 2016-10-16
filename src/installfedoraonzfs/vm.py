@@ -297,7 +297,7 @@ class BootDriver(threading.Thread):
                             logger.info("Passphrase prompt begun appearing.")
                             password_prompt_state = waiting_for_escape_sequence
                     if password_prompt_state == waiting_for_escape_sequence:
-                        if "[0m" in s:
+                        if "[0m" in s or ")!" in s:
                             logger.info("Passphrase prompt done appearing.")
                             password_prompt_state = pending_write
                     if password_prompt_state == pending_write:
