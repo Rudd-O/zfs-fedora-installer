@@ -835,11 +835,11 @@ echo cannot power off VM.  Please kill qemu.
         # booting in and out of time
         # Hear the blowing of the fans on your computer
 
-        biiq = lambda init, bb: boot_image_in_qemu(
+        biiq = lambda init, bb, whichinitrd: boot_image_in_qemu(
             hostname, init, poolname,
             original_voldev, original_bootdev,
             os.path.join(kerneltempdir, os.path.basename(kernel)),
-            os.path.join(kerneltempdir, os.path.basename(initrd)),
+            os.path.join(kerneltempdir, os.path.basename(whichinitrd)),
             force_kvm, interactive_qemu,
             lukspassword, rootuuid,
             break_before, qemu_timeout, bb
@@ -855,13 +855,13 @@ echo cannot power off VM.  Please kill qemu.
 
         @retrymod.retry(2)
         def biiq_bootloader():
-            return biiq("init=/installbootloader", "boot_to_install_bootloader")
+            return biiq("init=/installbootloader", "boot_to_install_bootloader", initrd)
 
         @retrymod.retry(2)
         def biiq_test():
-            biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly")
+            biiq("systemd.unit=poweroff.target", "boot_to_test_hostonly", hostonly_initrd)
 
-        # install bootloader using qemu
+        # install bootloader and create hostonly initrd using qemu
         biiq_bootloader()
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
