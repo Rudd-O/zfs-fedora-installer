@@ -789,6 +789,7 @@ zfs inherit com.sun:auto-snapshot "%s"
 test -f %s || {
     dracut -Hf %s %s
     lsinitrd %s
+    restorecon -v %s
 }
 sync
 umount /boot || true
@@ -807,7 +808,7 @@ sleep 5
 echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
-'''%(poolname, q(hostonly_initrd), q(hostonly_initrd), kver, q(hostonly_initrd))
+'''%(poolname, q(hostonly_initrd), q(hostonly_initrd), kver, q(hostonly_initrd), q(hostonly_initrd))
                 bootloaderpath = p("installbootloader")
                 bootloader = file(bootloaderpath,"w")
                 bootloader.write(bootloadertext)
