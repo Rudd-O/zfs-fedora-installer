@@ -495,6 +495,7 @@ w
                 check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
         except subprocess.CalledProcessError, e:
             check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
+            check_call(["touch", j(rootmountpoint, ".autorelabel")])
         to_unmount.append(rootmountpoint)
 
         try:
@@ -747,13 +748,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     os.unlink(p(j("etc", "resolv.conf")))
 
                 # Restore SELinux contexts.
-                check_call(in_chroot([
-                    "/usr/sbin/genhomedircon"
-                ]))
-                check_call(in_chroot([
-                    "/usr/sbin/restorecon", "-v", "-R", "/",
-                    "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run", "-e", "/dev"
-                ]))
+                if os.path.isfile(j(rootmountpoint, ".autorelabel")):
+                    check_call(in_chroot([
+                        "/usr/sbin/genhomedircon"
+                    ]))
+                    check_call(in_chroot([
+                        "/usr/sbin/restorecon", "-v", "-R", "/",
+                        "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run", "-e", "/dev"
+                    ]))
+                    os.unlink(j(rootmountpoint, ".autorelabel"))
 
                 # check for stage stop
                 if break_before == "prepare_bootloader_install":
