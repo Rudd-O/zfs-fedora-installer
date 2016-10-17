@@ -240,7 +240,7 @@ def boot_image_in_qemu(hostname,
 class BootDriver(threading.Thread):
 
     @staticmethod
-    def can_handle_luks_passphrase(passphrase):
+    def is_typeable(passphrase):
         for p in passphrase:
             if ord(p) < 32:
                 return False
@@ -249,11 +249,11 @@ class BootDriver(threading.Thread):
     def __init__(self, login, password, luks_passphrase, pty):
         threading.Thread.__init__(self)
         self.setDaemon(True)
-        assert self.can_handle_luks_passphrase(luks_passphrase), "Cannot handle passphrase %r" % luks_passphrase
+        assert self.is_typeable(luks_passphrase), "Cannot handle passphrase %r" % luks_passphrase
         self.luks_passphrase = luks_passphrase
-        assert self.can_handle_luks_passphrase(luks_passphrase), "Cannot handle passphrase %r" % luks_passphrase
-        assert self.can_handle_luks_passphrase(login), "Cannot handle user name %r" % login
-        assert self.can_handle_luks_passphrase(password), "Cannot handle password %r" % password
+        assert self.is_typeable(luks_passphrase), "Cannot handle passphrase %r" % luks_passphrase
+        assert self.is_typeable(login), "Cannot handle user name %r" % login
+        assert self.is_typeable(password), "Cannot handle password %r" % password
         self.login = login
         self.password = password
         self.pty = pty
