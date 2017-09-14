@@ -483,6 +483,7 @@ w
                                     "-O", "com.sun:auto-snapshot=false",
                                     "-R", rootmountpoint,
                                     poolname, rootpart])
+                check_call(["zfs", "set", "xattr=sa", poolname])
         to_export.append(poolname)
 
         try:
@@ -525,7 +526,7 @@ w
         q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
 
         # mount virtual file systems, creating their mount points as necessary
-        for m in "boot sys proc etc".split():
+        for m in "boot sys proc".split():
             if not os.path.isdir(p(m)): os.mkdir(p(m))
 
         if not os.path.ismount(p("boot")):
@@ -545,6 +546,13 @@ w
         if not os.path.ismount(p("proc")):
             mount("proc", p("proc"), "-t", "proc")
         to_unmount.append(p("proc"))
+
+        # create needed directories to succeed in chrooting as per #22
+        for m in "etc var var/lib var/lib/dbus var/log var/log/audit".split():
+            if not os.path.isdir(p(m)):
+                os.mkdir(p(m))
+                if m == "var/log/audit":
+                    os.chmod(p(m), 0700)
 
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
