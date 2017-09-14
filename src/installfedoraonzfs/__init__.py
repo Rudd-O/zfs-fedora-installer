@@ -483,6 +483,7 @@ w
                                     "-O", "com.sun:auto-snapshot=false",
                                     "-R", rootmountpoint,
                                     poolname, rootpart])
+                check_call(["zfs", "set", "xattr=sa", poolname])
         to_export.append(poolname)
 
         try:
