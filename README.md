@@ -61,8 +61,8 @@ Usage of `install-fedora-on-zfs`
                             no encryption)
     --no-cleanup          if an error occurs, do not clean up working volumes
     --use-prebuilt-rpms DIR
-                            use the pre-built (DKMS/tools) SPL and ZFS RPMs in
-                            this directory (default: build SPL and ZFS RPMs
+                            use the pre-built (DKMS/tools) ZFS RPMs in
+                            this directory (default: build ZFS RPMs
                             within the chroot)
 
 After setup is done, you can use `dd` to transfer the image(s) to the appropriate media (perhaps an USB drive) for booting.  See below for examples and more information.
@@ -77,9 +77,9 @@ Usage of `deploy-zfs`
     optional arguments:
       -h, --help            show this help message and exit
       --use-prebuilt-rpms DIR
-                            also install pre-built SPL, ZFS, GRUB and other RPMs
+                            also install pre-built ZFS, GRUB and other RPMs
                             in this directory, except for debuginfo packages
-                            within the directory (default: build SPL, ZFS and GRUB
+                            within the directory (default: build ZFS and GRUB
                             RPMs, within the system)
       --no-cleanup          if an error occurs, do not clean up temporary mounts
                             and files

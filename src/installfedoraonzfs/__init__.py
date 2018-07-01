@@ -74,7 +74,7 @@ def get_parser():
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
-        action="store", default=None, help="also install pre-built SPL, ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the chroot)"
+        action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the chroot)"
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
@@ -110,7 +110,7 @@ def get_parser():
     )
     parser.add_argument(
         "--use-branch", dest="branch",
-        action="store", default="master", help="when building SPL and ZFS from source, check out this branch instead of master"
+        action="store", default="master", help="when building ZFS from source, check out this branch instead of master"
     )
     parser.add_argument(
         "--break-before", dest="break_before",
@@ -138,7 +138,7 @@ def get_deploy_parser():
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
-        action="store", default=None, help="also install pre-built SPL, ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the system)"
+        action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the system)"
     )
     parser.add_argument(
         "--no-cleanup", dest="nocleanup",
@@ -146,7 +146,7 @@ def get_deploy_parser():
     )
     parser.add_argument(
         "--use-branch", dest="branch",
-        action="store", default="master", help="when building SPL and ZFS from source, check out this branch instead of master"
+        action="store", default="master", help="when building ZFS from source, check out this branch instead of master"
     )
     return parser
 
@@ -956,7 +956,7 @@ def install_fedora_on_zfs():
         print >> sys.stderr, "error: rsync is not available. Please use your package manager to install rsync."
         return 5
     if not test_zfs():
-        print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/spl and then https://github.com/Rudd-O/zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
         return 5
     if not test_mkfs_ext4():
         print >> sys.stderr, "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
@@ -1115,18 +1115,6 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
         raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
 
     for project, patterns, keystonepkgs, mindeps in (
-        (
-            "spl",
-            (
-                "spl-*.%s.rpm" % arch,
-                "spl-dkms-*.noarch.rpm",
-            ),
-            ('spl', 'spl-dkms'),
-            [
-                "make", "autoconf", "automake", "gcc", "libtool", "git",
-                "rpm-build", "dkms",
-            ],
-        ),
         (
             "zfs",
             (
