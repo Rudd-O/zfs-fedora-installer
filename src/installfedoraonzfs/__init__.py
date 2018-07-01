@@ -74,7 +74,7 @@ def get_parser():
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
-        action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the chroot)"
+        action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build ZFS and GRUB RPMs, within the chroot)"
     )
     parser.add_argument(
         "--luks-password", dest="lukspassword", metavar="LUKSPASSWORD", type=str,
@@ -138,7 +138,7 @@ def get_deploy_parser():
     )
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
-        action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build SPL, ZFS and GRUB RPMs, within the system)"
+        action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build ZFS and GRUB RPMs, within the system)"
     )
     parser.add_argument(
         "--no-cleanup", dest="nocleanup",
