@@ -1186,7 +1186,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
             pkgmgr.install_local_packages(files_to_install)
 
     # Check we have a ZFS.ko for at least one kernel.
-    modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko"))
+    modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko*"))
     modules_files = glob.glob(modules_dir)
     if not modules_files:
         raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?" % modules_dir)
