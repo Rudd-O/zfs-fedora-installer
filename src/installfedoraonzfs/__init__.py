@@ -12,7 +12,6 @@ import shutil
 import glob
 import platform
 import tempfile
-import time
 import logging
 import re
 import shlex
@@ -1284,7 +1283,7 @@ def deploy_zfs():
                               break_before=None,
                               to_rmdir=to_rmdir,
                               to_unmount=to_unmount,)
-    except BaseException, e:
+    except BaseException:
         logging.exception("Unexpected error")
         if not args.nocleanup:
             logging.info("Cleaning up now")
