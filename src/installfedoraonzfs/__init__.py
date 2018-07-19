@@ -393,7 +393,7 @@ y
             rootpart = get_rootpart(voldev)
 
             if not rootpart or not bootpart or not efipart:
-                cmd = ["fdisk", voldev]
+                cmd = ["gdisk", voldev]
                 pr = Popen(cmd, stdin=subprocess.PIPE)
                 pr.communicate(
     '''o
