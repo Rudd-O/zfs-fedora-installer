@@ -968,7 +968,7 @@ def install_fedora_on_zfs():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
     if not test_qemu():
-        print >> sys.stderr, "error: qemu-system-x86_64 is not installed properly. Please use your package manager to install QEMU (specifically, qemu-system-x86)."
+        print >> sys.stderr, "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm)."
         return 5
     try:
         install_fedora(
