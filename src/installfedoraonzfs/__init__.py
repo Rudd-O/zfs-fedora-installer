@@ -328,40 +328,56 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             boottype = 'blockdev'
 
         if bootdev:
-            bootpart = bootdev + "-part1"
-            if not os.path.exists(bootpart):
-                bootpart = bootpart = bootdev + "p1"
-            if not os.path.exists(bootpart):
-                bootpart = bootpart = bootdev + "1"
-            if not os.path.exists(bootpart):
-                bootpart = None
             rootpart = voldev
 
-            if not bootpart:
-                cmd = ["fdisk", bootdev]
+            def get_efipart_bootpart(bdev):
+                for efipart, bootpart in [
+                    (bdev + "-part2", bdev + "-part3"),
+                    (bdev + "p2", bdev + "p3"),
+                    (bdev + "2", bdev + "3"),
+                ]:
+                    if os.path.exists(efipart) and os.path.exists(bootpart):
+                        return efipart, bootpart
+                return None, None
+
+            if None in get_efipart_bootpart(bootdev):
+                cmd = ["gdisk", bootdev]
                 pr = Popen(cmd, stdin=subprocess.PIPE)
                 pr.communicate(
-    '''n
-    p
-    1
+    '''o
+y
+
+n
+1
+ 
++2M
+21686148-6449-6E6F-744E-656564454649
 
 
+n
+2
 
-    p
-    w
-    '''
++%sM
+C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+
+
+n
+3
+ 
+ 
+
+p
+w
+y
+''' % (bootsize / 2)
                 )
                 retcode = pr.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
                 time.sleep(2)
 
-            bootpart = bootdev + "-part1"
-            if not os.path.exists(bootpart):
-                bootpart = bootpart = bootdev + "p1"
-            if not os.path.exists(bootpart):
-                bootpart = bootpart = bootdev + "1"
-            if not os.path.exists(bootpart):
-                assert 0, "partition 1 in device %r failed to be created"%bootdev
+            efipart, bootpart = get_efipart_bootpart(bootdev)
+            if not efipart or not bootpart:
+                assert 0, "partitions 2 or 3 in device %r failed to be created"%bootdev
 
         else:
             bootpart = voldev + "-part1"
@@ -423,16 +439,22 @@ w
             if not os.path.exists(rootpart):
                 assert 0, "partition 2 in device %r failed to be created"%voldev
 
-        yield rootpart, bootpart
+        yield rootpart, bootpart, efipart
 
     @contextlib.contextmanager
-    def setup_filesystems(rootpart, bootpart, lukspassword, luksoptions):
+    def setup_filesystems(rootpart, bootpart, efipart, lukspassword, luksoptions):
 
         try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
             check_call(["mkfs.ext4", "-L", "boot_" + poolname, bootpart])
         bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
+
+        try: output = check_output(["blkid", "-c", "/dev/null", efipart])
+        except subprocess.CalledProcessError: output = ""
+        if 'TYPE="vfat"' not in output:
+            check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + poolname, efipart])
+        efipartuuid = check_output(["blkid", "-c", "/dev/null", efipart, "-o", "value", "-s", "UUID"]).strip()
 
         if lukspassword:
             needsdoing = False
@@ -539,6 +561,13 @@ w
             mount(bootpart, p("boot"))
         to_unmount.append(p("boot"))
 
+        for m in "boot/efi".split():
+            if not os.path.isdir(p(m)): os.mkdir(p(m))
+
+        if not os.path.ismount(p("boot/efi")):
+            mount(efipart, p("boot/efi"))
+        to_unmount.append(p("boot/efi"))
+
         if not os.path.ismount(p("sys")):
             mount("sysfs", p("sys"), "-t", "sysfs")
         to_unmount.append(p("sys"))
@@ -563,18 +592,18 @@ w
         def in_chroot(lst):
             return ["chroot", rootmountpoint] + lst
 
-        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid
+        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
 
     try:
         # check for stage stop
         if break_before == "beginning":
             raise BreakingBefore(break_before)
 
-        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
             with setup_filesystems(
-                rootpart, bootpart, lukspassword, luksoptions
+                rootpart, bootpart, efipart, lukspassword, luksoptions
             ) as (
-                rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid
+                rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
             ):
                 # Save the partitions' UUIDS for cross checking later.
                 first_bootpartuuid = bootpartuuid
@@ -615,6 +644,7 @@ w
                 fstab = \
 '''%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
 UUID=%s /boot ext4 noatime 0 1
+UUID=%s /boot/efi vfat noatime 0 1
 /dev/zvol/%s/swap swap swap discard 0 0
 '''%(poolname, bootpartuuid, poolname)
                 file(p(j("etc", "fstab")),"w").write(fstab)
@@ -647,13 +677,13 @@ UUID=%s /boot ext4 noatime 0 1
                 pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
                 # install base packages
-                packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux".split()
+                packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux sed".split()
                 if releasever >= 21:
                     packages.append("dnf")
                 else:
                     packages.append("yum")
                 # install initial boot packages
-                packages = packages + "grub2 grub2-tools grubby".split()
+                packages = packages + "grub2 grub2-tools grubby efibootmgr shim-x64 grub2-efi-x64 grub2-efi-x64-modules".split()
                 pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
 
                 # omit zfs modules when dracutting
@@ -731,11 +761,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         cleanup()
 
-        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
             with setup_filesystems(
-                rootpart, bootpart, lukspassword, luksoptions
+                rootpart, bootpart, efipart, lukspassword, luksoptions
             ) as (
-                _, p, q, in_chroot, rootuuid, _, bootpartuuid
+                _, p, q, in_chroot, rootuuid, _, bootpartuuid, efipartuuid
             ):
                 # Check that our UUIDs haven't changed from under us.
                 if bootpartuuid != first_bootpartuuid:
@@ -813,9 +843,13 @@ error() {
 trap error ERR
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mount /boot
+mount /boot/efi
 ln -sf /proc/self/mounts /etc/mtab
 grub2-install /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
+cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
+sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
+sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
 zfs inherit com.sun:auto-snapshot "%s"
 test -f %s || {
     dracut -Hf %s %s
@@ -895,11 +929,11 @@ echo cannot power off VM.  Please kill qemu.
         # install bootloader and create hostonly initrd using qemu
         biiq_bootloader()
 
-        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
+        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
             with setup_filesystems(
-                rootpart, bootpart, lukspassword, luksoptions
+                rootpart, bootpart, efipart, lukspassword, luksoptions
             ) as (
-                _, _, _, _, _, _, _
+                _, _, _, _, _, _, _, _
             ):
                 shutil.copy2(hostonly_initrd, kerneltempdir)
 
@@ -932,7 +966,10 @@ echo cannot power off VM.  Please kill qemu.
 
 
 def test_cmd(cmdname, expected_ret):
-    try: subprocess.check_call([cmdname], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    try: subprocess.check_call([cmdname],
+                               stdin=file(os.devnull, "r"),
+                               stdout=file(os.devnull, "w"),
+                               stderr=file(os.devnull, "w"))
     except subprocess.CalledProcessError, e:
         if e.returncode == expected_ret: return True
         return False
@@ -949,6 +986,9 @@ def test_zfs():
 
 def test_rsync():
     return test_cmd("rsync", 1)
+
+def test_gdisk():
+    return test_cmd("gdisk", 5)
 
 def test_cryptsetup():
     return test_cmd("cryptsetup", 1)
@@ -981,6 +1021,9 @@ def install_fedora_on_zfs():
         return 5
     if not test_cryptsetup():
         print >> sys.stderr, "error: cryptsetup is not installed properly. Please install cryptsetup."
+        return 5
+    if not test_gdisk():
+        print >> sys.stderr, "error: gdisk is not installed properly. Please install gdisk."
         return 5
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
