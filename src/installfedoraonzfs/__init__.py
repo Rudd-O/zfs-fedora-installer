@@ -469,6 +469,7 @@ w
             rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
             if not rootuuid:
                 raise IndexError("no UUID for %s" % rootpart)
+            luksuuid = None
             rootpart = j("/dev","mapper",rootuuid)
 
         rootmountpoint = j(workdir, poolname)
@@ -570,7 +571,11 @@ w
             raise BreakingBefore(break_before)
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
-            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+            with setup_filesystems(
+                rootpart, bootpart, lukspassword, luksoptions
+            ) as (
+                rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid
+            ):
                 # Save the partitions' UUIDS for cross checking later.
                 first_bootpartuuid = bootpartuuid
                 first_rootuuid = rootuuid
@@ -630,7 +635,7 @@ UUID=%s /boot ext4 noatime 0 1
                 hostid = file(p(j("etc", "hostid"))).read().encode("hex")
                 hostid = "%s%s%s%s"%(hostid[6:8],hostid[4:6],hostid[2:4],hostid[0:2])
 
-                if lukspassword:
+                if luksuuid:
                     crypttab = \
 '''%s UUID=%s none discard
 '''%(luksuuid,rootuuid)
@@ -660,7 +665,7 @@ echo This is a fake dracut.
 """)
                     os.chmod(p("usr/bin/dracut"), 0755)
 
-                if lukspassword:
+                if luksuuid:
                     luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards"%(rootuuid,)
                 else:
                     luksstuff = ""
@@ -727,7 +732,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         cleanup()
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
-            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+            with setup_filesystems(
+                rootpart, bootpart, lukspassword, luksoptions
+            ) as (
+                _, p, q, in_chroot, rootuuid, _, bootpartuuid
+            ):
                 # Check that our UUIDs haven't changed from under us.
                 if bootpartuuid != first_bootpartuuid:
                     raise Exception("The boot partition UUID changed from %s to %s between remounts!" % (first_bootpartuuid, bootpartuuid))
@@ -887,7 +896,11 @@ echo cannot power off VM.  Please kill qemu.
         biiq_bootloader()
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart):
-            with setup_filesystems(rootpart, bootpart, lukspassword, luksoptions) as (rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid):
+            with setup_filesystems(
+                rootpart, bootpart, lukspassword, luksoptions
+            ) as (
+                _, _, _, _, _, _, _
+            ):
                 shutil.copy2(hostonly_initrd, kerneltempdir)
 
         to_rmrf.remove(kerneltempdir)
