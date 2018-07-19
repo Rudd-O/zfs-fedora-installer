@@ -979,6 +979,9 @@ def test_cmd(cmdname, expected_ret):
 def test_mkfs_ext4():
     return test_cmd("mkfs.ext4", 1)
 
+def test_mkfs_vfat():
+    return test_cmd("mkfs.vfat", 1)
+
 def test_zfs():
     return test_cmd("zfs", 2)
 
@@ -1016,6 +1019,9 @@ def install_fedora_on_zfs():
         return 5
     if not test_mkfs_ext4():
         print >> sys.stderr, "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
+        return 5
+    if not test_mkfs_vfat():
+        print >> sys.stderr, "error: mkfs.vfat is not installed properly. Please install dosfstools."
         return 5
     if not test_cryptsetup():
         print >> sys.stderr, "error: cryptsetup is not installed properly. Please install cryptsetup."
