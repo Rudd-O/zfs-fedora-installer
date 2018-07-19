@@ -643,7 +643,7 @@ w
 UUID=%s /boot ext4 noatime 0 1
 UUID=%s /boot/efi vfat noatime 0 1
 /dev/zvol/%s/swap swap swap discard 0 0
-'''%(poolname, bootpartuuid, poolname)
+'''%(poolname, bootpartuuid, efipartuuid, poolname)
                 file(p(j("etc", "fstab")),"w").write(fstab)
 
                 # create a number of important files
