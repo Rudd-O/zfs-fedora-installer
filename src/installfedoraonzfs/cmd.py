@@ -23,6 +23,8 @@ def format_cmdline(lst):
 
 def check_call(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
+    kwargs["close_fds"] = True
+    kwargs["stdin"] = open(os.devnull)
     cmd = args[0]
     logger.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.check_call(*args,**kwargs)
@@ -30,6 +32,7 @@ def check_call(*args,**kwargs):
 
 def check_output(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
+    kwargs["close_fds"] = True
     cmd = args[0]
     logger.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
     output = subprocess.check_output(*args,**kwargs)
