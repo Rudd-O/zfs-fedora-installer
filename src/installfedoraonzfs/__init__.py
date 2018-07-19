@@ -50,7 +50,7 @@ def get_parser():
     )
     parser.add_argument(
         "--boot-size", dest="bootsize", metavar="BOOTSIZE", type=int,
-        action="store", default=256, help="boot partition size in MiB, or boot volume size in MiB, when --separate-boot is specified (default 256)"
+        action="store", default=512, help="boot partition size in MiB, or boot volume size in MiB, when --separate-boot is specified (default 256)"
     )
     parser.add_argument(
         "--pool-name", dest="poolname", metavar="POOLNAME", type=str,
