@@ -13,7 +13,7 @@ This project contains two programs.
 * be booted on a QEMU / virt-manager virtual machine, or
 * be written to a block device, after which you can grow the last partition to make ZFS use the extra space.
 
-If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers, until the next time dracut regenerates the initial RAM disks, after which the initial RAM disks will be tailored to the specific hardware of the machine where it ran.
+If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers, until the next time dracut regenerates the initial RAM disks, after which the initial RAM disks will be tailored to the specific hardware of the machine where it ran.  Make sure that the device is large enough to contain the whole install.
 
 `install-fedora-on-zfs` requires a working ZFS install on the machine you are running it.  See below for instructions.
 
@@ -44,7 +44,7 @@ Usage of `install-fedora-on-zfs`
 
     optional arguments:
     -h, --help            show this help message and exit
-    --vol-size VOLSIZE    volume size in MiB (default 7000)
+    --vol-size VOLSIZE    volume size in MiB (default 11000)
     --separate-boot BOOTDEV
                             place /boot in a separate volume
     --boot-size BOOTSIZE  boot partition size in MiB, or boot volume size in
@@ -132,6 +132,8 @@ You can transfer the resulting disk images to larger media afterward.  The usual
     dd if=/path/to/image/file of=/dev/sde
 
 Of course, if you chose to have a separate boot image (`--separate-boot`), then you can write the boot image and the volume image `VOLDEV` to separate devices.
+
+**Security warning**: disk images created this way should not be reused across hosts, because several unique identifiers (and the LUKS master key, in case of encrypted images) will then be shared across those hosts.  You should create distinct images for distinct systems instead.  Changes are in the pipeline to uniquify installs and strip them of identifying informatin, precisely to prevent this problem.
 
 Taking advantage of increased disk space in the target media
 ------------------------------------------------------------

@@ -42,7 +42,7 @@ def get_parser():
     )
     parser.add_argument(
         "--vol-size", dest="volsize", metavar="VOLSIZE", type=int,
-        action="store", default=7000, help="volume size in MiB (default 7000)"
+        action="store", default=11000, help="volume size in MiB (default 11000)"
     )
     parser.add_argument(
         "--separate-boot", dest="bootdev", metavar="BOOTDEV", type=str,
