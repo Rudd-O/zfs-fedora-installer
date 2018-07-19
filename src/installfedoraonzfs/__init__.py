@@ -488,11 +488,8 @@ w
             to_luks_close.append(luksuuid)
             rootpart = j("/dev","mapper",luksuuid)
         else:
-            rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
-            if not rootuuid:
-                raise IndexError("no UUID for %s" % rootpart)
+            rootuuid = None
             luksuuid = None
-            rootpart = j("/dev","mapper",rootuuid)
 
         rootmountpoint = j(workdir, poolname)
         try:
@@ -906,7 +903,7 @@ echo cannot power off VM.  Please kill qemu.
             os.path.join(kerneltempdir, os.path.basename(kernel)),
             os.path.join(kerneltempdir, os.path.basename(whichinitrd)),
             force_kvm, interactive_qemu,
-            lukspassword, rootpassword, rootuuid,
+            lukspassword, rootpassword, rootuuid, luksuuid,
             break_before, qemu_timeout, bb
         )
 

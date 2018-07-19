@@ -107,6 +107,7 @@ def boot_image_in_qemu(hostname,
                        lukspassword,
                        rootpassword,
                        rootuuid,
+                       luksuuid,
                        break_before,
                        qemu_timeout,
                        expected_break_before):
@@ -131,7 +132,7 @@ def boot_image_in_qemu(hostname,
             "-chardev","file,id=char1,path=/dev/stderr",
             "-mon","char1,mode=control,default",
         ]
-    if lukspassword:
+    if luksuuid:
         luks_cmdline = "rd.luks.uuid=%s "%(rootuuid,)
     else:
         luks_cmdline = ""
