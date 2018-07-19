@@ -465,6 +465,11 @@ w
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
             to_luks_close.append(luksuuid)
             rootpart = j("/dev","mapper",luksuuid)
+        else:
+            rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
+            if not rootuuid:
+                raise IndexError("no UUID for %s" % rootpart)
+            rootpart = j("/dev","mapper",rootuuid)
 
         rootmountpoint = j(workdir, poolname)
         try:
