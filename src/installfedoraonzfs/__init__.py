@@ -327,18 +327,27 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             to_un_losetup.append(bootdev)
             boottype = 'blockdev'
 
+        def get_rootpart(rdev):
+            for rootpart in [
+                rdev + "-part4",
+                rdev + "p4",
+                rdev + "4",
+            ]:
+                if os.path.exists(rootpart):
+                    return rootpart
+
+        def get_efipart_bootpart(bdev):
+            for efipart, bootpart in [
+                (bdev + "-part2", bdev + "-part3"),
+                (bdev + "p2", bdev + "p3"),
+                (bdev + "2", bdev + "3"),
+            ]:
+                if os.path.exists(efipart) and os.path.exists(bootpart):
+                    return efipart, bootpart
+            return None, None
+
         if bootdev:
             rootpart = voldev
-
-            def get_efipart_bootpart(bdev):
-                for efipart, bootpart in [
-                    (bdev + "-part2", bdev + "-part3"),
-                    (bdev + "p2", bdev + "p3"),
-                    (bdev + "2", bdev + "3"),
-                ]:
-                    if os.path.exists(efipart) and os.path.exists(bootpart):
-                        return efipart, bootpart
-                return None, None
 
             if None in get_efipart_bootpart(bootdev):
                 cmd = ["gdisk", bootdev]
@@ -349,7 +358,7 @@ y
 
 n
 1
- 
+
 +2M
 21686148-6449-6E6F-744E-656564454649
 
@@ -363,8 +372,8 @@ C12A7328-F81F-11D2-BA4B-00A0C93EC93B
 
 n
 3
- 
- 
+
+
 
 p
 w
@@ -380,64 +389,57 @@ y
                 assert 0, "partitions 2 or 3 in device %r failed to be created"%bootdev
 
         else:
-            bootpart = voldev + "-part1"
-            if not os.path.exists(bootpart):
-                bootpart = bootpart = voldev + "p1"
-            if not os.path.exists(bootpart):
-                bootpart = bootpart = voldev + "1"
-            if not os.path.exists(bootpart):
-                bootpart = None
-            rootpart = voldev + "-part2"
-            if not os.path.exists(rootpart):
-                rootpart = rootpart = voldev + "p2"
-            if not os.path.exists(rootpart):
-                rootpart = rootpart = voldev + "2"
-            if not os.path.exists(rootpart):
-                rootpart = None
+            efipart, bootpart = get_efipart_bootpart(voldev)
+            rootpart = get_rootpart(voldev)
 
-            assert (not bootpart and not rootpart) or (bootpart and rootpart), "weird shit bootpart %s rootpart %s\nYou might want to nuke the partition table on the device/file you specified first." %(bootpart, rootpart)
-
-            bootstartsector = 2048
-            bootendsector = bootstartsector + ( bootsize * 1024 * 1024 / 512 ) - 1
-            rootstartsector = bootendsector + 1
-            rootendsector = ( get_file_size(voldev) / 512 ) - 1 - ( 16 * 1024 * 1024 / 512 )
-            if not rootpart and not bootpart:
+            if not rootpart or not bootpart or not efipart:
                 cmd = ["fdisk", voldev]
                 pr = Popen(cmd, stdin=subprocess.PIPE)
                 pr.communicate(
-    '''n
-p
-1
-%d
-%d
+    '''o
+y
 
 n
-p
+1
+
++2M
+21686148-6449-6E6F-744E-656564454649
+
+
+n
 2
-%d
-%d
+
++%sM
+C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+
+
+n
+3
+
++%sM
+
+
+
+n
+4
+
+
+
+
+
 p
 w
-'''%(bootstartsector, bootendsector, rootstartsector, rootendsector)
+y
+'''%(bootsize / 2, bootsize / 2)
                 )
                 retcode = pr.wait()
                 if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
                 time.sleep(2)
 
-            bootpart = voldev + "-part1"
-            if not os.path.exists(bootpart):
-                bootpart = voldev + "p1"
-            if not os.path.exists(bootpart):
-                bootpart = voldev + "1"
-            if not os.path.exists(bootpart):
-                assert 0, "partition 1 in device %r failed to be created"%voldev
-            rootpart = voldev + "-part2"
-            if not os.path.exists(rootpart):
-                rootpart = rootpart = voldev + "p2"
-            if not os.path.exists(rootpart):
-                rootpart = rootpart = voldev + "2"
-            if not os.path.exists(rootpart):
-                assert 0, "partition 2 in device %r failed to be created"%voldev
+            efipart, bootpart = get_efipart_bootpart(voldev)
+            rootpart = get_rootpart(voldev)
+            if not efipart or not bootpart or not rootpart:
+                assert 0, "partitions 2 or 3 or 4 in device %r failed to be created"%voldev
 
         yield rootpart, bootpart, efipart
 
