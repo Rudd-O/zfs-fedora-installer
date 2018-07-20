@@ -112,8 +112,10 @@ def boot_image_in_qemu(hostname,
                        qemu_timeout,
                        expected_break_before):
 
-    assert not get_associated_lodev(voldev), "%s still has a loopback device: %s" % (voldev, get_associated_lodev(voldev))
-    assert not get_associated_lodev(bootdev), "%s still has a loopback device: %s" % (bootdev, get_associated_lodev(bootdev))
+    if voldev:
+        assert not get_associated_lodev(voldev), "%s still has a loopback device: %s" % (voldev, get_associated_lodev(voldev))
+    if bootdev:
+        assert not get_associated_lodev(bootdev), "%s still has a loopback device: %s" % (bootdev, get_associated_lodev(bootdev))
 
     vmuuid = str(uuid.uuid1())
     emucmd, emuopts = detect_qemu(force_kvm)
