@@ -20,7 +20,7 @@ import multiprocessing
 import pipes
 import errno
 
-from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount
+from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount, get_associated_lodev
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
 from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
 import installfedoraonzfs.retry as retrymod
@@ -162,13 +162,6 @@ def filetype(dev):
     if stat.S_ISREG(s.st_mode): return 'file'
     assert 0, 'specified path %r is not a block device or a file'
 
-
-def get_associated_lodev(path):
-    output = ":".join(check_output(
-        ["losetup", "-j",path]
-    ).rstrip().split(":")[:-2])
-    if output: return output
-    return None
 
 def losetup(path):
     check_call(

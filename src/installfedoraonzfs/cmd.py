@@ -44,6 +44,14 @@ def check_output(*args,**kwargs):
     return output
 
 
+def get_associated_lodev(path):
+    output = ":".join(check_output(
+        ["losetup", "-j",path]
+    ).rstrip().split(":")[:-2])
+    if output: return output
+    return None
+
+
 class Tee(threading.Thread):
 
     def __init__(self, *filesets):
