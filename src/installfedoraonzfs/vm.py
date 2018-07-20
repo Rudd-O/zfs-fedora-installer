@@ -206,9 +206,10 @@ def boot_image_in_qemu(hostname,
                 # If this was because qemu was killed by the
                 # babysitter, we must decide about it later.
                 pass
-            except BaseException:
+            except BaseException, e:
                 # Something else went wrong, so we kill the
                 # qemu process and raise the exception.
+                logger.exception("boot_image_in_qemu experienced exception, killing QEMU process")
                 qemu_process.kill()
                 qemu_process.wait()
                 raise

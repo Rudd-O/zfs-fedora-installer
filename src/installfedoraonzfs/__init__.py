@@ -14,6 +14,7 @@ import platform
 import tempfile
 import logging
 import re
+import signal
 import shlex
 import multiprocessing
 import pipes
