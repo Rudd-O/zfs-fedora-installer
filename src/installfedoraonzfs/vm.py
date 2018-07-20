@@ -75,12 +75,12 @@ def detect_qemu(force_kvm=None):
     if force_kvm is False:
         pass
     elif force_kvm is True:
-       emucmd = "qemu-kvm"
-       emuopts = ['-enable-kvm']
+        emucmd = "qemu-kvm"
+        emuopts = ['-enable-kvm']
     else:
         if ("vmx" in cpuinfo() or "svm" in cpuinfo()):
-           emucmd = "qemu-kvm"
-           emuopts = ['-enable-kvm']
+            emucmd = "qemu-kvm"
+            emuopts = ['-enable-kvm']
     return emucmd, emuopts
 
 
