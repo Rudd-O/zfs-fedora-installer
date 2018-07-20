@@ -11,7 +11,7 @@ import threading
 import time
 
 from installfedoraonzfs.breakingbefore import BreakingBefore
-from installfedoraonzfs.cmd import Popen
+from installfedoraonzfs.cmd import Popen, get_associated_lodev
 from installfedoraonzfs.retry import Retryable
 
 
@@ -111,6 +111,10 @@ def boot_image_in_qemu(hostname,
                        break_before,
                        qemu_timeout,
                        expected_break_before):
+
+    assert not get_associated_lodev(voldev), "%s still has a loopback device: %s" % (voldev, get_associated_lodev(voldev))
+    assert not get_associated_lodev(bootdev), "%s still has a loopback device: %s" % (bootdev, get_associated_lodev(bootdev))
+
     vmuuid = str(uuid.uuid1())
     emucmd, emuopts = detect_qemu(force_kvm)
     if '-enable-kvm' in emuopts:
