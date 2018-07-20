@@ -842,6 +842,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # create bootloader installer
                 bootloadertext = \
 '''#!/bin/bash -xe
+mount --bind /dev/stderr /dev/log
 error() {
     retval=$?
     echo There was an unrecoverable error finishing setup >&2
