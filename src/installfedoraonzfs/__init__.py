@@ -681,7 +681,11 @@ UUID=%s /boot/efi vfat noatime 0 1
                 else:
                     packages.append("yum")
                 # install initial boot packages
-                packages = packages + "grub2 grub2-tools grubby efibootmgr shim-x64 grub2-efi-x64 grub2-efi-x64-modules".split()
+                packages = packages + "grub2 grub2-tools grubby efibootmgr".split()
+                if releasever >= 27:
+                    packages = packages + "shim-x64 grub2-efi-x64 grub2-efi-x64-modules".split()
+                else:
+                    packages = packages + "shim grub2-efi grub2-efi-modules".split()
                 pkgmgr.ensure_packages_installed(packages, method='out_of_chroot')
 
                 # omit zfs modules when dracutting
