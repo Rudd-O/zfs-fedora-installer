@@ -379,7 +379,7 @@ class BootDriver(threading.Thread):
                 if (" Killed" in s):
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
-                if ("Kernel panic" in s):
+                if ("end Kernel panic" in s):
                     # OOM.  Raise non-retryable kernel panic.
                     panicked = True
             except Exception, e:
