@@ -842,7 +842,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # create bootloader installer
                 bootloadertext = \
 '''#!/bin/bash -xe
-mount --bind /dev/stderr /dev/log
 error() {
     retval=$?
     echo There was an unrecoverable error finishing setup >&2
@@ -852,6 +851,7 @@ trap error ERR
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mount /boot
 mount /boot/efi
+mount --bind /dev/stderr /dev/log
 ln -sf /proc/self/mounts /etc/mtab
 grub2-install /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
