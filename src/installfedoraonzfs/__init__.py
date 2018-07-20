@@ -862,6 +862,7 @@ test -f %s || {
     restorecon -v %s
 }
 sync
+umount /boot/efi || true
 umount /boot || true
 rm -f /installbootloader
 # Very superstitious,
