@@ -25,6 +25,9 @@ class BootloaderWedged(Exception): pass
 class OOMed(Exception): pass
 
 
+class Panicked(Exception): pass
+
+
 class SystemdSegfault(Retryable, Exception): pass
 
 
@@ -292,6 +295,7 @@ class BootDriver(threading.Thread):
 
         segfaulted = False
         oom = False
+        panicked = False
 
         while True:
             try:
@@ -313,6 +317,8 @@ class BootDriver(threading.Thread):
                         raise SystemdSegfault("systemd appears to have segfaulted.")
                     if oom:
                         raise OOMed("a process appears to have been OOMed.")
+                    if panicked:
+                        raise Panicked("kernel has panicked.")
                 elif c == "\r":
                     pass
                 else:
@@ -373,6 +379,9 @@ class BootDriver(threading.Thread):
                 if (" Killed" in s):
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
+                if ("Kernel panic" in s):
+                    # OOM.  Raise non-retryable kernel panic.
+                    panicked = True
             except Exception, e:
                 self.error = e
                 break
