@@ -198,13 +198,13 @@ class ChrootPackageManager(object):
                 except subprocess.CalledProcessError:
                     logger.info("Installing packages %s: %s", method, ", ".join(packages))
                     if method == 'in_chroot':
-                        cmd = in_chroot([pkgmgr, 'install', '-y',
+                        cmd = in_chroot([pkgmgr, 'install', '-qy',
                                         '-c', config.name[len(self.chroot):]])
                     elif method == 'out_of_chroot':
                         cmd = [pkgmgr,
                             'install',
                             '--disableplugin=*qubes*',
-                            '-y',
+                            '-qy',
                             '-c', config.name,
                             '--installroot=%s' % self.chroot,
                             '--releasever=%d' % self.releasever]
