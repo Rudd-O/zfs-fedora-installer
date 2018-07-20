@@ -845,7 +845,12 @@ mount /boot
 mount /boot/efi
 mount --bind /dev/stderr /dev/log
 ln -sf /proc/self/mounts /etc/mtab
+test -L /boot/grub2/grubenv && rm -f /boot/grub2/grubenv
 grub2-install /dev/sda
+if test -f /boot/grub2/grubenv ; then
+    mv /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
+    ln -s /boot/efi/EFI/fedora/grubenv /boot/grub2/grubenv
+fi
 grub2-mkconfig -o /boot/grub2/grub.cfg
 cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
