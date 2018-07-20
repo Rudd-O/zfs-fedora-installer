@@ -859,6 +859,7 @@ sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
 zfs inherit com.sun:auto-snapshot "%s"
 test -f %s || {
+    mount -t tmpfs tmps /var/tmp
     dracut -Hf %s %s
     lsinitrd %s
     restorecon -v %s
