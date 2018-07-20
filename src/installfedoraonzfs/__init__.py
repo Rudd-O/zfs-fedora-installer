@@ -866,7 +866,7 @@ umount /boot/efi || true
 umount /boot || true
 rm -f /installbootloader
 # Very superstitious,
-# writing's on the platter.
+# writing's on the ROM.
 sync
 # When you believe in things,
 # that you don't understand
