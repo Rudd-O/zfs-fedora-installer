@@ -365,7 +365,7 @@ class BootDriver(threading.Thread):
                     segfaulted = True
                 if (" Killed" in s):
                     # OOM.  Raise non-retryable OOMed.
-                    oomed = True
+                    oom = True
             except Exception, e:
                 self.error = e
                 break
