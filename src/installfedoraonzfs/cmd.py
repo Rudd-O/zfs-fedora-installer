@@ -44,6 +44,10 @@ def check_output(*args,**kwargs):
     return output
 
 
+def check_call_no_output(cmd):
+    check_call(cmd, stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+
+
 def get_associated_lodev(path):
     output = ":".join(check_output(
         ["losetup", "-j",path]

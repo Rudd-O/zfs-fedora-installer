@@ -12,20 +12,29 @@ import logging
 import sys
 import subprocess
 
-from installfedoraonzfs.cmd import check_call, check_output, bindmount, umount, ismount, makedirs, lockfile, get_output_exitcode
+from installfedoraonzfs.cmd import check_output, bindmount, umount, ismount, makedirs, lockfile
+from installfedoraonzfs import cmd as cmdmod
 import installfedoraonzfs.retry as retrymod
 
 
 class TemporaryRpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): pass
 
 
+class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError): pass
+
+
 def check_call_retry_rpmdberror(cmd):
-    out, ret = get_output_exitcode(cmd)
+    out, ret = cmdmod.get_output_exitcode(cmd)
     if ret == 1 and "Rpmdb checksum is invalid" in out:
         raise TemporaryRpmdbCorruptionError(ret, cmd)
+    elif ret != 0 and "--downloadonly" in cmd:
+        raise DownloadFailed(ret, cmd)
     elif ret != 0:
         raise subprocess.CalledProcessError(ret, cmd)
     return out, ret
+
+
+options_retries = ((["--downloadonly"], 5), ([], 1))
 
 
 logger = logging.getLogger("PM")
@@ -192,26 +201,25 @@ class ChrootPackageManager(object):
         try:
             with lock:
                 try:
-                    check_call(in_chroot(["rpm", "-q"] + packages),
-                                        stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+                    cmdmod.check_call_no_output(in_chroot(["rpm", "-q"] + packages))
                     logger.info("All required packages are available")
+                    return
                 except subprocess.CalledProcessError:
-                    logger.info("Installing packages %s: %s", method, ", ".join(packages))
-                    if method == 'in_chroot':
-                        cmd = in_chroot([pkgmgr, 'install', '-qy',
-                                        '-c', config.name[len(self.chroot):]])
-                    elif method == 'out_of_chroot':
-                        cmd = [pkgmgr,
-                            'install',
-                            '--disableplugin=*qubes*',
-                            '-qy',
-                            '-c', config.name,
-                            '--installroot=%s' % self.chroot,
-                            '--releasever=%d' % self.releasever]
-                    if pkgmgr != "dnf":
-                        cmd = cmd + ['--']
-                    cmd = cmd + packages
-                    return check_call_retry_rpmdberror(cmd)
+                    pass
+                for option, retries in options_retries:
+                    logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
+                    cmd = (
+                        ([pkgmgr] if method == "out_of_chroot" else in_chroot([pkgmgr]))
+                        + ["install", "-qy", "--disableplugin=*qubes*"]
+                        + (["-c", config.name if method == "out_of_chroot" else config.name[len(self.chroot):]])
+                        + option
+                        + (['--installroot=%s' % self.chroot,
+                            '--releasever=%d' % self.releasever] if method == "out_of_chroot" else [])
+                        + (['--'] if pkgmgr == "yum" else [])
+                        + packages
+                    )
+                    out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                return out, ret
         finally:
             self.ungrab_pm()
 
@@ -219,30 +227,30 @@ class ChrootPackageManager(object):
         def in_chroot(lst):
             return ["chroot", self.chroot] + lst
 
+        packages = [ os.path.abspath(p) for p in packages ]
+        for package in packages:
+            if not os.path.isfile(package):
+                raise Exception("package file %r does not exist" % package)
+            if not package.startswith(self.chroot + os.path.sep):
+                raise Exception("package file %r is not within the chroot" % package)
+
         pkgmgr, config, lock = self.grab_pm("in_chroot")
         try:
             with lock:
                 # always happens in chroot
                 # packages must be a list of paths to RPMs valid within the chroot
-
-                packages = [ os.path.abspath(p) for p in packages ]
-                for package in packages:
-                    if not os.path.isfile(package):
-                        raise Exception("package file %r does not exist" % package)
-                    if not package.startswith(self.chroot + os.path.sep):
-                        raise Exception("package file %r is not within the chroot" % package)
-                logger.info("Installing packages: %s", ", ".join(packages))
-                if pkgmgr == "yum":
-                    cmd = in_chroot([pkgmgr , 'localinstall', '-y'])
-                elif pkgmgr  == "dnf":
-                    cmd = in_chroot([pkgmgr , 'install', '-y'])
-                else:
-                    assert 0, "unknown package manager %r" % pkgmgr
-                cmd = cmd + ['-c', config.name[len(self.chroot):]]
-                if pkgmgr != "dnf":
-                    cmd = cmd + ['--']
-                cmd = cmd + [ p[len(self.chroot):] for p in packages ]
-                return check_call_retry_rpmdberror(cmd)
+                for option, retries in options_retries:
+                    logger.info("Installing packages %s: %s", option, ", ".join(packages))
+                    cmd = in_chroot(
+                        [pkgmgr]
+                        + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                        + ['-qy']
+                        + option
+                        + ['-c', config.name[len(self.chroot):]]
+                        + (['--'] if pkgmgr == "yum" else [])
+                    ) + [ p[len(self.chroot):] for p in packages ]
+                    out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                return out, ret
         finally:
             self.ungrab_pm()
 
@@ -258,16 +266,21 @@ class SystemPackageManager(object):
     def ensure_packages_installed(self, packages, method="in_chroot"):
         logger.info("Checking packages are available: %s", packages)
         try:
-            check_call(["rpm", "-q"] + packages,
-                       stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
+            cmdmod.check_call_no_output(["rpm", "-q"] + packages)
             logger.info("All required packages are available")
+            return
         except subprocess.CalledProcessError:
-            logger.info("Installing packages %s: %s", method, ", ".join(packages))
-            cmd = [self.strategy, 'install', '-y']
-            if self.strategy != "dnf":
-                cmd = cmd + ['--']
-            cmd = cmd + packages
-            return check_call_retry_rpmdberror(cmd)
+            pass
+        for option, retries in options_retries:
+            logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
+            cmd = (
+                [self.strategy, 'install', '-qy']
+                + option
+                + (['--'] if self.strategy == "yum" else [])
+                + packages
+            )
+            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+        return out, ret
 
     def install_local_packages(self, packages):
         def in_chroot(lst):
@@ -277,15 +290,17 @@ class SystemPackageManager(object):
         for package in packages:
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
-        logger.info("Installing packages: %s", ", ".join(packages))
-        if self.strategy == "yum":
-            cmd = ['yum', 'localinstall', '-y', '--']
-        elif self.strategy == "dnf":
-            cmd = ['dnf', 'install', '-y']
-        else:
-            assert 0, "unknown strategy %r" % self.strategy
-        cmd = cmd + packages
-        return check_call_retry_rpmdberror(cmd)
+        for option, retries in options_retries:
+            logger.info("Installing packages %s: %s", option, ", ".join(packages))
+            cmd = (
+                [self.strategy]
+                + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                + ['-qy']
+                + (['--'] if pkgmgr == "yum" else [])
+                + packages
+            )
+            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+        return out, ret
 
 
 def get_parser():

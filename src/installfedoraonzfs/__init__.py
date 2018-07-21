@@ -664,8 +664,6 @@ UUID=%s /boot/efi vfat noatime 0 1
                     os.chmod(p(j("etc", "crypttab")), 0600)
 
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
-                pkgmgr.ensure_packages_installed = retrymod.retry(1)(pkgmgr.ensure_packages_installed)
-                pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
                 # install base packages
                 packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux sed".split()
@@ -1276,8 +1274,6 @@ def deploy_zfs():
     in_chroot = lambda x: x
 
     pkgmgr = SystemPackageManager()
-    pkgmgr.ensure_packages_installed = retrymod.retry(1)(pkgmgr.ensure_packages_installed)
-    pkgmgr.install_local_packages = retrymod.retry(1)(pkgmgr.install_local_packages)
 
     to_rmdir = []
     to_unmount = []
