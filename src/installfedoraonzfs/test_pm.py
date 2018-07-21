@@ -175,5 +175,3 @@ for release, method, pkgmgrconf, packages, behaviors, expected in testcases:
     fun.__name__ = name
     setattr(TestEnsurePackagesInstalled, name, fun)
 del fun
-
-# assert 0, "Must test install_local_packages and also test that retries work when they should"
