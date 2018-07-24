@@ -10,6 +10,10 @@ pipeline {
 
 	triggers {
 		pollSCM('H * * * *')
+		upstream(
+			upstreamProjects: 'ZFS (master)',
+			threshold: hudson.model.Result.SUCCESS
+		)
 	}
 
 	parameters {
@@ -44,7 +48,14 @@ pipeline {
 			agent{ label 'master' }
 			steps {
 				script {
-					env.UPSTREAM_RPMS = "ZFS (" + params.RPMS_FROM + ")"
+					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
+					if (upstream != null) {
+						env.UPSTREAM_RPMS = upstream.upstreamProject
+						echo "We are collecting RPMs from the upstream project ${env.UPSTREAM_RPMS}"
+					} else {
+						env.UPSTREAM_RPMS = "ZFS (" + params.RPMS_FROM + ")"
+						echo "We are collecting RPMs from the manually-specified project ${env.UPSTREAM_RPMS}"
+					}
 				}
 				copyArtifacts(projectName: env.UPSTREAM_RPMS)
 				sh '''#!/bin/bash -xe
