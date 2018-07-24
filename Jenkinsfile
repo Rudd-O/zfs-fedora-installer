@@ -11,7 +11,7 @@ pipeline {
 	triggers {
 		pollSCM('H * * * *')
 		upstream(
-			upstreamProjects: 'ZFS (master)',
+			upstreamProjects: 'ZFS (master),ZFS (staging)',
 			threshold: hudson.model.Result.SUCCESS
 		)
 	}
@@ -45,12 +45,17 @@ pipeline {
 				"""
 			}
 		}
-		stage('Copy from master') {
+		stage('Setup environment') {
 			agent{ label 'master' }
 			steps {
 				script {
 					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
 					if (upstream != null) {
+						if (env.BRANCH_NAME != "master") {
+							currentBuild.description = "Skipped test triggered by upstream job ${upstream.upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
+							currentBuild.result = 'NOT_BUILT'
+							return
+						}
 						env.BUILD_TRIGGER = "triggered by upstream job " + upstream.upstreamProject
 						env.UPSTREAM_PROJECT = upstream.upstreamProject
 						env.SOURCE_BRANCH = ""
@@ -83,21 +88,29 @@ pipeline {
 					}
 					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT} ${env.BUILD_TRIGGER}."
 				}
-				copyArtifacts(projectName: env.UPSTREAM_PROJECT)
-				sh '''#!/bin/bash -xe
-				find RELEASE* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
-				'''
-				sh '''#!/bin/bash -xe
-				cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .
-				'''
-				stash includes: 'RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
-				stash includes: 'rpmsums', name: 'rpmsums'
-				stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
-				stash includes: 'zfs-fedora-installer/**', name: 'zfs-fedora-installer'
+			}
+		}
+		stage('Copy from master') {
+			agent{ label 'master' }
+			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
+			steps {
+					copyArtifacts(projectName: env.UPSTREAM_PROJECT)
+					sh '''#!/bin/bash -xe
+					find RELEASE* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
+					'''
+					sh '''#!/bin/bash -xe
+					cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .
+					'''
+					stash includes: 'RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
+					stash includes: 'rpmsums', name: 'rpmsums'
+					stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
+					stash includes: 'zfs-fedora-installer/**', name: 'zfs-fedora-installer'
+				}
 			}
 		}
 		stage('Parallelize') {
 			agent{ label 'master' }
+			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
 				script {
 					def axisList = [
@@ -273,7 +286,7 @@ pipeline {
 		always {
 			node('master') {
 				sh """test -x /usr/local/bin/announce-build-result || exit
-				/usr/local/bin/announce-build-result finished with status ${currentBuild.currentResult}
+				/usr/local/bin/announce-build-result finished with status ${currentBuild.result}
 				"""
 			}
 		}
