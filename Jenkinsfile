@@ -96,21 +96,20 @@ pipeline {
 			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
-					copyArtifacts(
-						projectName: env.UPSTREAM_PROJECT,
-						fingerprintArtifacts: true
-					)
-					sh '''#!/bin/bash -xe
-					find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
-					'''
-					sh '''#!/bin/bash -xe
-					cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .
-					'''
-					stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
-					stash includes: 'rpmsums', name: 'rpmsums'
-					stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
-					stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
-				}
+				copyArtifacts(
+					projectName: env.UPSTREAM_PROJECT,
+					fingerprintArtifacts: true
+				)
+				sh '''#!/bin/bash -xe
+				find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
+				'''
+				sh '''#!/bin/bash -xe
+				cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .
+				'''
+				stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
+				stash includes: 'rpmsums', name: 'rpmsums'
+				stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
+				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
 			}
 		}
 		stage('Parallelize') {
