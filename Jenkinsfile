@@ -96,6 +96,7 @@ pipeline {
 			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
+				sh "rm -rf build dist"
 				copyArtifacts(
 					projectName: env.UPSTREAM_PROJECT,
 					fingerprintArtifacts: true
