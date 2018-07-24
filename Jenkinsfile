@@ -28,7 +28,7 @@ pipeline {
 		choice choices: ['never', 'beginning', 'reload_chroot', 'prepare_bootloader_install', 'boot_to_install_bootloader', 'boot_to_test_hostonly'], description: '', name: 'BREAK_BEFORE'
 		string defaultValue: 'yes no', description: '', name: 'SEPARATE_BOOT', trim: true
 		string defaultValue: 'yes no', description: '', name: 'LUKS', trim: true
-		string defaultValue: '23 27', description: '', name: 'RELEASE', trim: true
+		string defaultValue: '23 25 26 27', description: '', name: 'RELEASE', trim: true
 	}
 
 	stages {
