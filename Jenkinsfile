@@ -19,7 +19,7 @@ pipeline {
 	}
 
 	parameters {
-		string defaultValue: 'ZFS (master)', description: '', name: 'UPSTREAM_PROJECT', trim: true
+		string defaultValue: 'ZFS/master', description: '', name: 'UPSTREAM_PROJECT', trim: true
 		string defaultValue: 'master', description: '', name: 'SOURCE_BRANCH', trim: true
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_SOURCE', trim: true
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_RPMS', trim: true
