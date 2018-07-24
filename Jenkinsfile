@@ -96,14 +96,17 @@ pipeline {
 			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
-					copyArtifacts(projectName: env.UPSTREAM_PROJECT)
+					copyArtifacts(
+						projectName: env.UPSTREAM_PROJECT,
+						fingerprintArtifacts: true
+					)
 					sh '''#!/bin/bash -xe
-					find RELEASE* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
+					find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
 					'''
 					sh '''#!/bin/bash -xe
 					cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .
 					'''
-					stash includes: 'RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
+					stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
 					stash includes: 'rpmsums', name: 'rpmsums'
 					stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
 					stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
@@ -168,7 +171,7 @@ pipeline {
 											retry(5) {
 												sh '''#!/bin/bash -xe
 													release=`rpm -q --queryformat="%{version}" fedora-release`
-													sudo ./activate-zfs-in-qubes-vm RELEASE=$release/dist/
+													sudo ./activate-zfs-in-qubes-vm dist/RELEASE=$release/
 												'''
 											}
 										}
@@ -180,7 +183,7 @@ pipeline {
 											def program = """
 												#!/bin/bash -xe
 												if [ "${myBuildFrom}" == "RPMs" ] ; then
-												  prebuiltrpms=--use-prebuilt-rpms=RELEASE=${myRelease}/dist/
+												  prebuiltrpms=--use-prebuilt-rpms=dist/RELEASE=${myRelease}/
 												else
 												  prebuiltrpms=
 												fi
