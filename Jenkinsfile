@@ -101,7 +101,7 @@ pipeline {
 					projectName: env.UPSTREAM_PROJECT,
 					fingerprintArtifacts: true
 				)
-				sh "find dist/"
+				sh "find dist/ | sort"
 				sh '''#!/bin/bash -xe
 				find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
 				'''
