@@ -39,10 +39,11 @@ pipeline {
 					funcs.announceBeginning()
 				}
 				script {
-					env.GIT_COMMIT = sh (
+					env.GIT_HASH = sh (
 						script: "cd src/zfs-fedora-installer && git rev-parse --short HEAD",
 						returnStdout: true
 					).trim()
+					println "Git hash is reported as ${env.GIT_HASH}"
 				}
 			}
 		}
@@ -201,7 +202,7 @@ pipeline {
 												yumcache="\$JENKINS_HOME/yumcache"
 												volsize=10000
 												cmd=src/zfs-fedora-installer/install-fedora-on-zfs
-												pname="${env.POOL_NAME}"_"${env.GIT_COMMIT}"_"${myRelease}"_"${myBuildFrom}"_"${myLuks}"_"${mySeparateBoot}"
+												pname="${env.POOL_NAME}"_"${env.GIT_HASH}"_"${myRelease}"_"${myBuildFrom}"_"${myLuks}"_"${mySeparateBoot}"
 												if [ "${myLuks}" == "yes" ] ; then
 												  lukspassword=--luks-password=seed
 												else
