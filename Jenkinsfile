@@ -1,5 +1,7 @@
 import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
 
+// https://github.com/Rudd-O/shared-jenkins-libraries
+@Library('shared-jenkins-libraries@master') _
 pipeline {
 
 	agent none
@@ -119,10 +121,7 @@ pipeline {
 						env.BUILD_FROM.split(' '),
 						params.RELEASE.split(' '),
 					]
-					def tasks = [:]
-					def comboEntry = []
-					def task
-					task = {
+					def task = {
 						def mySeparateBoot = it[0]
 						def myLuks = it[1]
 						def myBuildFrom = it[2]
@@ -263,21 +262,7 @@ pipeline {
 							}
 						}
 					}
-					def comboBuilder
-					comboBuilder = {
-						def axes, int level -> for ( entry in axes[0] ) {
-							comboEntry[level] = entry
-							if (axes.size() > 1) {
-								comboBuilder(axes.drop(1), level + 1)
-							}
-							else {
-								tasks[comboEntry.join("_")] = task(comboEntry.collect())
-							}
-						}
-					}
-					comboBuilder(axisList, 0)
-					tasks.sort { it.key }
-					parallel tasks
+					parallel funcs.combo(task, axisList)
 				}
 			}
 		}
@@ -286,7 +271,7 @@ pipeline {
 		always {
 			node('master') {
 				sh """test -x /usr/local/bin/announce-build-result || exit
-				/usr/local/bin/announce-build-result finished with status ${currentBuild.result}
+				/usr/local/bin/announce-build-result finished with status ${currentBuild.currentResult}
 				"""
 			}
 		}
