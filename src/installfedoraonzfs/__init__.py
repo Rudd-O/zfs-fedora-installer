@@ -320,20 +320,24 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             boottype = 'blockdev'
 
         def get_rootpart(rdev):
-            for rootpart in [
+            parts = [
+                rdev + "p4"
+            ] if rdev.startswith("/dev/loop") else [
                 rdev + "-part4",
-                rdev + "p4",
                 rdev + "4",
-            ]:
+            ]
+            for rootpart in parts:
                 if os.path.exists(rootpart):
                     return rootpart
 
         def get_efipart_bootpart(bdev):
-            for efipart, bootpart in [
-                (bdev + "-part2", bdev + "-part3"),
+            parts = [
                 (bdev + "p2", bdev + "p3"),
+            ] if bdev.startswith("/dev/loop") else [
+                (bdev + "-part2", bdev + "-part3"),
                 (bdev + "2", bdev + "3"),
-            ]:
+            ]
+            for efipart, bootpart in parts:
                 if os.path.exists(efipart) and os.path.exists(bootpart):
                     return efipart, bootpart
             return None, None
