@@ -33,22 +33,22 @@ pipeline {
 
 	stages {
 		stage('Preparation') {
-			agent{ label 'master' }
+			agent { label 'master' }
 			steps {
+				sh """
+					test -x /usr/local/bin/announce-build-result || exit
+					/usr/local/bin/announce-build-result has begun
+				"""
 				script {
 					env.GIT_COMMIT = sh(
 						script: '''cd zfs-fedora-installer && git rev-parse --short HEAD''',
 						returnStdout: true
 					)
 				}
-				sh """echo SCM step reports ${env.GIT_COMMIT} as checked out."""
-				sh """test -x /usr/local/bin/announce-build-result || exit
-				/usr/local/bin/announce-build-result has begun
-				"""
 			}
 		}
 		stage('Setup environment') {
-			agent{ label 'master' }
+			agent { label 'master' }
 			steps {
 				script {
 					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
@@ -93,7 +93,7 @@ pipeline {
 			}
 		}
 		stage('Copy from master') {
-			agent{ label 'master' }
+			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
 					copyArtifacts(projectName: env.UPSTREAM_PROJECT)
@@ -111,7 +111,7 @@ pipeline {
 			}
 		}
 		stage('Parallelize') {
-			agent{ label 'master' }
+			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
 				script {
