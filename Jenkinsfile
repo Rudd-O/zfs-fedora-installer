@@ -17,14 +17,15 @@ pipeline {
 	}
 
 	parameters {
-		string defaultValue: 'master', description: '', name: 'RPMS_FROM', trim: true
-		booleanParam defaultValue: true, description: '', name: 'CLEANUP_ON_ERRORS'
+		string defaultValue: 'ZFS (master)', description: '', name: 'UPSTREAM_PROJECT', trim: true
+		string defaultValue: 'master', description: '', name: 'SOURCE_BRANCH', trim: true
+		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_SOURCE', trim: true
+		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_RPMS', trim: true
 		string defaultValue: 'seed', description: '', name: 'POOL_NAME', trim: true
 		string defaultValue: 'seed.dragonfear', description: '', name: 'HOST_NAME', trim: true
 		choice choices: ['never', 'beginning', 'reload_chroot', 'prepare_bootloader_install', 'boot_to_install_bootloader', 'boot_to_test_hostonly'], description: '', name: 'BREAK_BEFORE'
 		string defaultValue: 'yes no', description: '', name: 'SEPARATE_BOOT', trim: true
 		string defaultValue: 'yes no', description: '', name: 'LUKS', trim: true
-		string defaultValue: 'source RPMs', description: '', name: 'BUILD_FROM', trim: true
 		string defaultValue: '23 27', description: '', name: 'RELEASE', trim: true
 	}
 
@@ -50,14 +51,39 @@ pipeline {
 				script {
 					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
 					if (upstream != null) {
-						env.UPSTREAM_RPMS = upstream.upstreamProject
-						echo "We are collecting RPMs from the upstream project ${env.UPSTREAM_RPMS}"
+						env.BUILD_TRIGGER = "triggered by upstream job " + upstream.upstreamProject
+						env.UPSTREAM_PROJECT = upstream.upstreamProject
+						env.SOURCE_BRANCH = ""
+						env.BUILD_FROM_SOURCE = "no"
+						env.BUILD_FROM_RPMS = "yes"
 					} else {
-						env.UPSTREAM_RPMS = "ZFS (" + params.RPMS_FROM + ")"
-						echo "We are collecting RPMs from the manually-specified project ${env.UPSTREAM_RPMS}"
+						env.BUILD_TRIGGER = "triggered manually"
+						env.UPSTREAM_PROJECT = params.UPSTREAM_PROJECT
+						env.SOURCE_BRANCH = params.SOURCE_BRANCH
+						env.BUILD_FROM_SOURCE = params.BUILD_FROM_SOURCE
+						env.BUILD_FROM_RPMS = params.BUILD_FROM_RPMS
 					}
+					if (env.UPSTREAM_PROJECT == "") {
+						currentBuild.result = 'ABORTED'
+						error("UPSTREAM_PROJECT must be set to a project containing built ZFS RPMs.")
+					}
+					if (env.BUILD_FROM_SOURCE == "yes" && env.BUILD_FROM_RPMS == "yes") {
+						env.BUILD_FROM = "source RPMs"
+					} else if (env.BUILD_FROM_SOURCE == "yes" && env.BUILD_FROM_RPMS == "no") {
+						env.BUILD_FROM = "source"
+					} else if (env.BUILD_FROM_SOURCE == "no" && env.BUILD_FROM_RPMS == "yes") {
+						env.BUILD_FROM = "RPMs"
+					} else {
+						currentBuild.result = 'ABORTED'
+						error("At least one of BUILD_FROM_SOURCE and BUILD_FROM_RPMS must be set to yes.")
+					}
+					if (env.BUILD_FROM_SOURCE == "yes" && env.SOURCE_BRANCH == "") {
+						currentBuild.result = 'ABORTED'
+						error("SOURCE_BRANCH must be set when BUILD_FROM_SOURCE is set to yes.")
+					}
+					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT} ${env.BUILD_TRIGGER}."
 				}
-				copyArtifacts(projectName: env.UPSTREAM_RPMS)
+				copyArtifacts(projectName: env.UPSTREAM_PROJECT)
 				sh '''#!/bin/bash -xe
 				find RELEASE* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
 				'''
@@ -77,7 +103,7 @@ pipeline {
 					def axisList = [
 						params.SEPARATE_BOOT.split(' '),
 						params.LUKS.split(' '),
-						params.BUILD_FROM.split(' '),
+						env.BUILD_FROM.split(' '),
 						params.RELEASE.split(' '),
 					]
 					def tasks = [:]
@@ -146,6 +172,11 @@ pipeline {
 												else
 												  prebuiltrpms=
 												fi
+												if [ "${env.SOURCE_BRANCH}" != "" ] ; then
+												  usebranch=--use-branch=${env.SOURCE_BRANCH}
+												else
+												  usebranch=
+												fi
 												if [ "${env.CLEANUP_ON_ERRORS}" == "false" ] ; then
 												  cleanuponerrors=--no-cleanup
 												else
@@ -182,7 +213,7 @@ pipeline {
 												  \$prebuiltrpms \
 												  \$cleanuponerrors \
 												  \$breakbefore \
-												  --use-branch="\$RPMS_FROM" \
+												  \$usebranch \
 												  --releasever=${myRelease} \
 												  --yum-cachedir="\$yumcache" \
 												  --host-name="\$HOST_NAME" \
