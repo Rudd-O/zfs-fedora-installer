@@ -35,15 +35,11 @@ pipeline {
 		stage('Preparation') {
 			agent { label 'master' }
 			steps {
-				sh """
-					test -x /usr/local/bin/announce-build-result || exit
-					/usr/local/bin/announce-build-result has begun
-				"""
 				script {
-					env.GIT_COMMIT = sh(
-						script: '''cd zfs-fedora-installer && git rev-parse --short HEAD''',
-						returnStdout: true
-					)
+					funcs.announceBeginning()
+				}
+				script {
+					env.GIT_COMMIT = funcs.shortCommitId()
 				}
 			}
 		}
@@ -270,9 +266,9 @@ pipeline {
 	post {
 		always {
 			node('master') {
-				sh """test -x /usr/local/bin/announce-build-result || exit
-				/usr/local/bin/announce-build-result finished with status ${currentBuild.currentResult}
-				"""
+				script {
+					funcs.announceEnd(currentBuild.currentResult)
+				}
 			}
 		}
 	}
