@@ -7,7 +7,7 @@ pipeline {
 	agent none
 
 	options {
-		checkoutToSubdirectory 'zfs-fedora-installer'
+		checkoutToSubdirectory 'src/zfs-fedora-installer'
 	}
 
 	triggers {
@@ -39,7 +39,10 @@ pipeline {
 					funcs.announceBeginning()
 				}
 				script {
-					env.GIT_COMMIT = funcs.shortCommitId()
+					env.GIT_COMMIT = sh (
+						script: "cd src/zfs-fedora-installer && git rev-parse --short HEAD",
+						returnStdout: true
+					).trim()
 				}
 			}
 		}
@@ -102,7 +105,7 @@ pipeline {
 					stash includes: 'RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
 					stash includes: 'rpmsums', name: 'rpmsums'
 					stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
-					stash includes: 'zfs-fedora-installer/**', name: 'zfs-fedora-installer'
+					stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
 				}
 			}
 		}
@@ -197,7 +200,7 @@ pipeline {
 												fi
 												yumcache="\$JENKINS_HOME/yumcache"
 												volsize=10000
-												cmd=zfs-fedora-installer/install-fedora-on-zfs
+												cmd=src/zfs-fedora-installer/install-fedora-on-zfs
 												pname="${env.POOL_NAME}"_"${env.GIT_COMMIT}"_"${myRelease}"_"${myBuildFrom}"_"${myLuks}"_"${mySeparateBoot}"
 												if [ "${myLuks}" == "yes" ] ; then
 												  lukspassword=--luks-password=seed
