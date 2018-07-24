@@ -128,7 +128,8 @@ pipeline {
 										println "Build ${it.join(' ')}"
 										timeout(time: 60, unit: 'MINUTES') {
 											unstash "zfs-fedora-installer"
-											def program = """#!/bin/bash -xe
+											def program = """
+												#!/bin/bash -xe
 												if [ "${myBuildFrom}" == "RPMs" ] ; then
 												  prebuiltrpms=--use-prebuilt-rpms=RELEASE=${myRelease}/dist/
 												else
@@ -195,7 +196,7 @@ pipeline {
 												  fi
 												fi
 												exit \$retval
-											"""
+											""".stripIndent().trim()
 											println "Program that will be executed:"
 											println program
 											retry(2) {
