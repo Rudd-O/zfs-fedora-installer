@@ -8,6 +8,7 @@ pipeline {
 
 	options {
 		checkoutToSubdirectory 'src/zfs-fedora-installer'
+		disableConcurrentBuilds()
 	}
 
 	triggers {
