@@ -1,5 +1,3 @@
-import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
-
 // https://github.com/Rudd-O/shared-jenkins-libraries
 @Library('shared-jenkins-libraries@master') _
 pipeline {
