@@ -50,9 +50,6 @@ pipeline {
 			agent { label 'master' }
 			steps {
 				script {
-					def causes = currentBuild.rawBuild.getCauses()
-					def manualCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause)
-					def scmCause = currentBuild.rawBuild.getCause(hudson.triggers.SCMTrigger$SCMTriggerCause)
 					def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
 					if (upstreamCause != null) {
 						if (env.BRANCH_NAME != "master") {
@@ -60,19 +57,11 @@ pipeline {
 							currentBuild.result = 'NOT_BUILT'
 							return
 						}
-						env.BUILD_TRIGGER = "triggered by upstream job " + upstreamCause.upstreamProject
 						env.UPSTREAM_PROJECT = upstreamCause.upstreamProject
 						env.SOURCE_BRANCH = ""
 						env.BUILD_FROM_SOURCE = "no"
 						env.BUILD_FROM_RPMS = "yes"
 					} else {
-						if (manualCause != null) {
-							env.BUILD_TRIGGER = ".  ${manualCause.shortDescription}"
-						} else if (scmCause != null) {
-							env.BUILD_TRIGGER = ".  ${scmCause.shortDescription}"
-						} else {
-							env.BUILD_TRIGGER = "triggered by ${causes}"
-						}
 						env.UPSTREAM_PROJECT = params.UPSTREAM_PROJECT
 						env.SOURCE_BRANCH = params.SOURCE_BRANCH
 						env.BUILD_FROM_SOURCE = params.BUILD_FROM_SOURCE
@@ -96,7 +85,8 @@ pipeline {
 						currentBuild.result = 'ABORTED'
 						error("SOURCE_BRANCH must be set when BUILD_FROM_SOURCE is set to yes.")
 					}
-					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT} ${env.BUILD_TRIGGER}."
+					env.BUILD_TRIGGER = funcs.describeCause(currentBuild)
+					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT}.  ${env.BUILD_TRIGGER}."
 				}
 			}
 		}
