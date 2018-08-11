@@ -54,21 +54,24 @@ pipeline {
 				script {
 					def causes = currentBuild.rawBuild.getCauses()
 					def manualCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause)
-					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
-					if (upstream != null) {
+					def scmCause = currentBuild.rawBuild.getCause(hudson.triggers.SCMTrigger$SCMTriggerCause)
+					def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
+					if (upstreamCause != null) {
 						if (env.BRANCH_NAME != "master") {
-							currentBuild.description = "Skipped test triggered by upstream job ${upstream.upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
+							currentBuild.description = "Skipped test triggered by upstream job ${upstreamCause.upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
 							currentBuild.result = 'NOT_BUILT'
 							return
 						}
-						env.BUILD_TRIGGER = "triggered by upstream job " + upstream.upstreamProject
-						env.UPSTREAM_PROJECT = upstream.upstreamProject
+						env.BUILD_TRIGGER = "triggered by upstream job " + upstreamCause.upstreamProject
+						env.UPSTREAM_PROJECT = upstreamCause.upstreamProject
 						env.SOURCE_BRANCH = ""
 						env.BUILD_FROM_SOURCE = "no"
 						env.BUILD_FROM_RPMS = "yes"
 					} else {
 						if (manualCause != null) {
 							env.BUILD_TRIGGER = "triggered by ${manualCause.properties}"
+						} else if (scmCause != null) {
+							env.BUILD_TRIGGER = "triggered by ${scmCause.properties}"
 						} else {
 							env.BUILD_TRIGGER = "triggered by ${causes}"
 						}
