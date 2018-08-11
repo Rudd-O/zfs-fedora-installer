@@ -53,6 +53,7 @@ pipeline {
 			steps {
 				script {
 					def causes = currentBuild.rawBuild.getCauses()
+					def manualCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UserIdCause)
 					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
 					if (upstream != null) {
 						if (env.BRANCH_NAME != "master") {
@@ -66,7 +67,11 @@ pipeline {
 						env.BUILD_FROM_SOURCE = "no"
 						env.BUILD_FROM_RPMS = "yes"
 					} else {
-						env.BUILD_TRIGGER = "triggered by ${causes}"
+						if (manualCause != null) {
+							env.BUILD_TRIGGER = "triggered by ${manualCause.properties}"
+						} else {
+							env.BUILD_TRIGGER = "triggered by ${causes}"
+						}
 						env.UPSTREAM_PROJECT = params.UPSTREAM_PROJECT
 						env.SOURCE_BRANCH = params.SOURCE_BRANCH
 						env.BUILD_FROM_SOURCE = params.BUILD_FROM_SOURCE
