@@ -67,9 +67,9 @@ pipeline {
 						env.BUILD_FROM_RPMS = "yes"
 					} else {
 						if (manualCause != null) {
-							env.BUILD_TRIGGER = "triggered by ${manualCause.properties}"
+							env.BUILD_TRIGGER = ".  ${manualCause.shortDescription}"
 						} else if (scmCause != null) {
-							env.BUILD_TRIGGER = "triggered by ${scmCause.properties}"
+							env.BUILD_TRIGGER = ".  ${scmCause.shortDescription}"
 						} else {
 							env.BUILD_TRIGGER = "triggered by ${causes}"
 						}
