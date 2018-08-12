@@ -10,7 +10,6 @@ pipeline {
 	}
 
 	triggers {
-		pollSCM('* * * * *')
 		upstream(
 			upstreamProjects: 'ZFS/master,ZFS/staging',
 			threshold: hudson.model.Result.SUCCESS
