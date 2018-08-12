@@ -1,5 +1,3 @@
-import org.jenkinsci.plugins.pipeline.modeldefinition.Utils
-
 // https://github.com/Rudd-O/shared-jenkins-libraries
 @Library('shared-jenkins-libraries@master') _
 pipeline {
@@ -12,7 +10,6 @@ pipeline {
 	}
 
 	triggers {
-		pollSCM('* * * * *')
 		upstream(
 			upstreamProjects: 'ZFS/master,ZFS/staging',
 			threshold: hudson.model.Result.SUCCESS
@@ -52,20 +49,18 @@ pipeline {
 			agent { label 'master' }
 			steps {
 				script {
-					def upstream = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
-					if (upstream != null) {
+					def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
+					if (upstreamCause != null) {
 						if (env.BRANCH_NAME != "master") {
-							currentBuild.description = "Skipped test triggered by upstream job ${upstream.upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
+							currentBuild.description = "Skipped test triggered by upstream job ${upstreamCause.upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
 							currentBuild.result = 'NOT_BUILT'
 							return
 						}
-						env.BUILD_TRIGGER = "triggered by upstream job " + upstream.upstreamProject
-						env.UPSTREAM_PROJECT = upstream.upstreamProject
+						env.UPSTREAM_PROJECT = upstreamCause.upstreamProject
 						env.SOURCE_BRANCH = ""
 						env.BUILD_FROM_SOURCE = "no"
 						env.BUILD_FROM_RPMS = "yes"
 					} else {
-						env.BUILD_TRIGGER = "triggered manually"
 						env.UPSTREAM_PROJECT = params.UPSTREAM_PROJECT
 						env.SOURCE_BRANCH = params.SOURCE_BRANCH
 						env.BUILD_FROM_SOURCE = params.BUILD_FROM_SOURCE
@@ -89,7 +84,8 @@ pipeline {
 						currentBuild.result = 'ABORTED'
 						error("SOURCE_BRANCH must be set when BUILD_FROM_SOURCE is set to yes.")
 					}
-					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT} ${env.BUILD_TRIGGER}."
+					env.BUILD_TRIGGER = funcs.describeCause(currentBuild)
+					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT}.  ${env.BUILD_TRIGGER}."
 				}
 			}
 		}
