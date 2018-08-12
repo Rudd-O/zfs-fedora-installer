@@ -96,7 +96,8 @@ pipeline {
 				sh "rm -rf build dist"
 				copyArtifacts(
 					projectName: env.UPSTREAM_PROJECT,
-					fingerprintArtifacts: true
+					fingerprintArtifacts: true,
+					selector: upstream(fallbackToLastSuccessful: true)
 				)
 				sh "find dist/ | sort"
 				sh '''#!/bin/bash -xe
