@@ -9,3 +9,6 @@ rpm -q kernel kernel-devel || {
 
 test -d zfs-fedora-installer || git clone https://github.com/Rudd-O/zfs-fedora-installer.git
 sudo -E zfs-fedora-installer/deploy-zfs
+sudo service systemd-udevd restart
+sudo modprobe zfs
+sudo udevadm trigger
