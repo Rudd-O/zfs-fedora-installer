@@ -774,16 +774,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
                 def get_kernel_initrd_kver():
                     try:
-                        if os.path.isdir(p(j("boot", "loader"))):
-                            kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
-                            kver = os.path.basename(os.path.dirname(kernel))
-                            initrd = p(j("boot", "loader", kver, "initrd"))
-                            hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
-                        else:
-                            kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
-                            kver = os.path.basename(kernel)[len("vmlinuz-"):]
-                            initrd = p(j("boot", "initramfs-%s.img"%kver))
-                            hostonly = p(j("boot", "initramfs-hostonly-%s.img"%kver))
+                        kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
+                        kver = os.path.basename(os.path.dirname(kernel))
+                        initrd = p(j("boot", "loader", kver, "initrd"))
+                        hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
+                        return kernel, initrd, hostonly, kver
+                    except IndexError:
+                        kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
+                        kver = os.path.basename(kernel)[len("vmlinuz-"):]
+                        initrd = p(j("boot", "initramfs-%s.img"%kver))
+                        hostonly = p(j("boot", "initramfs-hostonly-%s.img"%kver))
                         return kernel, initrd, hostonly, kver
                     except Exception:
                         check_call(in_chroot(["ls", "-lRa", "/boot"]))

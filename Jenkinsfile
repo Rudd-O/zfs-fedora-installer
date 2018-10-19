@@ -256,11 +256,8 @@ pipeline {
 												fi
 												exit \$retval
 											""".stripIndent().trim()
-											println "Program that will be executed:"
-											println program
-											retry(2) {
-												sh program
-											}
+											println "Program that will be executed:\n${program}"
+											sh program
 										}
 									}
 								}
