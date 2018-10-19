@@ -52,14 +52,14 @@ pipeline {
 			agent { label 'master' }
 			steps {
 				script {
-					def upstreamCause = currentBuild.rawBuild.getCause(hudson.model.Cause$UpstreamCause)
-					if (upstreamCause != null) {
+					if (funcs.isUpstreamCause(currentBuild)) {
+						def upstreamProject = funcs.getUpstreamProject(currentBuild)
 						if (env.BRANCH_NAME != "master") {
-							currentBuild.description = "Skipped test triggered by upstream job ${upstreamCause.upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
+							currentBuild.description = "Skipped test triggered by upstream job ${upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
 							currentBuild.result = 'NOT_BUILT'
 							return
 						}
-						env.UPSTREAM_PROJECT = upstreamCause.upstreamProject
+						env.UPSTREAM_PROJECT = upstreamProject
 						env.SOURCE_BRANCH = ""
 						env.BUILD_FROM_SOURCE = "no"
 						env.BUILD_FROM_RPMS = "yes"
