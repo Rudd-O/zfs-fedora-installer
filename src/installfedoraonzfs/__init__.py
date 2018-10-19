@@ -847,7 +847,7 @@ mount /boot
 mount /boot/efi
 mount --bind /dev/stderr /dev/log
 ln -sf /proc/self/mounts /etc/mtab
-test -L /boot/grub2/grubenv && rm -f /boot/grub2/grubenv
+test -L /boot/grub2/grubenv && { rm -f /boot/grub2/grubenv ; touch /boot/grub2/grubenv ; }
 grub2-install /dev/sda
 if test -f /boot/grub2/grubenv ; then
     mv /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
