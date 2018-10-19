@@ -1,7 +1,7 @@
 // https://github.com/Rudd-O/shared-jenkins-libraries
 @Library('shared-jenkins-libraries@master') _
 
-def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '23 27 28')
+def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
 pipeline {
 
