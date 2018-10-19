@@ -29,7 +29,7 @@ pipeline {
 		choice choices: ['never', 'beginning', 'reload_chroot', 'prepare_bootloader_install', 'boot_to_install_bootloader', 'boot_to_test_hostonly'], description: '', name: 'BREAK_BEFORE'
 		string defaultValue: 'yes no', description: '', name: 'SEPARATE_BOOT', trim: true
 		string defaultValue: 'yes no', description: '', name: 'LUKS', trim: true
-		string defaultValue: RELEASE, description: '', name: 'RELEASE', trim: true
+		string defaultValue: '', description: "Override which Fedora releases to build for.  If empty, defaults to ${RELEASE}.", name: 'RELEASE', trim: true
 	}
 
 	stages {
@@ -120,11 +120,14 @@ pipeline {
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
 				script {
+					if (params.RELEASE != '') {
+						RELEASE = params.RELEASE
+					}
 					def axisList = [
 						params.SEPARATE_BOOT.split(' '),
 						params.LUKS.split(' '),
 						env.BUILD_FROM.split(' '),
-						params.RELEASE.split(' '),
+						RELEASE.split(' '),
 					]
 					def task = {
 						def mySeparateBoot = it[0]
