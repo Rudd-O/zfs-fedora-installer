@@ -3,8 +3,8 @@
 set -xe
 
 dnf install -y qubes-kernel-vm-support grub2-tools kernel dkms mock
-kver=$(rpm -q kernel --queryformat "%{version}%-%{release}-%{arch}")
-dnf install -y kernel-devel-$kver
+kver=$(rpm -q kernel --queryformat "%{version}-%{release}.%{arch}")
+dnf install -y kernel-devel-$kver kernel-headers-$kver
 dkms autoinstall -k $kver
 dracut -fv --kver $kver
 grub2-mkconfig -o /boot/grub2/grub.cfg
