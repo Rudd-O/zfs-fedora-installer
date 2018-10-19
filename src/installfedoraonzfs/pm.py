@@ -290,17 +290,23 @@ class SystemPackageManager(object):
         for package in packages:
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
-        for option, retries in options_retries:
-            logger.info("Installing packages %s: %s", option, ", ".join(packages))
-            cmd = (
-                [self.strategy]
-                + (['localinstall'] if pkgmgr == "yum" else ['install'])
-                + ['-qy']
-                + (['--'] if pkgmgr == "yum" else [])
-                + packages
-            )
-            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
-        return out, ret
+
+        pkgmgr, config, lock = self.grab_pm("in_chroot")
+        try:
+            with lock:
+                for option, retries in options_retries:
+                    logger.info("Installing packages %s: %s", option, ", ".join(packages))
+                    cmd = (
+                        [self.strategy]
+                        + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                        + ['-qy']
+                        + (['--'] if pkgmgr == "yum" else [])
+                        + packages
+                    )
+                    out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                return out, ret
+        finally:
+            self.ungrab_pm()
 
 
 def get_parser():
