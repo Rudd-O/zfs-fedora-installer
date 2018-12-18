@@ -206,7 +206,7 @@ pipeline {
 											set +e
 											set +x
 											output=$(sha256sum -c < rpmsums 2>&1)
-											if [ "$?" == "0" ]
+											if [ "$?" = "0" ]
 											then
 												echo MATCH
 											else
@@ -256,7 +256,7 @@ pipeline {
 												--chgrp=`groups | cut -d " " -f 1` \\
 												--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
 												root-${pname}.img || ret=\$?
-											if [ "\$ret" == "0" -a "${env.BREAK_BEFORE}" == "never" ] ; then
+											if [ "\$ret" = "0" -a "${env.BREAK_BEFORE}" = "never" ] ; then
 												rm -rf root-${pname}.img boot-${pname}.img
 											fi
 											>&2 echo ==============Diagnostics==================
