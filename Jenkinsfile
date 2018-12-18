@@ -184,14 +184,16 @@ pipeline {
 								stage("Install deps ${it.join(' ')}") {
 									println "Install deps ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
+										def program = """#!/bin/bash -xe
+											(
+												flock 9
+												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
+												rpm -q \$deps || sudo dnf install -qy \$deps
+											) 9> /tmp/\$USER-dnf-lock
+										""".stripIndent().trim()
+										println "Program that will be executed:\n${program}"
 										retry(2) {
-											sh """#!/bin/bash -xe
-												(
-													flock 9
-													deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
-													rpm -q \$deps || sudo dnf install -qy \$deps
-												) 9> /tmp/\$USER-dnf-lock
-											""".stripIndent().trim()
+											sh program
 										}
 									}
 								}
@@ -215,12 +217,14 @@ pipeline {
 										if (needsunstash != "MATCH") {
 											unstash "rpms"
 										}
+										def program = """#!/bin/bash -xe
+											${mySupervisor}
+											release=`rpm -q --queryformat="%{version}" fedora-release`
+											supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
+										""".stripIndent().trim()
+										println "Program that will be executed:\n${program}"
 										retry(5) {
-											sh """#!/bin/bash -xe
-												${mySupervisor}
-												release=`rpm -q --queryformat="%{version}" fedora-release`
-												supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
-											""".stripIndent().trim()
+											sh program
 										}
 									}
 								}
