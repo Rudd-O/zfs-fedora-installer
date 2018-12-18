@@ -138,7 +138,7 @@ pipeline {
 								local ret
 								local cmd
 								local pid
-								mkfifo "$d/pgrp" || { ret=$? ; rmdir "$d" ; return $ret }
+								mkfifo "$d/pgrp" || { ret=$? ; rmdir "$d" ; return $ret ; }
 								bash -c '
 									read pgrp < "$0"/pgrp
 									rm -rf "$0"
@@ -184,13 +184,13 @@ pipeline {
 								stage("Install deps ${it.join(' ')}") {
 									println "Install deps ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
-										def program = """#!/bin/bash -xe
+										def program = '''#!/bin/bash -xe
 											(
 												flock 9
 												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
 												rpm -q \$deps || sudo dnf install -qy \$deps
 											) 9> /tmp/\$USER-dnf-lock
-										""".stripIndent().trim()
+										'''.stripIndent().trim()
 										println "Program that will be executed:\n${program}"
 										retry(2) {
 											sh program
