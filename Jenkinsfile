@@ -136,7 +136,6 @@ pipeline {
 						def myRelease = it[3]
 						def pname = "${env.POOL_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
 						def desc = "============= REPORT ==============\nPool name: ${env.POOL_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\nBreak before: ${env.BREAK_BEFORE}\n============= END REPORT =============="
-						myRelease = "--releasever=${myRelease}"
 						if (mySeparateBoot == "yes") {
 							mySeparateBoot = "--separate-boot=boot-${pname}.img"
 						} else {
@@ -152,6 +151,7 @@ pipeline {
 						} else {
 							myLuks = ""
 						}
+						myRelease = "--releasever=${myRelease}"
 						def mySourceBranch = ""
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
