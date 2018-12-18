@@ -217,13 +217,13 @@ pipeline {
 												cmd=src/zfs-fedora-installer/install-fedora-on-zfs
 												pid=
 												_term() {
-												    echo "SIGTERM received" >&2
+												    echo "SIGTERM / SIGINT received" >&2
 												    if [ -n "\$pid" ] ; then
 												        echo "Killing PID \$pid with SIGINT" >&2
 												        sudo kill -INT "\$pid"
 												    fi
 												}
-												trap _term TERM
+												trap _term TERM INT
 												sudo "\$cmd" \
 												  ${myBuildFrom} \
 												  ${myBreakBefore} \
