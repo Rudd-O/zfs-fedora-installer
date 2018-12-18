@@ -440,17 +440,21 @@ y
         yield rootpart, bootpart, efipart
 
     @contextlib.contextmanager
-    def setup_filesystems(rootpart, bootpart, efipart, lukspassword, luksoptions):
+    def setup_filesystems(rootpart, bootpart, efipart, lukspassword, luksoptions, create=False):
 
         try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="ext4"' not in output:
+            if not create:
+                raise Exception("Wanted to create boot file system on %s but create=False" % bootpart)
             check_call(["mkfs.ext4", "-L", "boot_" + poolname, bootpart])
         bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
 
         try: output = check_output(["blkid", "-c", "/dev/null", efipart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="vfat"' not in output:
+            if not create:
+                raise Exception("Wanted to create EFI file system on %s but create=False" % efipart)
             check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + poolname, efipart])
         efipartuuid = check_output(["blkid", "-c", "/dev/null", efipart, "-o", "value", "-s", "UUID"]).strip()
 
@@ -467,6 +471,8 @@ y
                 if e.returncode != 2: raise
                 needsdoing = True
             if needsdoing:
+                if not create:
+                    raise Exception("Wanted to create LUKS volume on %s but create=False" % rootpart)
                 luksopts = shlex.split(luksoptions) if luksoptions else []
                 cmd = ["cryptsetup", "-y", "-v", "luksFormat"] + luksopts + [rootpart, '-']
                 proc = Popen(cmd, stdin=subprocess.PIPE)
@@ -499,6 +505,8 @@ y
                                     "-R", rootmountpoint,
                                     poolname])
             except subprocess.CalledProcessError, e:
+                if not create:
+                    raise Exception("Wanted to create ZFS pool % on %s but create=False" % (poolname, rootpart))
                 check_call(["zpool", "create", "-m", "none",
                                     "-o", "ashift=12",
                                     "-O", "compression=on",
@@ -513,6 +521,8 @@ y
             check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
                                 stdout=file(os.devnull,"w"))
         except subprocess.CalledProcessError, e:
+            if not create:
+                raise Exception("Wanted to create ZFS file system ROOT on %s but create=False" % poolname)
             check_call(["zfs", "create", j(poolname, "ROOT")])
 
         try:
@@ -521,6 +531,8 @@ y
             if not os.path.ismount(rootmountpoint):
                 check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
         except subprocess.CalledProcessError, e:
+            if not create:
+                raise Exception("Wanted to create ZFS file system ROOT/os on %s but create=False" % poolname)
             check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
             check_call(["touch", j(rootmountpoint, ".autorelabel")])
         to_unmount.append(rootmountpoint)
@@ -529,6 +541,8 @@ y
             check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
                                 stdout=file(os.devnull,"w"))
         except subprocess.CalledProcessError, e:
+            if not create:
+                raise Exception("Wanted to create ZFS file system swap on %s but create=False" % poolname)
             check_call(["zfs", "create", "-V", "%dM"%swapsize, "-b", "4K", j(poolname, "swap")])
             check_call(["zfs", "set", "compression=gzip-9", j(poolname, "swap")])
             check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
@@ -543,6 +557,8 @@ y
         try: output = check_output(["blkid", "-c", "/dev/null", swappart])
         except subprocess.CalledProcessError: output = ""
         if 'TYPE="swap"' not in output:
+            if not create:
+                raise Exception("Wanted to create swap volume on %s/swap but create=False" % poolname)
             check_call(["mkswap", '-f', swappart])
 
         p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
@@ -596,7 +612,7 @@ y
 
         with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
             with setup_filesystems(
-                rootpart, bootpart, efipart, lukspassword, luksoptions
+                rootpart, bootpart, efipart, lukspassword, luksoptions, create=True
             ) as (
                 rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
             ):
