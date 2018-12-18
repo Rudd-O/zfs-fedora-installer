@@ -25,10 +25,11 @@ class retry(object):
             while True:
                 try:
                     return kallable(*a, **kw)
-                except self.retryable_exception:
+                except self.retryable_exception as e:
                     if self.N >= 1:
                         logger.error(
-                            "Received retryable error running %s, trying %s more times",
+                            "Received retryable error %s running %s, trying %s more times",
+                            e,
                             kallable,
                             self.N
                         )

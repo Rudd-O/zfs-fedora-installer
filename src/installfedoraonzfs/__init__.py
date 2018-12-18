@@ -169,10 +169,11 @@ def losetup(path):
     )
     return get_associated_lodev(path)
 
-# We try the import of the pool 3 times, with a 5-second timeout in between tries.
-@retrymod.retry(2, timeout=5, retryable_exception=subprocess.CalledProcessError)
 def import_pool(poolname, rootmountpoint):
     return check_call(["zpool", "import", "-f", "-R", rootmountpoint, poolname])
+
+# We try the import of the pool 3 times, with a 5-second timeout in between tries.
+import_pool_retryable = retrymod.retry(2, timeout=5, retryable_exception=subprocess.CalledProcessError)(import_pool)
 
 def get_file_size(filename):
     "Get the file size by seeking at end"
@@ -505,8 +506,9 @@ y
             check_call(["zfs", "list", "-H", "-o", "name", poolname],
                                 stdout=file(os.devnull,"w"))
         except subprocess.CalledProcessError, e:
+            func = import_pool if create else import_pool_retryable
             try:
-                import_pool(poolname, rootmountpoint)
+                func(poolname, rootmountpoint)
             except subprocess.CalledProcessError, e:
                 if not create:
                     raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
