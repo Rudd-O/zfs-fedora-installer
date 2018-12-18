@@ -220,25 +220,26 @@ pipeline {
 												if [ "${env.BREAK_BEFORE}" == "never" ] ; then
 												    rm -rf root-${pname}.img boot-${pname}.img
 												fi
-												sudo "\$cmd" \
-												  ${myBuildFrom} \
-												  ${myBreakBefore} \
-												  ${mySourceBranch} \
-												  ${myLuks} \
-												  ${mySeparateBoot} \
-												  ${myRelease} \
-												  --yum-cachedir="\$yumcache" \
-												  --host-name="\$HOST_NAME" \
-												  --pool-name="${pname}" \
-												  --vol-size=\$volsize \
-												  --swap-size=256 \
-												  --root-password=seed \
-												  --chown="\$USER" \
-												  --chgrp=`groups | cut -d " " -f 1` \
-												  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
-												  root-${pname}.img &
+												sudo sleep 3600
+												#"\$cmd" \
+												#  ${myBuildFrom} \
+												#  ${myBreakBefore} \
+												#  ${mySourceBranch} \
+												#  ${myLuks} \
+												#  ${mySeparateBoot} \
+												#  ${myRelease} \
+												#  --yum-cachedir="\$yumcache" \
+												#  --host-name="\$HOST_NAME" \
+												#  --pool-name="${pname}" \
+												#  --vol-size=\$volsize \
+												#  --swap-size=256 \
+												#  --root-password=seed \
+												#  --chown="\$USER" \
+												#  --chgrp=`groups | cut -d " " -f 1` \
+												#  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
+												#  root-${pname}.img &
 												pid=\$!
-												trap "set +e ; echo >&2 Killing \$pid ; kill -INT \$pid ; kill -INT -\$pid ; echo >&2 Waiting for \$pid ; wait \$pid" TERM INT
+												trap "set +e ; echo >&2 Killing \$pid ; kill -INT \$pid ; echo >&2 Waiting for \$pid ; wait \$pid" TERM INT
 												wait \$pid || ret=\$?
 												
 											""".stripIndent().trim()
