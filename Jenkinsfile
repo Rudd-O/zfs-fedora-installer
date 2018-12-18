@@ -135,6 +135,7 @@ pipeline {
 						def myBuildFrom = it[2]
 						def myRelease = it[3]
 						def pname = "${env.POOL_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+						def desc = "Pool name: ${env.POOL_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\n: Separate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\nBreak before: ${env.BREAK_BEFORE}"
 						myRelease = "--releasever=${myRelease}"
 						if (mySeparateBoot == "yes") {
 							mySeparateBoot = "--separate-boot=boot-${pname}.img"
@@ -240,7 +241,7 @@ pipeline {
 												  --chown="\$USER" \
 												  --chgrp=`groups | cut -d " " -f 1` \
 												  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
-// 												  "root-${pname}.img" >&2 &
+												  "root-${pname}.img" >&2 &
 												pid=\$!
 												retval=0
 												wait \$pid || retval=\$?
@@ -250,6 +251,7 @@ pipeline {
 												fi
 												exit \$retval
 											""".stripIndent().trim()
+											println "Parameters:\n${desc}"
 											println "Program that will be executed:\n${program}"
 											sh program
 										}
