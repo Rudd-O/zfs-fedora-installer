@@ -136,6 +136,29 @@ pipeline {
 						def myRelease = it[3]
 						def pname = "${env.POOL_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
 						def desc = "============= REPORT ==============\nPool name: ${env.POOL_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\nBreak before: ${env.BREAK_BEFORE}\n============= END REPORT =============="
+						def mySupervisor = '''
+							supervisor() {
+								local d="$(mktemp -d)" || return $?
+								local ret
+								local cmd
+								local pid
+								mkfifo "$d/pgrp" || { ret=$? ; rmdir "$d" ; return $ret }
+								bash -c '
+									read pgrp < "$0"/pgrp
+									rm -rf "$0"
+									trap "echo >&2 supervisor: killing process group $pgrp ; sudo kill -INT -$pgrp" TERM INT EXIT
+									sleep inf
+								' "$d" &
+								set -m
+								cmd="$1"
+								shift
+								sudo "$cmd" "$@" &
+								pid="$!"
+								echo "$pid" > "$d/pgrp"
+								wait "$pid" || return $?
+							}
+						'''.stripIndent().trim()
+
 						if (mySeparateBoot == "yes") {
 							mySeparateBoot = "--separate-boot=boot-${pname}.img"
 						} else {
@@ -166,13 +189,14 @@ pipeline {
 									println "Install deps ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
 										retry(2) {
-											sh '''#!/bin/bash -xe
+											sh """#!/bin/bash -xe
 												(
+													${mySupervisor}
 													flock 9
 													deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
-													rpm -q $deps || sudo dnf install -qy $deps
-												) 9> /tmp/$USER-dnf-lock
-											'''
+													rpm -q \$deps || supervisor dnf install -qy \$deps
+												) 9> /tmp/\$USER-dnf-lock
+											""".stripIndent().trim()
 										}
 									}
 								}
@@ -199,10 +223,11 @@ pipeline {
 											unstash "rpms"
 										}
 										retry(5) {
-											sh '''#!/bin/bash -xe
+											sh """#!/bin/bash -xe
+												${mySupervisor}
 												release=`rpm -q --queryformat="%{version}" fedora-release`
-												sudo ./activate-zfs-in-qubes-vm dist/RELEASE=$release/
-											'''
+												supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
+											""".stripIndent().trim()
 										}
 									}
 								}
@@ -212,26 +237,7 @@ pipeline {
 										unstash "zfs-fedora-installer"
 										def program = """
 											#!/bin/bash -xe
-											supervisor() {
-												local d="\$(mktemp -d)" || return \$?
-												local ret
-												local cmd
-												local pid
-												mkfifo "\$d/pgrp" || { ret=\$? ; rmdir "\$d" ; return \$ret }
-												bash -c '
-													read pgrp < "\$0"/pgrp
-													rm -rf "\$0"
-													trap "echo >&2 supervisor: killing process group \$pgrp ; sudo kill -INT -\$pgrp" TERM INT EXIT
-													sleep inf
-												' "\$d" &
-												set -m
-												cmd="\$1"
-												shift
-												sudo "\$cmd" "\$@" &
-												pid="\$!"
-												echo "\$pid" > "\$d/pgrp"
-												wait "\$pid" || return \$?
-											}
+											${mySupervisor}
 											yumcache="\$JENKINS_HOME/yumcache"
 											volsize=10000
 											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
