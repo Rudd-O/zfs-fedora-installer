@@ -218,8 +218,7 @@ pipeline {
 										if (needsunstash != "MATCH") {
 											unstash "rpms"
 										}
-										def program = """
-											${mySupervisor}
+										def program = mySupervisor + """
 											release=`rpm -q --queryformat="%{version}" fedora-release`
 											supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
 										""".stripIndent().trim()
@@ -234,8 +233,7 @@ pipeline {
 									timeout(time: 60, unit: 'MINUTES') {
 										println "${desc}"
 										unstash "zfs-fedora-installer"
-										def program = """
-											${mySupervisor}
+										def program = mySupervisor + """
 											yumcache="\$JENKINS_HOME/yumcache"
 											volsize=10000
 											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
