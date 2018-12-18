@@ -139,19 +139,26 @@ pipeline {
 								local cmd
 								local pid
 								mkfifo "$d/pgrp" || { ret=$? ; rmdir "$d" ; return $ret ; }
-								bash -c '
-									read pgrp < "$0"/pgrp
-									rm -rf "$0"
-									trap "echo >&2 supervisor: killing process group $pgrp ; sudo kill -INT -$pgrp" TERM INT EXIT
-									sleep inf
-								' "$d" &
+								(
+									set +x
+									read pgrp <&9
+									>&2 echo supervisor: process group of supervised PID is	$pgrp
+									trap ">&2 echo supervisor: killing process group $pgrp ; sudo kill -INT -$pgrp 2>/dev/null || true" TERM INT EXIT
+									read end <&9
+									>&2 echo supervisor: ended
+								) 9<"$d"/pgrp &
+								pid=$!
+								exec 8>"$d/pgrp"
+								rm -rf "$d"
+								trap "echo end >&8" EXIT
 								set -m
 								cmd="$1"
 								shift
 								sudo "$cmd" "$@" &
 								pid="$!"
-								echo "$pid" > "$d/pgrp"
-								wait "$pid" || return $?
+								echo "$pid" >&8
+								ret=0 ; wait "$pid" || ret=$?
+								return $ret
 							}
 						'''.stripIndent().trim() + "\n"
 
