@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+import time
 
 
 class Retryable: pass
@@ -12,8 +13,10 @@ class retry(object):
     To be clear: if N == 0, then the function will not retry.
     So, to get three tries, you must pass N == 2."""
 
-    def __init__(self, N):
+    def __init__(self, N, timeout=0, retryable_exception=Retryable):
         self.N = N
+        self.timeout = timeout
+        self.retryable_exception = retryable_exception
 
     def __call__(self, kallable):
 
@@ -22,13 +25,14 @@ class retry(object):
             while True:
                 try:
                     return kallable(*a, **kw)
-                except Retryable:
+                except self.retryable_exception:
                     if self.N >= 1:
                         logger.error(
                             "Received retryable error running %s, trying %s more times",
                             kallable,
                             self.N
                         )
+                        time.sleep(self.timeout)
                     else:
                         raise
                 self.N -= 1
