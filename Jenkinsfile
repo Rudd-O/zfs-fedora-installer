@@ -187,7 +187,6 @@ pipeline {
 										retry(2) {
 											sh """
 												(
-													${mySupervisor}
 													flock 9
 													deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
 													rpm -q \$deps || supervisor dnf install -qy \$deps
