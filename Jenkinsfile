@@ -259,7 +259,7 @@ pipeline {
 											fi
 											exit \$ret
 											""".stripIndent().trim()
-										println "Parameters:\n${desc}"
+										println "${desc}"
 										println "Program that will be executed:\n${program}"
 										sh program
 									}
