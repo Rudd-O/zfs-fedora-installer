@@ -506,7 +506,7 @@ y
                                     poolname])
             except subprocess.CalledProcessError, e:
                 if not create:
-                    raise Exception("Wanted to create ZFS pool % on %s but create=False" % (poolname, rootpart))
+                    raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
                 check_call(["zpool", "create", "-m", "none",
                                     "-o", "ashift=12",
                                     "-O", "compression=on",
