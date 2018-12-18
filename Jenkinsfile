@@ -103,12 +103,8 @@ pipeline {
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
 				sh "find dist/ | sort"
-				sh '''#!/bin/bash -xe
-				find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums
-				'''
-				sh '''#!/bin/bash -xe
-				cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .
-				'''
+				sh 'find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums'
+				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
 				stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
 				stash includes: 'rpmsums', name: 'rpmsums'
 				stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
@@ -189,7 +185,7 @@ pipeline {
 									println "Install deps ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
 										retry(2) {
-											sh """#!/bin/bash -xe
+											sh """
 												(
 													${mySupervisor}
 													flock 9
@@ -223,7 +219,7 @@ pipeline {
 											unstash "rpms"
 										}
 										retry(5) {
-											sh """#!/bin/bash -xe
+											sh """
 												${mySupervisor}
 												release=`rpm -q --queryformat="%{version}" fedora-release`
 												supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
@@ -234,9 +230,9 @@ pipeline {
 								stage("Build image ${it.join(' ')}") {
 									println "Build ${it.join(' ')}"
 									timeout(time: 60, unit: 'MINUTES') {
+										println "${desc}"
 										unstash "zfs-fedora-installer"
 										def program = """
-											#!/bin/bash -xe
 											${mySupervisor}
 											yumcache="\$JENKINS_HOME/yumcache"
 											volsize=10000
@@ -272,7 +268,6 @@ pipeline {
 											>&2 echo =========== End Diagnostics ===============
 											exit \$ret
 											""".stripIndent().trim()
-										println "${desc}"
 										println "Program that will be executed:\n${program}"
 										sh program
 									}
