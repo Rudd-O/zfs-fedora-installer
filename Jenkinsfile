@@ -201,7 +201,7 @@ pipeline {
 										unstash "activate-zfs-in-qubes-vm"
 										unstash "rpmsums"
 										def needsunstash = sh (
-											script: '''#!/bin/bash -xe
+											script: '''#!/bin/bash -x
 											output=$(sha256sum -c < rpmsums 2>&1)
 											if [ "$?" = "0" ]
 											then
