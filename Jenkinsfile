@@ -189,7 +189,7 @@ pipeline {
 												(
 													flock 9
 													deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
-													rpm -q \$deps || supervisor dnf install -qy \$deps
+													rpm -q \$deps || sudo dnf install -qy \$deps
 												) 9> /tmp/\$USER-dnf-lock
 											""".stripIndent().trim()
 										}
