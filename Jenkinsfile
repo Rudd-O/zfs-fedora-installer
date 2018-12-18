@@ -216,16 +216,11 @@ pipeline {
 												yumcache="\$JENKINS_HOME/yumcache"
 												volsize=10000
 												cmd=src/zfs-fedora-installer/install-fedora-on-zfs
-												pid=
-												_term() {
-												    echo "SIGTERM / SIGINT received" >&2
-												    if [ -n "\$pid" ] ; then
-												        echo "Killing PID \$pid with SIGINT" >&2
-												        sudo kill -INT "\$pid"
-												    fi
-												}
-												trap _term TERM INT
-												sudo "\$cmd" \
+												# cleanup
+												if [ "${env.BREAK_BEFORE}" == "never" ] ; then
+												    rm -rf root-${pname}.img boot-${pname}.img
+												fi
+												exec sudo "\$cmd" \
 												  ${myBuildFrom} \
 												  ${myBreakBefore} \
 												  ${mySourceBranch} \
@@ -241,15 +236,7 @@ pipeline {
 												  --chown="\$USER" \
 												  --chgrp=`groups | cut -d " " -f 1` \
 												  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
-												  "root-${pname}.img" >&2 &
-												pid=\$!
-												retval=0
-												wait \$pid || retval=\$?
-												# cleanup
-												if [ "${env.BREAK_BEFORE}" == "never" ] ; then
-												    rm -rf root-${pname}.img boot-${pname}.img
-												fi
-												exit \$retval
+												  root-${pname}.img
 											""".stripIndent().trim()
 											println "Parameters:\n${desc}"
 											println "Program that will be executed:\n${program}"
