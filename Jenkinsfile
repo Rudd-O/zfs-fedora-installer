@@ -215,8 +215,8 @@ pipeline {
 												#!/bin/bash -xe
 
 												supervisor() {
-													local d="\$(mktemp -d)"
-													mkfifo "\$d/pgrp"
+													local d="\$(mktemp -d)" || return \$?
+													mkfifo "\$d/pgrp" || { ret=\$? ; rmdir "\$d" ; return \$ret }
 													bash -c '
 														read pgrp < "\$0"/pgrp
 														rm -rf "\$0"
