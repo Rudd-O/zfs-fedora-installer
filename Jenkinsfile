@@ -237,9 +237,9 @@ pipeline {
 												  --chgrp=`groups | cut -d " " -f 1` \
 												  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
 												  root-${pname}.img &
-												pid=$!
-												trap "set +e ; echo >&2 Killing $pid ; kill -INT $pid ; kill -INT -$pid ; echo >&2 Waiting for $pid ; wait $pid" TERM INT
-												wait $pid || ret=$?
+												pid=\$!
+												trap "set +e ; echo >&2 Killing \$pid ; kill -INT \$pid ; kill -INT -\$pid ; echo >&2 Waiting for \$pid ; wait \$pid" TERM INT
+												wait \$pid || ret=$?
 												
 											""".stripIndent().trim()
 											println "Parameters:\n${desc}"
