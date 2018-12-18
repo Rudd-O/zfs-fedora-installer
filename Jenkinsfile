@@ -162,110 +162,106 @@ pipeline {
 						}
 						return {
 							node('fedorazfs') {
-								stage("Do ${it.join(' ')}") {
-									stage("Install deps ${it.join(' ')}") {
-										println "Install deps ${it.join(' ')}"
-										timeout(time: 10, unit: 'MINUTES') {
-											retry(2) {
-												sh '''#!/bin/bash -xe
-													(
-														flock 9
-														deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
-														rpm -q $deps || sudo dnf install -qy $deps
-													) 9> /tmp/$USER-dnf-lock
-												'''
-											}
+								stage("Install deps ${it.join(' ')}") {
+									println "Install deps ${it.join(' ')}"
+									timeout(time: 10, unit: 'MINUTES') {
+										retry(2) {
+											sh '''#!/bin/bash -xe
+												(
+													flock 9
+													deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
+													rpm -q $deps || sudo dnf install -qy $deps
+												) 9> /tmp/$USER-dnf-lock
+											'''
 										}
 									}
-									stage("Activate ZFS ${it.join(' ')}") {
-										println "Setup ${it.join(' ')}"
-										timeout(time: 10, unit: 'MINUTES') {
-											unstash "activate-zfs-in-qubes-vm"
-											unstash "rpmsums"
-											def needsunstash = sh (
-												script: '''
-												set +e
-												set +x
-												output=$(sha256sum -c < rpmsums 2>&1)
-												if [ "$?" == "0" ]
-												then
-												    echo MATCH
-												else
-												    echo "$output" >&2
-												fi
-												''',
-												returnStdout: true
-											).trim()
-											if (needsunstash != "MATCH") {
-												unstash "rpms"
-											}
-											retry(5) {
-												sh '''#!/bin/bash -xe
-													release=`rpm -q --queryformat="%{version}" fedora-release`
-													sudo ./activate-zfs-in-qubes-vm dist/RELEASE=$release/
-												'''
-											}
+								}
+								stage("Activate ZFS ${it.join(' ')}") {
+									println "Setup ${it.join(' ')}"
+									timeout(time: 10, unit: 'MINUTES') {
+										unstash "activate-zfs-in-qubes-vm"
+										unstash "rpmsums"
+										def needsunstash = sh (
+											script: '''
+											set +e
+											set +x
+											output=$(sha256sum -c < rpmsums 2>&1)
+											if [ "$?" == "0" ]
+											then
+												echo MATCH
+											else
+												echo "$output" >&2
+											fi
+											''',
+											returnStdout: true
+										).trim()
+										if (needsunstash != "MATCH") {
+											unstash "rpms"
+										}
+										retry(5) {
+											sh '''#!/bin/bash -xe
+												release=`rpm -q --queryformat="%{version}" fedora-release`
+												sudo ./activate-zfs-in-qubes-vm dist/RELEASE=$release/
+											'''
 										}
 									}
-									stage("Build image ${it.join(' ')}") {
-										println "Build ${it.join(' ')}"
-										timeout(time: 60, unit: 'MINUTES') {
-											unstash "zfs-fedora-installer"
-											def program = """
-												#!/bin/bash -xe
-
-												supervisor() {
-													local d="\$(mktemp -d)" || return \$?
-													local ret
-													local cmd
-													local pid
-													mkfifo "\$d/pgrp" || { ret=\$? ; rmdir "\$d" ; return \$ret }
-													bash -c '
-														read pgrp < "\$0"/pgrp
-														rm -rf "\$0"
-														trap "echo >&2 supervisor: killing process group \$pgrp ; sudo kill -INT -\$pgrp" TERM INT EXIT
-														sleep inf
-													' "\$d" &
-													set -m
-													cmd="\$1"
-													shift
-													sudo "\$cmd" "\$@" &
-													pid="\$!"
-													echo "\$pid" > "\$d/pgrp"
-													wait "\$pid" || return \$?
-												}
-
-												yumcache="\$JENKINS_HOME/yumcache"
-												volsize=10000
-												cmd=src/zfs-fedora-installer/install-fedora-on-zfs
-												# cleanup
-												supervisor \
-												  "\$cmd" \
-												  ${myBuildFrom} \
-												  ${myBreakBefore} \
-												  ${mySourceBranch} \
-												  ${myLuks} \
-												  ${mySeparateBoot} \
-												  ${myRelease} \
-												  --yum-cachedir="\$yumcache" \
-												  --host-name="\$HOST_NAME" \
-												  --pool-name="${pname}" \
-												  --vol-size=\$volsize \
-												  --swap-size=256 \
-												  --root-password=seed \
-												  --chown="\$USER" \
-												  --chgrp=`groups | cut -d " " -f 1` \
-												  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
-												  root-${pname}.img || ret=\$?
-												if [ "\$ret" == "0" -a "${env.BREAK_BEFORE}" == "never" ] ; then
-													rm -rf root-${pname}.img boot-${pname}.img
-												fi
-												exit \$ret
+								}
+								stage("Build image ${it.join(' ')}") {
+									println "Build ${it.join(' ')}"
+									timeout(time: 60, unit: 'MINUTES') {
+										unstash "zfs-fedora-installer"
+										def program = """
+											#!/bin/bash -xe
+											supervisor() {
+												local d="\$(mktemp -d)" || return \$?
+												local ret
+												local cmd
+												local pid
+												mkfifo "\$d/pgrp" || { ret=\$? ; rmdir "\$d" ; return \$ret }
+												bash -c '
+													read pgrp < "\$0"/pgrp
+													rm -rf "\$0"
+													trap "echo >&2 supervisor: killing process group \$pgrp ; sudo kill -INT -\$pgrp" TERM INT EXIT
+													sleep inf
+												' "\$d" &
+												set -m
+												cmd="\$1"
+												shift
+												sudo "\$cmd" "\$@" &
+												pid="\$!"
+												echo "\$pid" > "\$d/pgrp"
+												wait "\$pid" || return \$?
+											}
+											yumcache="\$JENKINS_HOME/yumcache"
+											volsize=10000
+											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
+											# cleanup
+											supervisor \\
+												"\$cmd" \\
+												${myBuildFrom} \\
+												${myBreakBefore} \\
+												${mySourceBranch} \\
+												${myLuks} \\
+												${mySeparateBoot} \\
+												${myRelease} \\
+												--yum-cachedir="\$yumcache" \\
+												--host-name="\$HOST_NAME" \\
+												--pool-name="${pname}" \\
+												--vol-size=\$volsize \\
+												--swap-size=256 \\
+												--root-password=seed \\
+												--chown="\$USER" \\
+												--chgrp=`groups | cut -d " " -f 1` \\
+												--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
+												root-${pname}.img || ret=\$?
+											if [ "\$ret" == "0" -a "${env.BREAK_BEFORE}" == "never" ] ; then
+												rm -rf root-${pname}.img boot-${pname}.img
+											fi
+											exit \$ret
 											""".stripIndent().trim()
-											println "Parameters:\n${desc}"
-											println "Program that will be executed:\n${program}"
-											sh program
-										}
+										println "Parameters:\n${desc}"
+										println "Program that will be executed:\n${program}"
+										sh program
 									}
 								}
 							}
