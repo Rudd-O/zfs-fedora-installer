@@ -184,7 +184,7 @@ pipeline {
 								stage("Install deps ${it.join(' ')}") {
 									println "Install deps ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
-										def program = '''#!/bin/bash -xe
+										def program = '''
 											(
 												flock 9
 												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
@@ -203,7 +203,8 @@ pipeline {
 										unstash "activate-zfs-in-qubes-vm"
 										unstash "rpmsums"
 										def needsunstash = sh (
-											script: '''#!/bin/bash -x
+											script: '''
+											set +e ; set -x
 											output=$(sha256sum -c < rpmsums 2>&1)
 											if [ "$?" = "0" ]
 											then
@@ -217,7 +218,7 @@ pipeline {
 										if (needsunstash != "MATCH") {
 											unstash "rpms"
 										}
-										def program = """#!/bin/bash -xe
+										def program = """
 											${mySupervisor}
 											release=`rpm -q --queryformat="%{version}" fedora-release`
 											supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
@@ -233,7 +234,7 @@ pipeline {
 									timeout(time: 60, unit: 'MINUTES') {
 										println "${desc}"
 										unstash "zfs-fedora-installer"
-										def program = """#!/bin/bash -xe
+										def program = """
 											${mySupervisor}
 											yumcache="\$JENKINS_HOME/yumcache"
 											volsize=10000
