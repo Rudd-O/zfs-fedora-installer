@@ -153,7 +153,7 @@ pipeline {
 								echo "$pid" > "$d/pgrp"
 								wait "$pid" || return $?
 							}
-						'''.stripIndent().trim()
+						'''.stripIndent().trim() + "\n"
 
 						if (mySeparateBoot == "yes") {
 							mySeparateBoot = "--separate-boot=boot-${pname}.img"
@@ -185,7 +185,7 @@ pipeline {
 									println "Install deps ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
 										retry(2) {
-											sh """
+											sh """#!/bin/bash -xe
 												(
 													flock 9
 													deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
@@ -201,9 +201,7 @@ pipeline {
 										unstash "activate-zfs-in-qubes-vm"
 										unstash "rpmsums"
 										def needsunstash = sh (
-											script: '''
-											set +e
-											set +x
+											script: '''#!/bin/bash -xe
 											output=$(sha256sum -c < rpmsums 2>&1)
 											if [ "$?" = "0" ]
 											then
@@ -218,7 +216,7 @@ pipeline {
 											unstash "rpms"
 										}
 										retry(5) {
-											sh """
+											sh """#!/bin/bash -xe
 												${mySupervisor}
 												release=`rpm -q --queryformat="%{version}" fedora-release`
 												supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
@@ -231,7 +229,7 @@ pipeline {
 									timeout(time: 60, unit: 'MINUTES') {
 										println "${desc}"
 										unstash "zfs-fedora-installer"
-										def program = """
+										def program = """#!/bin/bash -xe
 											${mySupervisor}
 											yumcache="\$JENKINS_HOME/yumcache"
 											volsize=10000
