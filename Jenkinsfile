@@ -134,6 +134,31 @@ pipeline {
 						def myLuks = it[1]
 						def myBuildFrom = it[2]
 						def myRelease = it[3]
+						def pname = "${env.POOL_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+						myRelease = "--releasever=${myRelease}"
+						if (mySeparateBoot == "yes") {
+							mySeparateBoot = "--separate-boot=boot-${pname}.img"
+						} else {
+							mySeparateBoot = ""
+						}
+						if (myBuildFrom == "RPMs") {
+							myBuildFrom = "--use-prebuilt-rpms=dist/RELEASE=${myRelease}/"
+						} else {
+							myBuildFrom = ""
+						}
+						if (myLuks == "yes") {
+							myLuks = "--luks-password=seed"
+						} else {
+							myLuks = ""
+						}
+						def mySourceBranch = ""
+						if (env.SOURCE_BRANCH != "") {
+							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
+						}
+						def myBreakBefore = ""
+						if (env.BREAK_BEFORE != "never") {
+							myBreakBefore = "--break-before=${env.BREAK_BEFORE}"
+						}
 						return {
 							node('fedorazfs') {
 								stage("Do ${it.join(' ')}") {
@@ -187,40 +212,9 @@ pipeline {
 											unstash "zfs-fedora-installer"
 											def program = """
 												#!/bin/bash -xe
-												if [ "${myBuildFrom}" == "RPMs" ] ; then
-												  prebuiltrpms=--use-prebuilt-rpms=dist/RELEASE=${myRelease}/
-												else
-												  prebuiltrpms=
-												fi
-												if [ "${env.SOURCE_BRANCH}" != "" ] ; then
-												  usebranch=--use-branch=${env.SOURCE_BRANCH}
-												else
-												  usebranch=
-												fi
-												if [ "${env.CLEANUP_ON_ERRORS}" == "false" ] ; then
-												  cleanuponerrors=--no-cleanup
-												else
-												  cleanuponerrors=
-												fi
-												if [ "${env.BREAK_BEFORE}" != "never" ] ; then
-												  breakbefore=--break-before="${env.BREAK_BEFORE}"
-												else
-												  breakbefore=
-												fi
 												yumcache="\$JENKINS_HOME/yumcache"
 												volsize=10000
 												cmd=src/zfs-fedora-installer/install-fedora-on-zfs
-												pname="${env.POOL_NAME}"_"${env.GIT_HASH}"_"${myRelease}"_"${myBuildFrom}"_"${myLuks}"_"${mySeparateBoot}"
-												if [ "${myLuks}" == "yes" ] ; then
-												  lukspassword=--luks-password=seed
-												else
-												  lukspassword=
-												fi
-												if [ "${mySeparateBoot}" == "yes" ] ; then
-												  separateboot=--separate-boot=boot-\$pname.img
-												else
-												  separateboot=
-												fi
 												pid=
 												_term() {
 												    echo "SIGTERM received" >&2
@@ -229,33 +223,30 @@ pipeline {
 												        sudo kill -INT "\$pid"
 												    fi
 												}
+												trap _term TERM
 												sudo "\$cmd" \
-												  \$prebuiltrpms \
-												  \$cleanuponerrors \
-												  \$breakbefore \
-												  \$usebranch \
-												  --releasever=${myRelease} \
+												  ${myBuildFrom} \
+												  ${myBreakBefore} \
+												  ${mySourceBranch} \
+												  ${myLuks} \
+												  ${mySeparateBoot} \
+												  ${myRelease} \
 												  --yum-cachedir="\$yumcache" \
 												  --host-name="\$HOST_NAME" \
-												  --pool-name="\$pname" \
+												  --pool-name="${pname}" \
 												  --vol-size=\$volsize \
 												  --swap-size=256 \
 												  --root-password=seed \
-												  \$lukspassword \
-												  \$separateboot \
 												  --chown="\$USER" \
 												  --chgrp=`groups | cut -d " " -f 1` \
 												  --luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \
-												  root-\$pname.img >&2 &
+// 												  "root-${pname}.img" >&2 &
 												pid=\$!
 												retval=0
-												trap _term SIGTERM
 												wait \$pid || retval=\$?
 												# cleanup
 												if [ "${env.BREAK_BEFORE}" == "never" ] ; then
-												  if [ "\$retval" == "0" -o "${env.CLEANUP_ON_ERRORS}" == "true" ] ; then
-												    rm -rf root-\$pname.img boot-\$pname.img
-												  fi
+												    rm -rf root-${pname}.img boot-${pname}.img
 												fi
 												exit \$retval
 											""".stripIndent().trim()
