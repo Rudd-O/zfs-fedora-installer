@@ -239,7 +239,7 @@ pipeline {
 												  root-${pname}.img &
 												pid=\$!
 												trap "set +e ; echo >&2 Killing \$pid ; kill -INT \$pid ; kill -INT -\$pid ; echo >&2 Waiting for \$pid ; wait \$pid" TERM INT
-												wait \$pid || ret=$?
+												wait \$pid || ret=\$?
 												
 											""".stripIndent().trim()
 											println "Parameters:\n${desc}"
