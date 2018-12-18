@@ -220,7 +220,7 @@ pipeline {
 												if [ "${env.BREAK_BEFORE}" == "never" ] ; then
 												    rm -rf root-${pname}.img boot-${pname}.img
 												fi
-												sudo sleep 3600
+												sudo sleep 3600 &
 												#"\$cmd" \
 												#  ${myBuildFrom} \
 												#  ${myBreakBefore} \
