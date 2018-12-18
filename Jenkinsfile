@@ -257,6 +257,13 @@ pipeline {
 											if [ "\$ret" == "0" -a "${env.BREAK_BEFORE}" == "never" ] ; then
 												rm -rf root-${pname}.img boot-${pname}.img
 											fi
+											>&2 echo ==============Diagnostics==================
+											sudo zpool list || true
+											sudo blkid || true
+											sudo lsblk || true
+											sudo losetup -la || true
+											sudo mount || true
+											>&2 echo =========== End Diagnostics ===============
 											exit \$ret
 											""".stripIndent().trim()
 										println "${desc}"
