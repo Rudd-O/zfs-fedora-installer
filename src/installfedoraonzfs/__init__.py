@@ -215,6 +215,7 @@ def losetup(path):
     return dev
 
 def import_pool(poolname, rootmountpoint):
+    check_call(['zpool', 'import'])
     return check_call(["zpool", "import", "-f", "-R", rootmountpoint, poolname])
 
 def list_pools():
@@ -492,8 +493,6 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
             func(poolname, rootmountpoint)
         except subprocess.CalledProcessError, e:
             if not create:
-                check_call(['blkid', '-c', '/dev/null'])
-                check_call(['zpool', 'import'])
                 raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
             logging.info("Creating pool %s.", poolname)
             check_call(["zpool", "create", "-m", "none",
