@@ -304,6 +304,7 @@ def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, c
 
     TODO: use context manager undo strategy instead.
     '''
+    logging.info("Entering blockdev context.  Create=%s.", create)
     voltype = filetype(voldev)
 
     if voltype == 'doesntexist':  # FIXME use truncate directly with python.  no need to dick around.
@@ -400,6 +401,7 @@ def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, c
 #         else:
 #             assert r == 0, r
 
+    logging.info("Blockdev context complete.")
     yield rootpart, bootpart, efipart
 
 def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
@@ -429,9 +431,11 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
 def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
                        swapsize, lukspassword, luksoptions, create):
 
+    logging.info("Entering filesystem context.  Create=%s.", create)
     bootpartuuid, efipartuuid = setup_boot_filesystems(bootpart, efipart, poolname, create)
 
     if lukspassword:
+        logging.info("Setting up LUKS.")
         needsdoing = False
         try:
             rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
@@ -472,12 +476,14 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
     if poolname not in list_pools():
         func = import_pool if create else import_pool_retryable
         try:
+            logging.info("Trying to import pool %s.", poolname)
             func(poolname, rootmountpoint)
         except subprocess.CalledProcessError, e:
             if not create:
                 check_call(['blkid', '-c', '/dev/null'])
                 check_call(['zpool', 'import'])
                 raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
+            logging.info("Creating pool %s.", poolname)
             check_call(["zpool", "create", "-m", "none",
                                 "-o", "ashift=12",
                                 "-O", "compression=on",
@@ -488,6 +494,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
             check_call(["zfs", "set", "xattr=sa", poolname])
     undoer.to_export.append(poolname)
 
+    logging.info("Checking / creating datasets.")
     try:
         check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
                             stdout=file(os.devnull,"w"))
@@ -508,6 +515,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
         check_call(["touch", j(rootmountpoint, ".autorelabel")])
     undoer.to_unmount.append(rootmountpoint)
 
+    logging.info("Checking / creating swap zvol.")
     try:
         check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
                             stdout=file(os.devnull,"w"))
@@ -535,6 +543,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
     p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
     q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
 
+    logging.info("Mounting virtual and physical file systems.")
     # mount virtual file systems, creating their mount points as necessary
     for m in "boot sys proc".split():
         if not os.path.isdir(p(m)): os.mkdir(p(m))
@@ -574,6 +583,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
     def in_chroot(lst):
         return ["chroot", rootmountpoint] + lst
 
+    logging.info("Filesystem context complete.")
     yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
 
 def get_file_size(filename):
@@ -636,6 +646,7 @@ class Undoer:
         self.to_rmrf = Tracker("rmrf")
 
     def undo(self):
+        logging.getLogger("Undoer").info("Rewinding stack of actions.")
         for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
             if typ == "unmount":
                 umount(o)
@@ -654,6 +665,7 @@ class Undoer:
                 check_call(["losetup", "-d", o])
                 time.sleep(1)
             self.actions.pop(n)
+        logging.getLogger("Undoer").info("Rewind complete.")
 
 
 def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
@@ -697,6 +709,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
         # check for stage stop
         if break_before == "beginning":
             raise BreakingBefore(break_before)
+        logging.info("Program has begun.")
 
         with blockdev_context(
             voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=True
@@ -713,6 +726,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                 first_bootpartuuid = bootpartuuid
                 first_rootuuid = rootuuid
 
+                logging.info("Adding basic files.")
                 # sync device files
                 check_call(["rsync", "-ax", "--numeric-ids",
 #                           "--exclude=mapper",
@@ -778,6 +792,7 @@ UUID=%s /boot/efi vfat noatime 0 1
 
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
 
+                logging.info("Installing basic packages.")
                 # install base packages
                 packages = list(BASE_PACKAGES)
                 if releasever >= 21:
