@@ -213,7 +213,7 @@ class ChrootPackageManager(object):
                     logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
                     cmd = (
                         ([pkgmgr] if method == "out_of_chroot" else in_chroot([pkgmgr]))
-                        + ["install", "-qy", "--disableplugin=*qubes*"]
+                        + ["install", "-y", "--disableplugin=*qubes*"]
                         + (["-c", config.name if method == "out_of_chroot" else config.name[len(self.chroot):]])
                         + option
                         + (['--installroot=%s' % self.chroot,
@@ -255,7 +255,7 @@ class ChrootPackageManager(object):
                     cmd = in_chroot(
                         [pkgmgr]
                         + (['localinstall'] if pkgmgr == "yum" else ['install'])
-                        + ['-qy']
+                        + ['-y']
                         + option
                         + ['-c', config.name[len(self.chroot):]]
                         + (['--'] if pkgmgr == "yum" else [])
@@ -290,7 +290,7 @@ class SystemPackageManager(object):
         for option, retries in options_retries:
             logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
             cmd = (
-                [self.strategy, 'install', '-qy']
+                [self.strategy, 'install', '-y']
                 + option
                 + (['--'] if self.strategy == "yum" else [])
                 + packages
@@ -315,7 +315,7 @@ class SystemPackageManager(object):
                     cmd = (
                         [self.strategy]
                         + (['localinstall'] if pkgmgr == "yum" else ['install'])
-                        + ['-qy']
+                        + ['-y']
                         + (['--'] if pkgmgr == "yum" else [])
                         + packages
                     )
