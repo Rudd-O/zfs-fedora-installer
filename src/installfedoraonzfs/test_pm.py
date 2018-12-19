@@ -9,7 +9,6 @@ import tempfile
 import unittest
 
 from installfedoraonzfs import pm, cmd
-import installfedoraonzfs.retry as retrymod
 
 
 def mock_check_call_no_output(actions):
@@ -40,7 +39,11 @@ class CmdInteractionTest(unittest.TestCase):
     def test_rpmdb_corruption_is_retryable(self):
         f = pm.check_call_retry_rpmdberror
         self.assertRaises(
-            retrymod.Retryable,
+            pm.RpmdbCorruptionError,
+            lambda: f(["bash", "-c", "echo You probably have corrupted RPMDB, running 'rpm --rebuilddb' might fix the issue.; false"]),
+        )
+        self.assertRaises(
+            pm.RpmdbCorruptionError,
             lambda: f(["bash", "-c", "echo Rpmdb checksum is invalid: blah; false"]),
         )
 
@@ -58,6 +61,42 @@ class TestEnsurePackagesInstalled(unittest.TestCase):
             if p == WILDCARD:
                 expected[i] = results[i]
         return unittest.TestCase.assertListEqual(self, expected, results)
+
+    def testRpmdbCorruptionIsRetried(self):
+        expected = [
+            ["chroot", WILDCARD, "dnf", "install", "-qy", "--downloadonly",
+              "-c", WILDCARD, "/basesystem.rpm"],
+            ["chroot", WILDCARD, "dnf", "install", "-qy",
+              "-c", WILDCARD, "/basesystem.rpm"],
+            ["chroot", WILDCARD, "rpm", "--rebuilddb"],
+            ["chroot", WILDCARD, "dnf", "install", "-qy",
+              "-c", WILDCARD, "/basesystem.rpm"],
+        ]
+        behaviors = [
+            ('', 0),
+            pm.RpmdbCorruptionError(1, [], ''),
+            None,
+            ('', 0),
+        ]
+        results, fun = mock_check_call_no_output(behaviors)
+        with tmpdir() as tmpd:
+            with mock.patch.object(cmd, 'check_call', fun):
+                with mock.patch.object(cmd, 'get_output_exitcode', fun):
+                    bpkgmgrconf = "/etc/dnf/dnf.conf"
+                    pkgmgrconf = tmpd + bpkgmgrconf
+                    os.makedirs(os.path.dirname(pkgmgrconf))
+                    shutil.copyfile(bpkgmgrconf, pkgmgrconf)
+                    with mock.patch.object(os.path, 'exists', lambda _: True):
+                        with mock.patch.object(os.path, 'isfile', lambda _: True):
+                            c = pm.ChrootPackageManager(
+                                tmpd,
+                                "27",
+                                None
+                            )
+                            c.install_local_packages([tmpd + "/basesystem.rpm"])
+        assert len(expected) == len(results), (expected, results)
+        for exp, res in zip(expected, results):
+            self.assertListEqual(exp, res)
 
     def _do_a_tst(self, release, method, pkgmgrconf, packages, behaviors, expected):
         results, fun = mock_check_call_no_output(behaviors)

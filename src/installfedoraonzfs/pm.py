@@ -17,7 +17,7 @@ from installfedoraonzfs import cmd as cmdmod
 import installfedoraonzfs.retry as retrymod
 
 
-class TemporaryRpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): pass
+class RpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): pass
 
 
 class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError): pass
@@ -25,16 +25,19 @@ class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError): pass
 
 def check_call_retry_rpmdberror(cmd):
     out, ret = cmdmod.get_output_exitcode(cmd)
-    if ret == 1 and "Rpmdb checksum is invalid" in out:
-        raise TemporaryRpmdbCorruptionError(ret, cmd)
+    if ret != 0 and ("Rpmdb checksum is invalid" in out
+                     or "You probably have corrupted RPMDB" in out):
+        raise RpmdbCorruptionError(ret, cmd, output=out)
     elif ret != 0 and "--downloadonly" in cmd:
-        raise DownloadFailed(ret, cmd)
+        raise DownloadFailed(ret, cmd, output=out)
     elif ret != 0:
-        raise subprocess.CalledProcessError(ret, cmd)
+        raise subprocess.CalledProcessError(ret, cmd, output=out)
     return out, ret
 
 
-options_retries = ((["--downloadonly"], 5), ([], 1))
+# We do not do retries when there is RPMDB corruption or depsolve issues.
+# We only do retries when we have been asked to do --downloadonly.
+options_retries = ((["--downloadonly"], 5), ([], 0))
 
 
 logger = logging.getLogger("PM")
@@ -218,7 +221,15 @@ class ChrootPackageManager(object):
                         + (['--'] if pkgmgr == "yum" else [])
                         + packages
                     )
-                    out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                    try:
+                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                    except RpmdbCorruptionError:
+                        if method == "out_of_chroot":
+                            # We do not support recovery in this case.
+                            raise
+                        logger.warning("Repairing RPMDB corruption before retrying package install...")
+                        cmdmod.check_call(in_chroot(["rpm", "--rebuilddb"]))
+                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
                 return out, ret
         finally:
             self.ungrab_pm()
@@ -249,7 +260,12 @@ class ChrootPackageManager(object):
                         + ['-c', config.name[len(self.chroot):]]
                         + (['--'] if pkgmgr == "yum" else [])
                     ) + [ p[len(self.chroot):] for p in packages ]
-                    out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                    try:
+                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                    except RpmdbCorruptionError:
+                        logger.warning("Repairing RPMDB corruption before retrying package install...")
+                        cmdmod.check_call(in_chroot(["rpm", "--rebuilddb"]))
+                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
                 return out, ret
         finally:
             self.ungrab_pm()
