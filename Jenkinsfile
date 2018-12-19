@@ -21,6 +21,7 @@ pipeline {
 
 	parameters {
 		string defaultValue: 'ZFS/master', description: '', name: 'UPSTREAM_PROJECT', trim: true
+		string defaultValue: 'grub-zfs-fixer (master)', description: '', name: 'GRUB_UPSTREAM_PROJECT', trim: true
 		string defaultValue: 'master', description: '', name: 'SOURCE_BRANCH', trim: true
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_SOURCE', trim: true
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_RPMS', trim: true
@@ -52,6 +53,7 @@ pipeline {
 			agent { label 'master' }
 			steps {
 				script {
+					env.GRUB_UPSTREAM_PROJECT = params.GRUB_UPSTREAM_PROJECT
 					if (funcs.isUpstreamCause(currentBuild)) {
 						def upstreamProject = funcs.getUpstreamProject(currentBuild)
 						if (env.BRANCH_NAME != "master") {
@@ -102,6 +104,12 @@ pipeline {
 					fingerprintArtifacts: true,
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
+				copyArtifacts(
+					projectName: env.GRUB_UPSTREAM_PROJECT,
+					fingerprintArtifacts: true,
+					selector: upstream(fallbackToLastSuccessful: true)
+				)
+				sh "for d in dist/RELEASE=* ; do cp -a dist/grub-zfs-fixer*rpm $d ; done"
 				sh "find dist/ | sort"
 				sh 'find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums'
 				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
