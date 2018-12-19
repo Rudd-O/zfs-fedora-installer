@@ -109,7 +109,7 @@ pipeline {
 					fingerprintArtifacts: true,
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
-				sh "for d in dist/RELEASE=* ; do cp -a dist/grub-zfs-fixer*rpm $d ; done"
+				sh 'for d in dist/RELEASE=* ; do cp -a dist/grub-zfs-fixer*rpm $d ; done'
 				sh "find dist/ | sort"
 				sh 'find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums'
 				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
