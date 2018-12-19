@@ -78,13 +78,13 @@ class Tee(threading.Thread):
         while pollables:
             readables, _, _ = select.select(pollables.keys(), [], [])
             data = readables[0].read()
-            if not data:
-                # Other side of file descriptor closed / EOF.
-                readables[0].close()
-                # We will not be polling it again
-                del pollables[readables[0]]
-                continue
             try:
+                if not data:
+                        # Other side of file descriptor closed / EOF.
+                        readables[0].close()
+                        # We will not be polling it again
+                        del pollables[readables[0]]
+                        continue
                 for w in pollables[readables[0]]:
                     w.write(data)
             except Exception, e:
@@ -92,6 +92,10 @@ class Tee(threading.Thread):
                 del pollables[readables[0]]
                 if not self.err:
                     self.err = e
+                    break
+        for f in self.filesets:
+            for w in f[1:]:
+                w.flush()
 
     def join(self):
         threading.Thread.join(self)
@@ -100,9 +104,10 @@ class Tee(threading.Thread):
 
 
 def get_output_exitcode(cmd, **kwargs):
-    """Gets the output (stdout / stderr) of a command, and its exit code.
+    """Gets the output (stdout / stderr) of a command, and its exit code,
+    while the stream is printed to standard output / standard error.
 
-    stdout and stderr will be mixed in the output.
+    stdout and stderr will be mixed in the returned output.
     """
     cwd = kwargs.get("cwd", os.getcwd())
     stdin = kwargs.get("stdin")
@@ -117,8 +122,8 @@ def get_output_exitcode(cmd, **kwargs):
         p = subprocess.Popen(cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
         t = Tee((p.stdout, f, stdout), (p.stderr, f, stderr))
         t.start()
-        retval = p.wait()
         t.join()
+        retval = p.wait()
         f.seek(0)
         output = f.read()
     finally:
