@@ -151,7 +151,7 @@ pipeline {
 									set +x
 									read pgrp <&9
 									>&2 echo supervisor: process group of supervised PID is	$pgrp
-									trap ">&2 echo supervisor: killing process group $pgrp ; sudo kill -INT -$pgrp 2>/dev/null || true" TERM INT EXIT
+									trap ">&2 echo supervisor: killing process $pgrp ; sudo kill -INT $pgrp 2>/dev/null || true" TERM INT EXIT
 									read end <&9
 									>&2 echo supervisor: ended
 								) 9<"$d"/pgrp &
