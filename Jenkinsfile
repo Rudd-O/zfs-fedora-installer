@@ -248,6 +248,7 @@ pipeline {
 											rm -rf root-${pname}.img boot-${pname}.img
 											supervisor \\
 												"\$cmd" \\
+												--trace-file=install-fedora-on-zfs.trace.log \\
 												${myBuildFrom} \\
 												${myBreakBefore} \\
 												${mySourceBranch} \\
@@ -264,13 +265,17 @@ pipeline {
 												--chgrp=`groups | cut -d " " -f 1` \\
 												--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
 												root-${pname}.img || ret=\$?
+											set +x
 											>&2 echo ==============Diagnostics==================
-											sudo zpool list || true
-											sudo blkid || true
-											sudo lsblk || true
-											sudo losetup -la || true
-											sudo mount || true
+											>&2 sudo zpool list || true
+											>&2 sudo blkid || true
+											>&2 sudo lsblk || true
+											>&2 sudo losetup -la || true
+											>&2 sudo mount || true
 											>&2 echo =========== End Diagnostics ===============
+											>&2 echo ============== Trace log ==================
+											>&2 cat install-fedora-on-zfs.trace.log
+											>&2 echo ============ End trace log ================
 											exit \$ret
 											""".stripIndent().trim()
 										println "Program that will be executed:\n${program}"

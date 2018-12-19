@@ -34,8 +34,21 @@ BASE_PACKAGES = ("basesystem rootfiles bash nano binutils rsync NetworkManager "
                  "rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup "
                  "kbd-misc kbd policycoreutils selinux-policy-targeted "
                  "libseccomp util-linux sed pciutils").split()
-BASIC_FORMAT = '%(levelname)8s:%(name)14s:%(funcName)20s@%(lineno)4d\t%(message)s'
+BASIC_FORMAT = '%(levelname)8s:%(name)16s  %(message)s'
+TRACE_FORMAT = '%(levelname)8s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s'
 qemu_timeout = 180
+
+
+def log_config(trace_file=None):
+    ch = logging.StreamHandler()
+    cfm = logging.Formatter(BASIC_FORMAT)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(cfm)
+    if trace_file:
+        th = logging.FileHandler(trace_file, mode="w")
+        tfm = logging.Formatter(TRACE_FORMAT)
+        th.setLevel(logging.DEBUG)
+        th.setFormatter(tfm)
 
 
 def get_parser():
@@ -134,6 +147,11 @@ def get_parser():
         action="store", default='/var/lib/zfs-fedora-installer',
         help="use this directory as a working (scratch) space for the mount points of the created pool"
     )
+    parser.add_argument(
+        "--trace-file", dest="trace_file",
+        action="store", default=None,
+        help="file name for a detailed trace file of program activity (default no trace file)"
+    )
     parser.epilog = "Stages for the --break_before argument:\n%s" % (
         "".join("\n* %s:%s%s" % (k, " "*(max(len(x) for x in break_stages)-len(k)+1), v) for k,v in break_stages.items()),
     )
@@ -154,6 +172,11 @@ def get_deploy_parser():
     parser.add_argument(
         "--use-branch", dest="branch",
         action="store", default="master", help="when building ZFS from source, check out this branch instead of master"
+    )
+    parser.add_argument(
+        "--trace-file", dest="trace_file",
+        action="store", default=None,
+        help="file name for a detailed trace file of program activity (default no trace file)"
     )
     return parser
 
@@ -1120,7 +1143,6 @@ def test_yum():
     return any(pkgmgrs.values())
 
 def install_fedora_on_zfs():
-    logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
     args = get_parser().parse_args()
     if not test_rsync():
         print >> sys.stderr, "error: rsync is not available. Please use your package manager to install rsync."
@@ -1146,6 +1168,7 @@ def install_fedora_on_zfs():
     if not test_qemu():
         print >> sys.stderr, "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm)."
         return 5
+    log_config(args.trace_file)
     try:
         install_fedora(
             args.voldev[0], args.volsize, args.bootdev, args.bootsize,
@@ -1371,7 +1394,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
 
 def deploy_zfs():
     args = get_deploy_parser().parse_args()
-    logging.basicConfig(level=logging.DEBUG, format=BASIC_FORMAT)
+    log_config(args.trace_file)
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
