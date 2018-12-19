@@ -20,13 +20,20 @@ import multiprocessing
 import pipes
 import errno
 
-from installfedoraonzfs.cmd import check_call, format_cmdline, check_output, Popen, mount, bindmount, umount, ismount, get_associated_lodev
+from installfedoraonzfs.cmd import check_call, format_cmdline, check_output
+from installfedoraonzfs.cmd import Popen, mount, bindmount, umount, ismount
+from installfedoraonzfs.cmd import get_associated_lodev, get_output_exitcode
+from installfedoraonzfs.cmd import check_call_no_output
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
 from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
 import installfedoraonzfs.retry as retrymod
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
+BASE_PACKAGES = ("basesystem rootfiles bash nano binutils rsync NetworkManager "
+                 "rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup "
+                 "kbd-misc kbd policycoreutils selinux-policy-targeted "
+                 "libseccomp util-linux sed pciutils").split()
 BASIC_FORMAT = '%(levelname)8s:%(name)14s:%(funcName)20s@%(lineno)4d\t%(message)s'
 qemu_timeout = 180
 
@@ -164,16 +171,380 @@ def filetype(dev):
 
 
 def losetup(path):
-    check_call(
+    dev = check_output(
         ["losetup", "-P", "--find", "--show", path]
-    )
-    return get_associated_lodev(path)
+    )[:-1]
+    return dev
 
 def import_pool(poolname, rootmountpoint):
     return check_call(["zpool", "import", "-f", "-R", rootmountpoint, poolname])
 
+def list_pools():
+    d = check_output(["zpool", "list", "-H", "-o", "name"], logall=True)
+    return [x for x in d.splitlines() if x]
+
 # We try the import of the pool 3 times, with a 5-second timeout in between tries.
 import_pool_retryable = retrymod.retry(2, timeout=5, retryable_exception=subprocess.CalledProcessError)(import_pool)
+
+def partition_boot(bootdev, bootsize, rootvol):
+    '''Partitions device into four partitions.
+
+    1. a 2MB biosboot partition
+    2. an EFI partition, sized bootsize/2
+    3. a /boot partition, sized bootsize/2
+    4. if rootvol evals to True: a root volume partition
+
+    Caller is responsible for waiting until the devices appear.
+    '''
+    cmd = ["gdisk", bootdev]
+    pr = Popen(cmd, stdin=subprocess.PIPE)
+    if rootvol:
+        pr.communicate(
+    '''o
+y
+
+n
+1
+
++2M
+21686148-6449-6E6F-744E-656564454649
+
+
+n
+2
+
++%sM
+C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+
+
+n
+3
+
++%sM
+
+
+
+n
+4
+
+
+
+
+
+p
+w
+y
+'''%(bootsize / 2, bootsize / 2)
+        )
+    else:
+        pr.communicate(
+        '''o
+y
+
+n
+1
+
++2M
+21686148-6449-6E6F-744E-656564454649
+
+
+n
+2
+
++%sM
+C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+
+
+n
+3
+
+
+
+p
+w
+y
+''' % (bootsize / 2)
+        )
+    retcode = pr.wait()
+    if retcode != 0: raise subprocess.CalledProcessError(retcode, cmd)
+
+@contextlib.contextmanager
+def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp):
+    '''Takes a volume device path, and possible a boot device path,
+    and yields a properly partitioned set of volumes which can
+    then be used to format and create pools on.
+
+    Work to be undone is executed by the undoer passed by the caller.
+
+    TODO: use context manager undo strategy instead.
+    '''
+    voltype = filetype(voldev)
+
+    if voltype == 'doesntexist':  # FIXME use truncate directly with python.  no need to dick around.
+        create_file(voldev, volsize * 1024 * 1024, owner=chown, group=chgrp)
+        voltype = 'file'
+
+    if voltype == 'file':
+        if get_associated_lodev(voldev):
+            new_voldev = get_associated_lodev(voldev)
+        else:
+            new_voldev = losetup(voldev)
+        assert new_voldev is not None, (new_voldev, voldev)
+        undoer.to_un_losetup.append(new_voldev)
+        voldev = new_voldev
+        voltype = 'blockdev'
+
+    if bootdev:
+        boottype = filetype(bootdev)
+
+        if boottype == 'doesntexist':
+            create_file(bootdev, bootsize * 1024 * 1024, owner=chown, group=chgrp)
+            boottype = 'file'
+
+        if boottype == 'file':
+            if get_associated_lodev(bootdev):
+                new_bootdev = get_associated_lodev(bootdev)
+            else:
+                new_bootdev = losetup(bootdev)
+            assert new_bootdev is not None, (new_bootdev, bootdev)
+            undoer.to_un_losetup.append(new_bootdev)
+            bootdev = new_bootdev
+            boottype = 'blockdev'
+
+    def get_rootpart(rdev):
+        parts = [
+            rdev + "p4"
+        ] if rdev.startswith("/dev/loop") else [
+            rdev + "-part4",
+            rdev + "4",
+        ]
+        for rootpart in parts:
+            if os.path.exists(rootpart):
+                return rootpart
+
+    def get_efipart_bootpart(bdev):
+        parts = [
+            (bdev + "p2", bdev + "p3"),
+        ] if bdev.startswith("/dev/loop") else [
+            (bdev + "-part2", bdev + "-part3"),
+            (bdev + "2", bdev + "3"),
+        ]
+        for efipart, bootpart in parts:
+            if os.path.exists(efipart) and os.path.exists(bootpart):
+                return efipart, bootpart
+        return None, None
+
+    efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
+    if None in (bootpart, efipart):
+        partition_boot(bootdev or voldev, bootsize, not bootdev)
+
+    efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
+    if None in (efipart, bootpart):
+        assert 0, "partitions 2 or 3 in device %r failed to be created"%(bootdev or voldev)
+
+    rootpart = voldev if bootdev else get_rootpart(voldev)
+    assert rootpart or voldev, "partition 4 in device %r failed to be created"%voldev
+
+#   # This is debugging code that has been shunted off.
+#
+#     if voldev.startswith("/dev/loop"):
+#         o, r = get_output_exitcode(["losetup", "-l", voldev])
+#         logging.debug("losetup voldev %s: %s", voldev, o)
+#         assert r == 0, r
+# 
+#     if bootdev:
+#         o, r = get_output_exitcode(["losetup", "-l", bootdev])
+#         logging.debug("losetup bootdev %s: %s", bootdev, o)
+#         assert r == 0, r
+# 
+#     for name, part in (
+#         ("EFI", efipart),
+#         ("boot", bootpart),
+#         ("root", rootpart),
+#     ):
+#         o, r = get_output_exitcode(["ls", "-la", part])
+#         logging.debug("ls %s partition %s: %s", name, part, o)
+#         assert r == 0, r
+#         o, r = get_output_exitcode(["blkid", "-c", "/dev/null", part])
+#         logging.debug("blkid %s partition %s: %s", name, part, o)
+#         if "root" == name:
+#             assert r == 0 or o == "", (r, o)
+#         else:
+#             assert r == 0, r
+
+    yield rootpart, bootpart, efipart
+
+def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
+    '''Sets up boot and EFI file systems.
+
+    This function is a noop if file systems already exist.
+    '''
+    try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
+    except subprocess.CalledProcessError: output = ""
+    if 'TYPE="ext4"' not in output:
+        if not create:
+            raise Exception("Wanted to create boot file system on %s but create=False" % bootpart)
+        check_call(["mkfs.ext4", "-L", "boot_" + label_postfix, bootpart])
+    bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
+
+    try: output = check_output(["blkid", "-c", "/dev/null", efipart])
+    except subprocess.CalledProcessError: output = ""
+    if 'TYPE="vfat"' not in output:
+        if not create:
+            raise Exception("Wanted to create EFI file system on %s but create=False" % efipart)
+        check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + label_postfix, efipart])
+    efipartuuid = check_output(["blkid", "-c", "/dev/null", efipart, "-o", "value", "-s", "UUID"]).strip()
+
+    return bootpartuuid, efipartuuid
+
+@contextlib.contextmanager
+def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
+                       swapsize, lukspassword, luksoptions, create):
+
+    bootpartuuid, efipartuuid = setup_boot_filesystems(bootpart, efipart, poolname, create)
+
+    if lukspassword:
+        needsdoing = False
+        try:
+            rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
+            if not rootuuid:
+                raise IndexError("no UUID for %s" % rootpart)
+            luksuuid = "luks-" + rootuuid
+        except IndexError:
+            needsdoing = True
+        except subprocess.CalledProcessError, e:
+            if e.returncode != 2: raise
+            needsdoing = True
+        if needsdoing:
+            if not create:
+                raise Exception("Wanted to create LUKS volume on %s but create=False" % rootpart)
+            luksopts = shlex.split(luksoptions) if luksoptions else []
+            cmd = ["cryptsetup", "-y", "-v", "luksFormat"] + luksopts + [rootpart, '-']
+            proc = Popen(cmd, stdin=subprocess.PIPE)
+            proc.communicate(lukspassword)
+            retcode = proc.wait()
+            if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
+            rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
+            if not rootuuid:
+                raise IndexError("still no UUID for %s" % rootpart)
+            luksuuid = "luks-" + rootuuid
+        if not os.path.exists(j("/dev","mapper",luksuuid)):
+            cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
+            proc = Popen(cmd, stdin=subprocess.PIPE)
+            proc.communicate(lukspassword)
+            retcode = proc.wait()
+            if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
+        undoer.to_luks_close.append(luksuuid)
+        rootpart = j("/dev","mapper",luksuuid)
+    else:
+        rootuuid = None
+        luksuuid = None
+
+    rootmountpoint = j(workdir, poolname)
+    if poolname not in list_pools():
+        func = import_pool if create else import_pool_retryable
+        try:
+            func(poolname, rootmountpoint)
+        except subprocess.CalledProcessError, e:
+            if not create:
+                raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
+            check_call(["zpool", "create", "-m", "none",
+                                "-o", "ashift=12",
+                                "-O", "compression=on",
+                                "-O", "atime=off",
+                                "-O", "com.sun:auto-snapshot=false",
+                                "-R", rootmountpoint,
+                                poolname, rootpart])
+            check_call(["zfs", "set", "xattr=sa", poolname])
+    undoer.to_export.append(poolname)
+
+    try:
+        check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
+                            stdout=file(os.devnull,"w"))
+    except subprocess.CalledProcessError, e:
+        if not create:
+            raise Exception("Wanted to create ZFS file system ROOT on %s but create=False" % poolname)
+        check_call(["zfs", "create", j(poolname, "ROOT")])
+
+    try:
+        check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT", "os")],
+                            stdout=file(os.devnull,"w"))
+        if not os.path.ismount(rootmountpoint):
+            check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
+    except subprocess.CalledProcessError, e:
+        if not create:
+            raise Exception("Wanted to create ZFS file system ROOT/os on %s but create=False" % poolname)
+        check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
+        check_call(["touch", j(rootmountpoint, ".autorelabel")])
+    undoer.to_unmount.append(rootmountpoint)
+
+    try:
+        check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
+                            stdout=file(os.devnull,"w"))
+    except subprocess.CalledProcessError, e:
+        if not create:
+            raise Exception("Wanted to create ZFS file system swap on %s but create=False" % poolname)
+        check_call(["zfs", "create", "-V", "%dM"%swapsize, "-b", "4K", j(poolname, "swap")])
+        check_call(["zfs", "set", "compression=gzip-9", j(poolname, "swap")])
+        check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
+    swappart = os.path.join("/dev/zvol", poolname, "swap")
+
+    for _ in range(5):
+        if not os.path.exists(swappart):
+            time.sleep(5)
+    if not os.path.exists(swappart):
+        raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
+
+    try: output = check_output(["blkid", "-c", "/dev/null", swappart])
+    except subprocess.CalledProcessError: output = ""
+    if 'TYPE="swap"' not in output:
+        if not create:
+            raise Exception("Wanted to create swap volume on %s/swap but create=False" % poolname)
+        check_call(["mkswap", '-f', swappart])
+
+    p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
+    q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
+
+    # mount virtual file systems, creating their mount points as necessary
+    for m in "boot sys proc".split():
+        if not os.path.isdir(p(m)): os.mkdir(p(m))
+
+    if not os.path.ismount(p("boot")):
+        mount(bootpart, p("boot"))
+    undoer.to_unmount.append(p("boot"))
+
+    for m in "boot/efi".split():
+        if not os.path.isdir(p(m)): os.mkdir(p(m))
+
+    if not os.path.ismount(p("boot/efi")):
+        mount(efipart, p("boot/efi"))
+    undoer.to_unmount.append(p("boot/efi"))
+
+    if not os.path.ismount(p("sys")):
+        mount("sysfs", p("sys"), "-t", "sysfs")
+    undoer.to_unmount.append(p("sys"))
+
+    selinuxfs= p(j("sys", "fs", "selinux"))
+    if os.path.isdir(selinuxfs):
+        if not os.path.ismount(selinuxfs):
+            mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
+        undoer.to_unmount.append(selinuxfs)
+
+    if not os.path.ismount(p("proc")):
+        mount("proc", p("proc"), "-t", "proc")
+    undoer.to_unmount.append(p("proc"))
+
+    # create needed directories to succeed in chrooting as per #22
+    for m in "etc var var/lib var/lib/dbus var/log var/log/audit".split():
+        if not os.path.isdir(p(m)):
+            os.mkdir(p(m))
+            if m == "var/log/audit":
+                os.chmod(p(m), 0700)
+
+    def in_chroot(lst):
+        return ["chroot", rootmountpoint] + lst
+
+    yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
 
 def get_file_size(filename):
     "Get the file size by seeking at end"
@@ -218,6 +589,7 @@ class Undoer:
                 self.typ = typ
 
             def append(me, o):
+                assert o is not None
                 self.actions.append([me.typ, o])
 
             def remove(me, o):
@@ -250,8 +622,7 @@ class Undoer:
             if typ == "un_losetup":
                 check_call(["sync"])
                 check_call(["losetup", "-d", o])
-                if get_associated_lodev(o):
-                    logging.error("losetup -d failed with device %s", o)
+                time.sleep(1)
             self.actions.pop(n)
 
 
@@ -282,9 +653,6 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     original_bootdev = bootdev
 
     undoer = Undoer()
-    to_un_losetup = undoer.to_un_losetup
-    to_luks_close = undoer.to_luks_close
-    to_export = undoer.to_export
     to_rmdir = undoer.to_rmdir
     to_unmount = undoer.to_unmount
     to_rmrf = undoer.to_rmrf
@@ -295,329 +663,19 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     if not releasever:
         releasever = ChrootPackageManager.get_my_releasever()
 
-    @contextlib.contextmanager
-    def setup_blockdevs(voldev, bootdev):
-
-        voltype = filetype(voldev)
-        if bootdev: boottype = filetype(bootdev)
-
-        if voltype == 'doesntexist':  # FIXME use truncate directly with python.  no need to dick around.
-            create_file(voldev, volsize * 1024 * 1024, owner=chown, group=chgrp)
-            voltype = 'file'
-
-        if bootdev and boottype == 'doesntexist':
-            create_file(bootdev, bootsize * 1024 * 1024, owner=chown, group=chgrp)
-            boottype = 'file'
-
-        if voltype == 'file':
-            if get_associated_lodev(voldev):
-                voldev = get_associated_lodev(voldev)
-            else:
-                voldev = losetup(voldev)
-            to_un_losetup.append(voldev)
-            voltype = 'blockdev'
-
-        if bootdev and boottype == 'file':
-            if get_associated_lodev(bootdev):
-                bootdev = get_associated_lodev(bootdev)
-            else:
-                bootdev = losetup(bootdev)
-            to_un_losetup.append(bootdev)
-            boottype = 'blockdev'
-
-        def get_rootpart(rdev):
-            parts = [
-                rdev + "p4"
-            ] if rdev.startswith("/dev/loop") else [
-                rdev + "-part4",
-                rdev + "4",
-            ]
-            for rootpart in parts:
-                if os.path.exists(rootpart):
-                    return rootpart
-
-        def get_efipart_bootpart(bdev):
-            parts = [
-                (bdev + "p2", bdev + "p3"),
-            ] if bdev.startswith("/dev/loop") else [
-                (bdev + "-part2", bdev + "-part3"),
-                (bdev + "2", bdev + "3"),
-            ]
-            for efipart, bootpart in parts:
-                if os.path.exists(efipart) and os.path.exists(bootpart):
-                    return efipart, bootpart
-            return None, None
-
-        if bootdev:
-            rootpart = voldev
-
-            if None in get_efipart_bootpart(bootdev):
-                cmd = ["gdisk", bootdev]
-                pr = Popen(cmd, stdin=subprocess.PIPE)
-                pr.communicate(
-    '''o
-y
-
-n
-1
-
-+2M
-21686148-6449-6E6F-744E-656564454649
-
-
-n
-2
-
-+%sM
-C12A7328-F81F-11D2-BA4B-00A0C93EC93B
-
-
-n
-3
-
-
-
-p
-w
-y
-''' % (bootsize / 2)
-                )
-                retcode = pr.wait()
-                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-                time.sleep(2)
-
-            efipart, bootpart = get_efipart_bootpart(bootdev)
-            if not efipart or not bootpart:
-                assert 0, "partitions 2 or 3 in device %r failed to be created"%bootdev
-
-        else:
-            efipart, bootpart = get_efipart_bootpart(voldev)
-            rootpart = get_rootpart(voldev)
-
-            if not rootpart or not bootpart or not efipart:
-                cmd = ["gdisk", voldev]
-                pr = Popen(cmd, stdin=subprocess.PIPE)
-                pr.communicate(
-    '''o
-y
-
-n
-1
-
-+2M
-21686148-6449-6E6F-744E-656564454649
-
-
-n
-2
-
-+%sM
-C12A7328-F81F-11D2-BA4B-00A0C93EC93B
-
-
-n
-3
-
-+%sM
-
-
-
-n
-4
-
-
-
-
-
-p
-w
-y
-'''%(bootsize / 2, bootsize / 2)
-                )
-                retcode = pr.wait()
-                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-                time.sleep(2)
-
-            efipart, bootpart = get_efipart_bootpart(voldev)
-            rootpart = get_rootpart(voldev)
-            if not efipart or not bootpart or not rootpart:
-                assert 0, "partitions 2 or 3 or 4 in device %r failed to be created"%voldev
-
-        yield rootpart, bootpart, efipart
-
-    @contextlib.contextmanager
-    def setup_filesystems(rootpart, bootpart, efipart, lukspassword, luksoptions, create=False):
-
-        try: output = check_output(["blkid", "-c", "/dev/null", bootpart])
-        except subprocess.CalledProcessError: output = ""
-        if 'TYPE="ext4"' not in output:
-            if not create:
-                raise Exception("Wanted to create boot file system on %s but create=False" % bootpart)
-            check_call(["mkfs.ext4", "-L", "boot_" + poolname, bootpart])
-        bootpartuuid = check_output(["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]).strip()
-
-        try: output = check_output(["blkid", "-c", "/dev/null", efipart])
-        except subprocess.CalledProcessError: output = ""
-        if 'TYPE="vfat"' not in output:
-            if not create:
-                raise Exception("Wanted to create EFI file system on %s but create=False" % efipart)
-            check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + poolname, efipart])
-        efipartuuid = check_output(["blkid", "-c", "/dev/null", efipart, "-o", "value", "-s", "UUID"]).strip()
-
-        if lukspassword:
-            needsdoing = False
-            try:
-                rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
-                if not rootuuid:
-                    raise IndexError("no UUID for %s" % rootpart)
-                luksuuid = "luks-" + rootuuid
-            except IndexError:
-                needsdoing = True
-            except subprocess.CalledProcessError, e:
-                if e.returncode != 2: raise
-                needsdoing = True
-            if needsdoing:
-                if not create:
-                    raise Exception("Wanted to create LUKS volume on %s but create=False" % rootpart)
-                luksopts = shlex.split(luksoptions) if luksoptions else []
-                cmd = ["cryptsetup", "-y", "-v", "luksFormat"] + luksopts + [rootpart, '-']
-                proc = Popen(cmd, stdin=subprocess.PIPE)
-                proc.communicate(lukspassword)
-                retcode = proc.wait()
-                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-                rootuuid = check_output(["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]).strip()
-                if not rootuuid:
-                    raise IndexError("still no UUID for %s" % rootpart)
-                luksuuid = "luks-" + rootuuid
-            if not os.path.exists(j("/dev","mapper",luksuuid)):
-                cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
-                proc = Popen(cmd, stdin=subprocess.PIPE)
-                proc.communicate(lukspassword)
-                retcode = proc.wait()
-                if retcode != 0: raise subprocess.CalledProcessError(retcode,cmd)
-            to_luks_close.append(luksuuid)
-            rootpart = j("/dev","mapper",luksuuid)
-        else:
-            rootuuid = None
-            luksuuid = None
-
-        rootmountpoint = j(workdir, poolname)
-        try:
-            check_call(["zfs", "list", "-H", "-o", "name", poolname],
-                                stdout=file(os.devnull,"w"))
-        except subprocess.CalledProcessError, e:
-            func = import_pool if create else import_pool_retryable
-            try:
-                func(poolname, rootmountpoint)
-            except subprocess.CalledProcessError, e:
-                if not create:
-                    raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
-                check_call(["zpool", "create", "-m", "none",
-                                    "-o", "ashift=12",
-                                    "-O", "compression=on",
-                                    "-O", "atime=off",
-                                    "-O", "com.sun:auto-snapshot=false",
-                                    "-R", rootmountpoint,
-                                    poolname, rootpart])
-                check_call(["zfs", "set", "xattr=sa", poolname])
-        to_export.append(poolname)
-
-        try:
-            check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
-                                stdout=file(os.devnull,"w"))
-        except subprocess.CalledProcessError, e:
-            if not create:
-                raise Exception("Wanted to create ZFS file system ROOT on %s but create=False" % poolname)
-            check_call(["zfs", "create", j(poolname, "ROOT")])
-
-        try:
-            check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT", "os")],
-                                stdout=file(os.devnull,"w"))
-            if not os.path.ismount(rootmountpoint):
-                check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
-        except subprocess.CalledProcessError, e:
-            if not create:
-                raise Exception("Wanted to create ZFS file system ROOT/os on %s but create=False" % poolname)
-            check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
-            check_call(["touch", j(rootmountpoint, ".autorelabel")])
-        to_unmount.append(rootmountpoint)
-
-        try:
-            check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
-                                stdout=file(os.devnull,"w"))
-        except subprocess.CalledProcessError, e:
-            if not create:
-                raise Exception("Wanted to create ZFS file system swap on %s but create=False" % poolname)
-            check_call(["zfs", "create", "-V", "%dM"%swapsize, "-b", "4K", j(poolname, "swap")])
-            check_call(["zfs", "set", "compression=gzip-9", j(poolname, "swap")])
-            check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
-        swappart = os.path.join("/dev/zvol", poolname, "swap")
-
-        for _ in range(5):
-            if not os.path.exists(swappart):
-                time.sleep(5)
-        if not os.path.exists(swappart):
-            raise ZFSMalfunction("ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct.")
-
-        try: output = check_output(["blkid", "-c", "/dev/null", swappart])
-        except subprocess.CalledProcessError: output = ""
-        if 'TYPE="swap"' not in output:
-            if not create:
-                raise Exception("Wanted to create swap volume on %s/swap but create=False" % poolname)
-            check_call(["mkswap", '-f', swappart])
-
-        p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
-        q = lambda outsidechroot: outsidechroot[len(rootmountpoint):]
-
-        # mount virtual file systems, creating their mount points as necessary
-        for m in "boot sys proc".split():
-            if not os.path.isdir(p(m)): os.mkdir(p(m))
-
-        if not os.path.ismount(p("boot")):
-            mount(bootpart, p("boot"))
-        to_unmount.append(p("boot"))
-
-        for m in "boot/efi".split():
-            if not os.path.isdir(p(m)): os.mkdir(p(m))
-
-        if not os.path.ismount(p("boot/efi")):
-            mount(efipart, p("boot/efi"))
-        to_unmount.append(p("boot/efi"))
-
-        if not os.path.ismount(p("sys")):
-            mount("sysfs", p("sys"), "-t", "sysfs")
-        to_unmount.append(p("sys"))
-
-        selinuxfs= p(j("sys", "fs", "selinux"))
-        if os.path.isdir(selinuxfs):
-            if not os.path.ismount(selinuxfs):
-                mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
-            to_unmount.append(selinuxfs)
-
-        if not os.path.ismount(p("proc")):
-            mount("proc", p("proc"), "-t", "proc")
-        to_unmount.append(p("proc"))
-
-        # create needed directories to succeed in chrooting as per #22
-        for m in "etc var var/lib var/lib/dbus var/log var/log/audit".split():
-            if not os.path.isdir(p(m)):
-                os.mkdir(p(m))
-                if m == "var/log/audit":
-                    os.chmod(p(m), 0700)
-
-        def in_chroot(lst):
-            return ["chroot", rootmountpoint] + lst
-
-        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
-
     try:
         # check for stage stop
         if break_before == "beginning":
             raise BreakingBefore(break_before)
 
-        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
-            with setup_filesystems(
-                rootpart, bootpart, efipart, lukspassword, luksoptions, create=True
+        with blockdev_context(
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp
+        ) as (
+            rootpart, bootpart, efipart
+        ):
+            with filesystem_context(
+                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                swapsize, lukspassword, luksoptions, create=True
             ) as (
                 rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
             ):
@@ -691,7 +749,7 @@ UUID=%s /boot/efi vfat noatime 0 1
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
 
                 # install base packages
-                packages = "basesystem rootfiles bash nano binutils rsync NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted libseccomp util-linux sed".split()
+                packages = list(BASE_PACKAGES)
                 if releasever >= 21:
                     packages.append("dnf")
                 else:
@@ -779,9 +837,14 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
         cleanup()
 
-        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
-            with setup_filesystems(
-                rootpart, bootpart, efipart, lukspassword, luksoptions
+        with blockdev_context(
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp
+        ) as (
+            rootpart, bootpart, efipart
+        ):
+            with filesystem_context(
+                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                swapsize, lukspassword, luksoptions, create=False
             ) as (
                 _, p, q, in_chroot, rootuuid, _, bootpartuuid, efipartuuid
             ):
@@ -867,17 +930,23 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mount /boot
 mount /boot/efi
 mount --bind /dev/stderr /dev/log
+mount -t tmpfs tmpfs /tmp
 ln -sf /proc/self/mounts /etc/mtab
-test -L /boot/grub2/grubenv && { rm -f /boot/grub2/grubenv ; touch /boot/grub2/grubenv ; }
+mount
+
+rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
+ln -s /boot/efi/EFI/fedora/grubenv /boot/grub2/grubenv
+echo "# GRUB Environment Block" > /boot/efi/EFI/fedora/grubenv
+for x in `seq 999`
+do
+    echo -n "#" >> /boot/efi/EFI/fedora/grubenv
+done
 grub2-install /dev/sda
-if test -f /boot/grub2/grubenv ; then
-    mv /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
-    ln -s /boot/efi/EFI/fedora/grubenv /boot/grub2/grubenv
-fi
 grub2-mkconfig -o /boot/grub2/grub.cfg
 cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
+
 zfs inherit com.sun:auto-snapshot "%s"
 test -f %s || {
     dracut -Hf %s %s
@@ -885,6 +954,7 @@ test -f %s || {
     restorecon -v %s
 }
 sync
+umount /tmp || true
 umount /boot/efi || true
 umount /boot || true
 rm -f /installbootloader
@@ -958,9 +1028,14 @@ echo cannot power off VM.  Please kill qemu.
         # install bootloader and create hostonly initrd using qemu
         biiq_bootloader()
 
-        with setup_blockdevs(voldev, bootdev) as (rootpart, bootpart, efipart):
-            with setup_filesystems(
-                rootpart, bootpart, efipart, lukspassword, luksoptions
+        with blockdev_context(
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp
+        ) as (
+            rootpart, bootpart, efipart
+        ):
+            with filesystem_context(
+                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                swapsize, lukspassword, luksoptions, create=False
             ) as (
                 _, _, _, _, _, _, _, _
             ):

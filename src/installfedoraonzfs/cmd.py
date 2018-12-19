@@ -30,15 +30,21 @@ def check_call(*args,**kwargs):
     return subprocess.check_call(*args,**kwargs)
 
 
-def check_output(*args,**kwargs):
+def check_output(*args, **kwargs):
+    logall = kwargs.get("logall", False)
+    if "logall" in kwargs:
+        del kwargs["logall"]
     cwd = kwargs.get("cwd", os.getcwd())
     kwargs["close_fds"] = True
     cmd = args[0]
     logger.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
     output = subprocess.check_output(*args,**kwargs)
     if output:
-        firstline=output.splitlines()[0].strip()
-        logger.debug("First line of output from command: %s", firstline)
+        if logall:
+            logger.debug("Output from command: %r", output)
+        else:
+            firstline=output.splitlines()[0].strip()
+            logger.debug("First line of output from command: %s", firstline)
     else:
         logger.debug("No output from command")
     return output

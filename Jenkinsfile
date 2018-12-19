@@ -225,9 +225,9 @@ pipeline {
 										if (needsunstash != "MATCH") {
 											unstash "rpms"
 										}
-										def program = mySupervisor + """
+										def program = """
 											release=`rpm -q --queryformat="%{version}" fedora-release`
-											supervisor ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
+											sudo ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
 										""".stripIndent().trim()
 										println "Program that will be executed:\n${program}"
 										retry(5) {
