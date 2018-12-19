@@ -269,7 +269,7 @@ y
     if retcode != 0: raise subprocess.CalledProcessError(retcode, cmd)
 
 @contextlib.contextmanager
-def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp):
+def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create):
     '''Takes a volume device path, and possible a boot device path,
     and yields a properly partitioned set of volumes which can
     then be used to format and create pools on.
@@ -336,6 +336,8 @@ def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp):
 
     efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
     if None in (bootpart, efipart):
+        if not create:
+            raise Exception("Wanted to partition boot device %s but create=False" % (bootdev or voldev))
         partition_boot(bootdev or voldev, bootsize, not bootdev)
 
     efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
@@ -447,6 +449,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
             func(poolname, rootmountpoint)
         except subprocess.CalledProcessError, e:
             if not create:
+                check_call(['blkid', '-c', '/dev/null'])
                 raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
             check_call(["zpool", "create", "-m", "none",
                                 "-o", "ashift=12",
@@ -669,7 +672,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             raise BreakingBefore(break_before)
 
         with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=True
         ) as (
             rootpart, bootpart, efipart
         ):
@@ -838,7 +841,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         cleanup()
 
         with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
         ) as (
             rootpart, bootpart, efipart
         ):
@@ -1029,7 +1032,7 @@ echo cannot power off VM.  Please kill qemu.
         biiq_bootloader()
 
         with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
         ) as (
             rootpart, bootpart, efipart
         ):
