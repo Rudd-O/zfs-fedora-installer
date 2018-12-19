@@ -35,7 +35,7 @@ BASE_PACKAGES = ("basesystem rootfiles bash nano binutils rsync NetworkManager "
                  "kbd-misc kbd policycoreutils selinux-policy-targeted "
                  "libseccomp util-linux sed pciutils").split()
 BASIC_FORMAT = '%(levelname)8s:%(name)16s  %(message)s'
-TRACE_FORMAT = '%(levelname)8s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s'
+TRACE_FORMAT = '%(asctime)s  %(levelname)8s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s'
 qemu_timeout = 180
 
 
