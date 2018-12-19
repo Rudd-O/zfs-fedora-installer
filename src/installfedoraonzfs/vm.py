@@ -16,7 +16,7 @@ from installfedoraonzfs.retry import Retryable
 
 
 logger = logging.getLogger("VM")
-qemu_full_emulation_factor = 20
+qemu_full_emulation_factor = 5
 
 
 class BootloaderWedged(Exception): pass
