@@ -940,10 +940,12 @@ mount
 rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
 ln -s /boot/efi/EFI/fedora/grubenv /boot/grub2/grubenv
 echo "# GRUB Environment Block" > /boot/efi/EFI/fedora/grubenv
+set +x
 for x in `seq 999`
 do
     echo -n "#" >> /boot/efi/EFI/fedora/grubenv
 done
+set -x
 grub2-install /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
 cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
