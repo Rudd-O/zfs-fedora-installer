@@ -4,17 +4,17 @@ import contextlib
 import mock
 import os
 import shutil
-import subprocess
-import sys
+import subprocess  #pylint: disable=unused-import
 import tempfile
 import unittest
 
 from installfedoraonzfs import pm, cmd
+import installfedoraonzfs.retry as retrymod
 
 
 def mock_check_call_no_output(actions):
     cmds = []
-    def fun(cmd, *args, **kwargs):
+    def fun(cmd, *unused_args, **unused_kwargs):
         cmds.append(cmd)
         action = actions.pop(0)
         if isinstance(action, BaseException):
@@ -33,6 +33,16 @@ def tmpdir():
 
 
 WILDCARD = "*"
+
+
+class CmdInteractionTest(unittest.TestCase):
+
+    def test_rpmdb_corruption_is_retryable(self):
+        f = pm.check_call_retry_rpmdberror
+        self.assertRaises(
+            retrymod.Retryable,
+            lambda: f(["bash", "-c", "echo Rpmdb checksum is invalid: blah; false"]),
+        )
 
 
 class TestEnsurePackagesInstalled(unittest.TestCase):
