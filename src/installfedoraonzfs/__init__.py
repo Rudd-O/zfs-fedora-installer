@@ -41,6 +41,7 @@ qemu_timeout = 180
 
 def log_config(trace_file=None):
     rl = logging.getLogger()
+    rl.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
     cfm = logging.Formatter(BASIC_FORMAT)
     ch.setLevel(logging.INFO)
