@@ -50,7 +50,10 @@ def log_config(trace_file=None):
             logging.Formatter.__init__(self, *a, **kw)
             self.start = time.time()
         def formatTime(self, record, datefmt):
-            return "%.2f" % (time.time() - self.start)
+            t = time.time() - self.start
+            m = int(t / 60)
+            s = t % 60
+            return "%dm%.2f" % (m, s)
     rl = logging.getLogger()
     rl.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
