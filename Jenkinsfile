@@ -248,8 +248,8 @@ pipeline {
 									timeout(time: 60, unit: 'MINUTES') {
 										unstash "zfs-fedora-installer"
 										def program = mySupervisor + """
-											yumcache="\$PWD/yumcache"
-											mntdir="\$PWD/mnt"
+											yumcache="\$PWD/yumcache/${pname}"
+											mntdir="\$PWD/mnt/${pname}"
 											mkdir -p "\$mntdir"
 											volsize=10000
 											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
@@ -257,7 +257,7 @@ pipeline {
 											rm -rf root-${pname}.img boot-${pname}.img
 											supervisor \\
 												"\$cmd" \\
-												--trace-file=install-fedora-on-zfs.trace.log \\
+												--trace-file=${pname}.log \\
 												${myBuildFrom} \\
 												${myBreakBefore} \\
 												${mySourceBranch} \\
