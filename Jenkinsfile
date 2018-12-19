@@ -248,7 +248,7 @@ pipeline {
 									timeout(time: 60, unit: 'MINUTES') {
 										unstash "zfs-fedora-installer"
 										def program = mySupervisor + """
-											yumcache="\$JENKINS_HOME/yumcache"
+											yumcache="\$PWD/yumcache"
 											volsize=10000
 											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
 											# cleanup
