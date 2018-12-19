@@ -249,6 +249,8 @@ pipeline {
 										unstash "zfs-fedora-installer"
 										def program = mySupervisor + """
 											yumcache="\$PWD/yumcache"
+											mntdir="\$PWD/mnt"
+											mkdir -p "\$mntdir"
 											volsize=10000
 											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
 											# cleanup
@@ -262,6 +264,7 @@ pipeline {
 												${myLuks} \\
 												${mySeparateBoot} \\
 												${myRelease} \\
+												--workdir="\$mntdir" \\
 												--yum-cachedir="\$yumcache" \\
 												--host-name="\$HOST_NAME" \\
 												--pool-name="${pname}" \\
