@@ -933,7 +933,7 @@ export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mount /boot
 mount /boot/efi
 mount --bind /dev/stderr /dev/log
-mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /var/tmp
 ln -sf /proc/self/mounts /etc/mtab
 mount
 
@@ -959,7 +959,7 @@ test -f %s || {
     restorecon -v %s
 }
 sync
-umount /tmp || true
+umount /var/tmp || true
 umount /boot/efi || true
 umount /boot || true
 rm -f /installbootloader
