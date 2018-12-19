@@ -1066,10 +1066,12 @@ echo cannot power off VM.  Please kill qemu.
 
         @retrymod.retry(2)
         def biiq_bootloader():
+            logging.info("Entering preparation of bootloader in VM.")
             return biiq("init=/installbootloader", "boot_to_install_bootloader", initrd)
 
         @retrymod.retry(2)
         def biiq_test():
+            logging.info("Entering test of bootloader in VM.")
             biiq("systemd.unit=multi-user.target", "boot_to_test_hostonly", hostonly_initrd)
 
         # install bootloader and create hostonly initrd using qemu
