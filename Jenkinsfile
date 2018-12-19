@@ -246,7 +246,6 @@ pipeline {
 								stage("Build image ${it.join(' ')}") {
 									println "Build ${it.join(' ')}"
 									timeout(time: 60, unit: 'MINUTES') {
-										println "${desc}"
 										unstash "zfs-fedora-installer"
 										def program = mySupervisor + """
 											yumcache="\$JENKINS_HOME/yumcache"
@@ -286,7 +285,7 @@ pipeline {
 											>&2 echo ============ End trace log ================
 											exit \$ret
 											""".stripIndent().trim()
-										println "Program that will be executed:\n${program}"
+										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
 									}
 								}
