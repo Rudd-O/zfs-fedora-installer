@@ -284,7 +284,7 @@ pipeline {
 											>&2 sudo mount || true
 											>&2 echo =========== End Diagnostics ===============
 											>&2 echo ============== Trace log ==================
-											>&2 cat install-fedora-on-zfs.trace.log
+											>&2 cat ${pname}.log
 											>&2 echo ============ End trace log ================
 											exit \$ret
 											""".stripIndent().trim()
