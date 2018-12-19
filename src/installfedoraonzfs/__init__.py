@@ -473,6 +473,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
         except subprocess.CalledProcessError, e:
             if not create:
                 check_call(['blkid', '-c', '/dev/null'])
+                check_call(['zpool', 'import'])
                 raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
             check_call(["zpool", "create", "-m", "none",
                                 "-o", "ashift=12",
