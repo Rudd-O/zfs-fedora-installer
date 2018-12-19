@@ -128,16 +128,16 @@ pipeline {
 						RELEASE = params.RELEASE
 					}
 					def axisList = [
-						params.SEPARATE_BOOT.split(' '),
-						params.LUKS.split(' '),
-						env.BUILD_FROM.split(' '),
 						RELEASE.split(' '),
+						env.BUILD_FROM.split(' '),
+						params.LUKS.split(' '),
+						params.SEPARATE_BOOT.split(' '),
 					]
 					def task = {
-						def mySeparateBoot = it[0]
-						def myLuks = it[1]
-						def myBuildFrom = it[2]
-						def myRelease = it[3]
+						def myRelease = it[0]
+						def myBuildFrom = it[1]
+						def myLuks = it[2]
+						def mySeparateBoot = it[3]
 						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
 						def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\nBreak before: ${env.BREAK_BEFORE}\n============= END REPORT =============="
 						def mySupervisor = '''
