@@ -14,7 +14,7 @@ import threading
 import time
 
 
-logger = logging.getLogger("shell")
+logger = logging.getLogger("cmd")
 
 
 def format_cmdline(lst):
@@ -274,6 +274,11 @@ def makedirs(ds):
 
 @contextlib.contextmanager
 def lockfile(path):
+    logger.debug("Grabbing lock %s", path)
     lf = _lockf(open(path, 'wb'))
-    yield lf
-    lf.close()
+    logger.debug("Grabbed lock %s", path)
+    try:
+        yield lf
+    finally:
+        lf.close()
+        logger.debug("Released lock %s", path)
