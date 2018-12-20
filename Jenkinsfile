@@ -124,6 +124,93 @@ pipeline {
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
 				script {
+					def mySupervisor = '''
+supervise() {
+    python3 -c "
+import sys
+import os
+import pty
+import signal
+import subprocess
+import threading
+import termios
+import time
+
+
+signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))
+
+
+def noecho(fd):
+    new = termios.tcgetattr(fd)
+    new[3] &= ~termios.ECHO
+    termios.tcsetattr(fd, termios.TCSANOW, new)
+
+
+def supervise(cmd):
+    p = subprocess.Popen(
+        ['sleep', 'inf'],
+        stdin=open(os.devnull),
+        stdout=subprocess.PIPE,
+        stderr=open(os.devnull, 'wb')
+    )
+
+    pid, fd = pty.fork()
+
+    if pid == 0:
+        noecho(sys.stdin.fileno())
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execvp(cmd[0], cmd)
+
+    def relay():
+        try:
+            err = sys.stderr.buffer
+        except AttributeError:
+            err = sys.stderr
+        while True:
+            try:
+                c = os.read(fd, 1)
+            except OSError as e:
+                if e.errno == 5: return
+                raise
+            err.write(c)
+            err.flush()
+
+    t = threading.Thread(target=relay)
+    t.setDaemon(True)
+    t.start()
+
+    def interrupt():
+        os.write(fd, b'\\x03')
+
+    def first_child_killed():
+        _ = p.stdout.read()
+        # When we reach here, Jenkins has SIGTERM'd the sleep inf
+        # so we will relay a Ctrl+C to the second child process.
+        interrupt()
+
+    t2 = threading.Thread(target=first_child_killed)
+    t2.setDaemon(True)
+    t2.start()
+
+    def wait():
+        try:
+            ret = os.waitpid(pid, 0)
+            return ret[1]
+        except KeyboardInterrupt:
+            interrupt()
+            t.join()
+            return wait()
+
+    return wait, interrupt
+
+interrupt, wait = supervise(sys.argv[1:])
+interrupt()
+sys.exit(wait())
+
+" "$@"
+}
+'''
 					if (params.RELEASE != '') {
 						RELEASE = params.RELEASE
 					}
@@ -140,36 +227,6 @@ pipeline {
 						def mySeparateBoot = it[3]
 						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
 						def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\nBreak before: ${env.BREAK_BEFORE}\n============= END REPORT =============="
-						def mySupervisor = '''
-							supervisor() {
-								local d="$(mktemp -d)" || return $?
-								local ret
-								local cmd
-								local pid
-								mkfifo "$d/pgrp" || { ret=$? ; rmdir "$d" ; return $ret ; }
-								(
-									set +x
-									read pgrp <&9
-									>&2 echo supervisor: process group of supervised PID is	$pgrp
-									trap ">&2 echo supervisor: killing process $pgrp ; sudo kill -INT $pgrp 2>/dev/null || true" TERM INT EXIT
-									read end <&9
-									>&2 echo supervisor: ended
-								) 9<"$d"/pgrp &
-								pid=$!
-								exec 8>"$d/pgrp"
-								rm -rf "$d"
-								trap "echo end >&8" EXIT
-								set -m
-								cmd="$1"
-								shift
-								sudo "$cmd" "$@" &
-								pid="$!"
-								echo "$pid" >&8
-								ret=0 ; wait "$pid" || ret=$?
-								return $ret
-							}
-						'''.stripIndent().trim() + "\n"
-
 						if (mySeparateBoot == "yes") {
 							mySeparateBoot = "--separate-boot=boot-${pname}.img"
 						} else {
