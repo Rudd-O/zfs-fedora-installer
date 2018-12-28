@@ -264,7 +264,7 @@ def supervise(cmd):
             try:
                 c = os.read(fd, 1)
                 if c == '' or c == b'':
-                    err.write("Finished reading from PTY.\n")
+                    err.write('Finished reading from PTY.\n')
                     return
             except OSError as e:
                 if e.errno == 5: return
@@ -280,7 +280,7 @@ def supervise(cmd):
 
     def first_child_killed():
         ret = p.wait()
-        print("sleep inf got killed, return value %s" % ret, file=sys.stderr)
+        print('sleep inf got killed, return value %s' % ret, file=sys.stderr)
         # When we reach here, Jenkins has SIGTERM'd the sleep inf
         # so we will relay a Ctrl+C to the second child process.
         interrupt()
