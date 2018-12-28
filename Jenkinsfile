@@ -280,7 +280,7 @@ def supervise(cmd):
         os.write(fd, b'\\x03')
 
     def first_child_killed():
-        ret = p.wait()
+        _ = p.stdout.read()
         print('sleep inf got killed, return value %s' % ret, file=sys.stderr)
         # When we reach here, Jenkins has SIGTERM'd the sleep inf
         # so we will relay a Ctrl+C to the second child process.
@@ -299,10 +299,9 @@ def supervise(cmd):
             t.join()
             return wait()
 
-    return wait, interrupt
+    return wait
 
-interrupt, wait = supervise(sys.argv[1:])
-interrupt()
+wait = supervise(sys.argv[1:])
 sys.exit(wait())
 
 " "$@"
