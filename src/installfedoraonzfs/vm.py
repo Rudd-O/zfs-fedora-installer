@@ -139,7 +139,7 @@ def boot_image_in_qemu(hostname,
     if not interactive_qemu:
         screenmode += [
             "-chardev","file,id=char1,path=/dev/stderr",
-            "-mon","char1,mode=control,default",
+            "-mon","char1,mode=control",
         ]
     if luksuuid:
         luks_cmdline = "rd.luks.uuid=%s "%(rootuuid,)
