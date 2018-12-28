@@ -264,7 +264,8 @@ def supervise(cmd):
             try:
                 c = os.read(fd, 1)
                 if c == '' or c == b'':
-                    err.write('Finished reading from PTY.\n')
+                    err.write('Finished reading from PTY.\\n')
+                    err.flush()
                     return
             except OSError as e:
                 if e.errno == 5: return
