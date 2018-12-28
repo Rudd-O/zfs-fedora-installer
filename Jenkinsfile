@@ -308,7 +308,7 @@ sys.exit(wait())
 }
 '''
 										def program = supervisor + """
-											yumcache="\$PWD/yumcache/${pname}"
+											yumcache="/mnt/jenkins/yumcache"
 											mntdir="\$PWD/mnt/${pname}"
 											mkdir -p "\$mntdir"
 											volsize=10000
