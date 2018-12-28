@@ -315,7 +315,7 @@ sys.exit(wait())
 											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
 											# cleanup
 											rm -rf root-${pname}.img boot-${pname}.img ${pname}.log
-											supervise \\
+											sudo \\
 												"\$cmd" \\
 												--trace-file=${pname}.log \\
 												${myBuildFrom} \\
