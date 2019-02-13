@@ -19,7 +19,7 @@ If you specify a path to a device instead of a path to an image file, then the d
 
 *Program number two* is `deploy-zfs`.  This script will deploy ZFS, ZFS-Dracut and `grub-zfs-fixer` via DKMS RPMs to a running Fedora system.  That system can then be converted to a full ZFS on root system if you so desire.
 
-To keep the ZFS packages within the deployed system up-to-date, it's recommended that you use the excellent [ZFS updates](https://github.com/Rudd-O/ansible-samples/tree/master/zfsupdates) Ansible playbook, built specifically for this purpose.
+To keep the ZFS packages within the deployed system up-to-date, it's recommended that you use the excellent [ZFS updates](https://github.com/Rudd-O/ansible-samples/tree/master/roles/zfsupdates) Ansible playbook, built specifically for this purpose.
 
 See below for setup instructions.
 
