@@ -294,9 +294,9 @@ class SystemPackageManager(object):
             logger.info("Installing packages %s: %s", option, ", ".join(packages))
             cmd = (
                 [self.strategy]
-                + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                + (['localinstall'] if self.strategy == "yum" else ['install'])
                 + ['-qy']
-                + (['--'] if pkgmgr == "yum" else [])
+                + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
             out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
