@@ -308,7 +308,6 @@ sys.exit(wait())
 }
 '''
 										def program = supervisor + """
-											yumcache="/mnt/jenkins/yumcache"
 											mntdir="\$PWD/mnt/${pname}"
 											mkdir -p "\$mntdir"
 											volsize=10000
@@ -325,7 +324,6 @@ sys.exit(wait())
 												${mySeparateBoot} \\
 												${myRelease} \\
 												--workdir="\$mntdir" \\
-												--yum-cachedir="\$yumcache" \\
 												--host-name="\$HOST_NAME" \\
 												--pool-name="${pname}" \\
 												--vol-size=\$volsize \\
