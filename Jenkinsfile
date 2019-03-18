@@ -103,7 +103,6 @@ sys.exit(wait())
 		rm -rf root-${pname}.img boot-${pname}.img ${pname}.log
 		sudo \\
 			"\$cmd" \\
-			--trace-file=${pname}.log \\
 			${myBuildFrom} \\
 			${myBreakBefore} \\
 			${mySourceBranch} \\
@@ -128,9 +127,6 @@ sys.exit(wait())
 		>&2 sudo losetup -la || true
 		>&2 sudo mount || true
 		>&2 echo =========== End Diagnostics ===============
-		>&2 echo ============== Trace log ==================
-		>&2 cat ${pname}.log
-		>&2 echo ============ End trace log ================
 		exit \$ret
 		""".stripIndent().trim()
 	return program
