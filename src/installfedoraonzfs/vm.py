@@ -145,7 +145,7 @@ def boot_image_in_qemu(hostname,
         luks_cmdline = "rd.luks.uuid=%s "%(rootuuid,)
     else:
         luks_cmdline = ""
-    cmdline = '%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro %s' % (
+    cmdline = '%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro %s enforcing=0' % (
         dracut_cmdline,
         luks_cmdline,
         poolname,
