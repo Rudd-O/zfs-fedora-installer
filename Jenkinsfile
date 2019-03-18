@@ -187,6 +187,7 @@ pipeline {
 									timeout(time: 10, unit: 'MINUTES') {
 										unstash "activate-zfs-in-qubes-vm"
 										unstash "rpmsums"
+										sh "rm -rf dist"
 										def needsunstash = sh (
 											script: '''
 											set +e ; set -x
