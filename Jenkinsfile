@@ -127,6 +127,7 @@ sys.exit(wait())
 		>&2 sudo losetup -la || true
 		>&2 sudo mount || true
 		>&2 echo =========== End Diagnostics ===============
+		if [ "$ret" == "120" ] ; then ret=0 ; fi
 		exit \$ret
 		""".stripIndent().trim()
 	return program
