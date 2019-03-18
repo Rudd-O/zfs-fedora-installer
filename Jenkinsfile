@@ -3,6 +3,139 @@
 
 def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
+def runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+	def supervisor = '''
+supervise() {
+    python3 -c "
+import sys
+import os
+import pty
+import signal
+import subprocess
+import threading
+import termios
+import time
+
+
+signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))
+
+
+def noecho(fd):
+    new = termios.tcgetattr(fd)
+    new[3] &= ~termios.ECHO
+    termios.tcsetattr(fd, termios.TCSANOW, new)
+
+
+def supervise(cmd):
+    p = subprocess.Popen(
+        ['sleep', 'inf'],
+        stdin=open(os.devnull),
+        stdout=subprocess.PIPE,
+        stderr=open(os.devnull, 'wb')
+    )
+
+    pid, fd = pty.fork()
+
+    if pid == 0:
+        noecho(sys.stdin.fileno())
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execvp(cmd[0], cmd)
+
+    def relay():
+        try:
+            err = sys.stderr.buffer
+        except AttributeError:
+            err = sys.stderr
+        while True:
+            try:
+                c = os.read(fd, 1)
+                if c == '' or c == b'':
+                    err.write('Finished reading from PTY.\\n')
+                    err.flush()
+                    return
+            except OSError as e:
+                if e.errno == 5: return
+                raise
+            err.write(c)
+            err.flush()
+
+    t = threading.Thread(target=relay)
+    t.start()
+
+    def interrupt():
+        os.write(fd, b'\\x03')
+
+    def first_child_killed():
+        _ = p.stdout.read()
+        print('sleep inf got killed, return value %s' % ret, file=sys.stderr)
+        # When we reach here, Jenkins has SIGTERM'd the sleep inf
+        # so we will relay a Ctrl+C to the second child process.
+        interrupt()
+
+    t2 = threading.Thread(target=first_child_killed)
+    t2.setDaemon(True)
+    t2.start()
+
+    def wait():
+        try:
+            ret = os.waitpid(pid, 0)
+            return ret[1]
+        except KeyboardInterrupt:
+            interrupt()
+            t.join()
+            return wait()
+
+    return wait
+
+wait = supervise(sys.argv[1:])
+sys.exit(wait())
+
+" "$@"
+}
+'''
+	def program = supervisor + """
+		mntdir="\$PWD/mnt/${pname}"
+		mkdir -p "\$mntdir"
+		volsize=10000
+		cmd=src/zfs-fedora-installer/install-fedora-on-zfs
+		# cleanup
+		rm -rf root-${pname}.img boot-${pname}.img ${pname}.log
+		sudo \\
+			"\$cmd" \\
+			--trace-file=${pname}.log \\
+			${myBuildFrom} \\
+			${myBreakBefore} \\
+			${mySourceBranch} \\
+			${myLuks} \\
+			${mySeparateBoot} \\
+			${myRelease} \\
+			--workdir="\$mntdir" \\
+			--host-name="\$HOST_NAME" \\
+			--pool-name="${pname}" \\
+			--vol-size=\$volsize \\
+			--swap-size=256 \\
+			--root-password=seed \\
+			--chown="\$USER" \\
+			--chgrp=`groups | cut -d " " -f 1` \\
+			--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
+			root-${pname}.img || ret=\$?
+		set +x
+		>&2 echo ==============Diagnostics==================
+		>&2 sudo zpool list || true
+		>&2 sudo blkid || true
+		>&2 sudo lsblk || true
+		>&2 sudo losetup -la || true
+		>&2 sudo mount || true
+		>&2 echo =========== End Diagnostics ===============
+		>&2 echo ============== Trace log ==================
+		>&2 cat ${pname}.log
+		>&2 echo ============ End trace log ================
+		exit \$ret
+		""".stripIndent().trim()
+	return program
+}
+
 pipeline {
 
 	agent none
@@ -27,7 +160,6 @@ pipeline {
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_RPMS', trim: true
 		string defaultValue: 'seed', description: '', name: 'POOL_NAME', trim: true
 		string defaultValue: 'seed.dragonfear', description: '', name: 'HOST_NAME', trim: true
-		choice choices: ['never', 'beginning', 'reload_chroot', 'prepare_bootloader_install', 'boot_to_install_bootloader', 'boot_to_test_hostonly'], description: '', name: 'BREAK_BEFORE'
 		string defaultValue: 'yes no', description: '', name: 'SEPARATE_BOOT', trim: true
 		string defaultValue: 'yes no', description: '', name: 'LUKS', trim: true
 		string defaultValue: '', description: "Override which Fedora releases to build for.  If empty, defaults to ${RELEASE}.", name: 'RELEASE', trim: true
@@ -139,7 +271,7 @@ pipeline {
 						def myLuks = it[2]
 						def mySeparateBoot = it[3]
 						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-						def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\nBreak before: ${env.BREAK_BEFORE}\n============= END REPORT =============="
+						def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 						if (mySeparateBoot == "yes") {
 							mySeparateBoot = "--separate-boot=boot-${pname}.img"
 						} else {
@@ -159,10 +291,6 @@ pipeline {
 						def mySourceBranch = ""
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
-						}
-						def myBreakBefore = ""
-						if (env.BREAK_BEFORE != "never") {
-							myBreakBefore = "--break-before=${env.BREAK_BEFORE}"
 						}
 						return {
 							node('fedorazfs') {
@@ -214,139 +342,32 @@ pipeline {
 										}
 									}
 								}
+								stage("Unstash ${it.join(' ')}") {
+									unstash "zfs-fedora-installer"
+								}
 								stage("Build image ${it.join(' ')}") {
 									println "Build ${it.join(' ')}"
-									timeout(time: 60, unit: 'MINUTES') {
-										unstash "zfs-fedora-installer"
-                                                                                def supervisor = '''
-supervise() {
-    python3 -c "
-import sys
-import os
-import pty
-import signal
-import subprocess
-import threading
-import termios
-import time
-
-
-signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))
-
-
-def noecho(fd):
-    new = termios.tcgetattr(fd)
-    new[3] &= ~termios.ECHO
-    termios.tcsetattr(fd, termios.TCSANOW, new)
-
-
-def supervise(cmd):
-    p = subprocess.Popen(
-        ['sleep', 'inf'],
-        stdin=open(os.devnull),
-        stdout=subprocess.PIPE,
-        stderr=open(os.devnull, 'wb')
-    )
-
-    pid, fd = pty.fork()
-
-    if pid == 0:
-        noecho(sys.stdin.fileno())
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os.execvp(cmd[0], cmd)
-
-    def relay():
-        try:
-            err = sys.stderr.buffer
-        except AttributeError:
-            err = sys.stderr
-        while True:
-            try:
-                c = os.read(fd, 1)
-                if c == '' or c == b'':
-                    err.write('Finished reading from PTY.\\n')
-                    err.flush()
-                    return
-            except OSError as e:
-                if e.errno == 5: return
-                raise
-            err.write(c)
-            err.flush()
-
-    t = threading.Thread(target=relay)
-    t.start()
-
-    def interrupt():
-        os.write(fd, b'\\x03')
-
-    def first_child_killed():
-        _ = p.stdout.read()
-        print('sleep inf got killed, return value %s' % ret, file=sys.stderr)
-        # When we reach here, Jenkins has SIGTERM'd the sleep inf
-        # so we will relay a Ctrl+C to the second child process.
-        interrupt()
-
-    t2 = threading.Thread(target=first_child_killed)
-    t2.setDaemon(True)
-    t2.start()
-
-    def wait():
-        try:
-            ret = os.waitpid(pid, 0)
-            return ret[1]
-        except KeyboardInterrupt:
-            interrupt()
-            t.join()
-            return wait()
-
-    return wait
-
-wait = supervise(sys.argv[1:])
-sys.exit(wait())
-
-" "$@"
-}
-'''
-										def program = supervisor + """
-											mntdir="\$PWD/mnt/${pname}"
-											mkdir -p "\$mntdir"
-											volsize=10000
-											cmd=src/zfs-fedora-installer/install-fedora-on-zfs
-											# cleanup
-											rm -rf root-${pname}.img boot-${pname}.img ${pname}.log
-											sudo \\
-												"\$cmd" \\
-												--trace-file=${pname}.log \\
-												${myBuildFrom} \\
-												${myBreakBefore} \\
-												${mySourceBranch} \\
-												${myLuks} \\
-												${mySeparateBoot} \\
-												${myRelease} \\
-												--workdir="\$mntdir" \\
-												--host-name="\$HOST_NAME" \\
-												--pool-name="${pname}" \\
-												--vol-size=\$volsize \\
-												--swap-size=256 \\
-												--root-password=seed \\
-												--chown="\$USER" \\
-												--chgrp=`groups | cut -d " " -f 1` \\
-												--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
-												root-${pname}.img || ret=\$?
-											set +x
-											>&2 echo ==============Diagnostics==================
-											>&2 sudo zpool list || true
-											>&2 sudo blkid || true
-											>&2 sudo lsblk || true
-											>&2 sudo losetup -la || true
-											>&2 sudo mount || true
-											>&2 echo =========== End Diagnostics ===============
-											>&2 echo ============== Trace log ==================
-											>&2 cat ${pname}.log
-											>&2 echo ============ End trace log ================
-											exit \$ret
-											""".stripIndent().trim()
+									timeout(time: 15, unit: 'MINUTES') {
+										def myBreakBefore = "--break-before=boot_to_install_bootloader"
+										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+										println "${desc}\n\n" + "Program that will be executed:\n${program}"
+										sh program
+									}
+								}
+								stage("Bootload image ${it.join(' ')}") {
+									println "Bootload ${it.join(' ')}"
+									timeout(time: 15, unit: 'MINUTES') {
+										def myBreakBefore = "--break-before=boot_to_test_hostonly"
+										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+										println "${desc}\n\n" + "Program that will be executed:\n${program}"
+										sh program
+									}
+								}
+								stage("Test image ${it.join(' ')}") {
+									println "Bootload ${it.join(' ')}"
+									timeout(time: 15, unit: 'MINUTES') {
+										def myBreakBefore = ""
+										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
 									}
