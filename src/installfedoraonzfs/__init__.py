@@ -976,6 +976,8 @@ trap error ERR
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mount /boot
 mount /boot/efi
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /var/tmp
 mount --bind /dev/stderr /dev/log
 ln -sf /proc/self/mounts /etc/mtab
 mount
@@ -1007,6 +1009,9 @@ dracut -Hf {hostonly_initrd} {kver}
 lsinitrd {hostonly_initrd}
 restorecon -v {hostonly_initrd}
 sync
+
+umount /var/tmp || true
+umount /tmp || true
 umount /boot/efi || true
 umount /boot || true
 umount /dev/log || true
