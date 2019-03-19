@@ -20,7 +20,7 @@ def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparat
 		myLuks = ""
 	}
 	myRelease = "--releasever=${myRelease}"
-	if mySourceBranch != "" {
+	if (mySourceBranch != "") {
 		mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 	}
 	def myBreakBefore = ""
