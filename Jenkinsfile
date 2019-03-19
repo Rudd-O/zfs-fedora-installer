@@ -73,13 +73,14 @@ def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparat
 }
 
 def runStage(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
-        stage("${name}") {
-                //timeout(time: timeout, unit: 'MINUTES') {
-                        def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-                        println "${desc}\n\n" + "Program that will be executed:\n${program}"
-                        sh program
-                //}
-        }
+	stage("${name}") {
+		//timeout(time: timeout, unit: 'MINUTES') {
+			def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
+			println "${desc}\n\n" + "Program that will be executed:\n${program}"
+			sh program
+		//}
+	}
 }
 
 pipeline {
@@ -216,7 +217,6 @@ pipeline {
 						def myLuks = it[2]
 						def mySeparateBoot = it[3]
 						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-						def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 						def mySourceBranch = ""
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = env.SOURCE_BRANCH
