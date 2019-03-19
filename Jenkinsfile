@@ -208,7 +208,7 @@ pipeline {
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 						}
-						def runStage = {
+						def runStage = { String name, String next, Integer timeout ->
 							stage("${name}") {
 								timeout(time: timeout, unit: 'MINUTES') {
 									def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
