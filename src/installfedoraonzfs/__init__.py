@@ -526,7 +526,6 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
         if not create:
             raise Exception("Wanted to create ZFS file system ROOT/os on %s but create=False" % poolname)
         check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
-        check_call(["touch", j(rootmountpoint, ".autorelabel")])
     undoer.to_unmount.append(rootmountpoint)
 
     logging.info("Checking / creating swap zvol.")
@@ -952,17 +951,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/", p("dev/")])
                 check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/zfs", p("dev/zfs")])
 
-                # Restore SELinux contexts.
-                if os.path.isfile(p(".autorelabel")):
-                    check_call(in_chroot([
-                        "/usr/sbin/genhomedircon"
-                    ]))
-                    check_call(in_chroot([
-                        "/usr/sbin/restorecon", "-v", "-R", "/",
-                        "-e", "/sys", "-e", "/proc", "-e", "/tmp", "-e", "/run"
-                    ]))
-                    os.unlink(p(".autorelabel"))
-
                 # Snapshot the system as it is, now that it is fully done.
                 try:
                     check_call(["zfs", "list", "-t", "snapshot",
@@ -1008,6 +996,10 @@ sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
 
 zfs inherit com.sun:auto-snapshot "{poolname}"
+
+/usr/sbin/genhomedircon
+/usr/sbin/restorecon -v -R / -e /sys -e /proc -e /run
+
 dracut -Nf {initrd} {kver}
 lsinitrd {initrd}
 restorecon -v {initrd}
