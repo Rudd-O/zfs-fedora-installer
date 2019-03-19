@@ -1002,6 +1002,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             ) as (
                 _, p, q, in_chroot, _, _, _, _
             ):
+                _, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
                 # create bootloader installer
                 bootloadertext = \
 '''#!/bin/bash -xe
@@ -1068,7 +1069,7 @@ sleep 5
 echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
-'''.format(**{"poolname": poolname, "hostonly_initrd": q(hostonly_initrd), "initrd": q(initrd)})
+'''.format(**{"poolname": poolname, "kver": kver, "hostonly_initrd": q(hostonly_initrd), "initrd": q(initrd)})
                 bootloaderpath = p("installbootloader")
                 bootloader = file(bootloaderpath,"w")
                 bootloader.write(bootloadertext)
