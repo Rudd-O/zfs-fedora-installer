@@ -742,10 +742,6 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
             ) as (
                 rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
             ):
-                # Save the partitions' UUIDS for cross checking later.
-                first_bootpartuuid = bootpartuuid
-                first_rootuuid = rootuuid
-
                 logging.info("Adding basic files.")
                 # sync device files
                 check_call(["rsync", "-ax", "--numeric-ids",
@@ -920,12 +916,6 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             ) as (
                 _, p, q, in_chroot, rootuuid, _, bootpartuuid, _
             ):
-                # Check that our UUIDs haven't changed from under us.
-                if bootpartuuid != first_bootpartuuid:
-                    raise Exception("The boot partition UUID changed from %s to %s between remounts!" % (first_bootpartuuid, bootpartuuid))
-                if rootuuid != first_rootuuid:
-                    raise Exception("The root device UUID changed from %s to %s between remounts!" % (first_rootuuid, rootuuid))
-
                 if os.path.exists(p("usr/bin/dracut.real")):
                     check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
                 kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)

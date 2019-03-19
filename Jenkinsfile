@@ -3,7 +3,14 @@
 
 def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
-def runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+	def myBreakBefore = ""
+	if (name != "beginning") {
+		myBreakBefore = myBreakBefore + "--short-circuit=${name} "
+	}
+	if (next != "end") {
+		myBreakBefore = myBreakBefore + "--break-before=${next} "
+	}
 	def program = """
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
@@ -201,10 +208,18 @@ pipeline {
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 						}
+						def runStage(name, next, timeout) {
+							stage("${name}") {
+								timeout(time: timeout, unit: 'MINUTES') {
+									def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+									println "${desc}\n\n" + "Program that will be executed:\n${program}"
+									sh program
+								}
+							}
+                                                }
 						return {
 							node('fedorazfs') {
-								stage("Install deps ${it.join(' ')}") {
-									println "Install deps ${it.join(' ')}"
+								stage("Install deps") {
 									timeout(time: 10, unit: 'MINUTES') {
 										def program = '''
 											(
@@ -219,8 +234,7 @@ pipeline {
 										}
 									}
 								}
-								stage("Activate ZFS ${it.join(' ')}") {
-									println "Setup ${it.join(' ')}"
+								stage("Activate ZFS") {
 									timeout(time: 10, unit: 'MINUTES') {
 										unstash "activate-zfs-in-qubes-vm"
 										sh 'find dist/RELEASE=* -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > local-rpmsums'
@@ -251,59 +265,18 @@ pipeline {
 										}
 									}
 								}
-								stage("Unstash ${it.join(' ')}") {
+								stage("Unstash") {
 									unstash "zfs-fedora-installer"
 								}
-								stage("Remove old image ${it.join(' ')}") {
-									println "Remove old image ${it.join(' ')}"
+								stage("Remove old image") {
 									// cleanup
 									sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 								}
-								stage("Build image ${it.join(' ')}") {
-									println "Build ${it.join(' ')}"
-									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before=reload_chroot"
-										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										sh program
-									}
-								}
-								stage("reload_chroot ${it.join(' ')}") {
-									println "reload_chroot ${it.join(' ')}"
-									timeout(time: 5, unit: 'MINUTES') {
-										def myBreakBefore = "--short-circuit=reload_chroot --break-before=bootloader_install"
-										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										sh program
-									}
-								}
-								stage("bootloader_install ${it.join(' ')}") {
-									println "bootloader_install ${it.join(' ')}"
-									timeout(time: 5, unit: 'MINUTES') {
-										def myBreakBefore = "--short-circuit=bootloader_install --break-before=boot_to_test_non_hostonly"
-										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										sh program
-									}
-								}
-								stage("boot_to_test_non_hostonly ${it.join(' ')}") {
-									println "boot_to_test_non_hostonly ${it.join(' ')}"
-									timeout(time: 10, unit: 'MINUTES') {
-										def myBreakBefore = "--short-circuit=boot_to_test_non_hostonly --break-before=boot_to_test_hostonly"
-										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										sh program
-									}
-								}
-								stage("boot_to_test_hostonly ${it.join(' ')}") {
-									println "boot_to_test_hostonly ${it.join(' ')}"
-									timeout(time: 10, unit: 'MINUTES') {
-										def myBreakBefore = "--short-circuit=boot_to_test_hostonly"
-										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										sh program
-									}
-								}
+								runStage("beginning", "reload_chroot", 15, it)
+								runStage("reload_chroot", "bootloader_install", 5, it)
+								runStage("bootloader_install", "boot_to_test_non_hostonly", 15, it)
+								runStage("boot_to_test_non_hostonly", "boot_to_test_hostonly", 10, it)
+								runStage("boot_to_test_hostonly", "end", 10, it)
 							}
 						}
 					}
