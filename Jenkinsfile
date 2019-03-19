@@ -346,7 +346,7 @@ pipeline {
 										def myBreakBefore = "--break-before=boot_to_install_bootloader"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										# cleanup
+										// cleanup
 										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 										sh program
 									}
