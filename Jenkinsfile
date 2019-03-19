@@ -102,7 +102,7 @@ sys.exit(wait())
 		set -x
 		set +e
 		ret=0
-		echo sudo \\
+		sudo \\
 			"\$cmd" \\
 			${myBuildFrom} \\
 			${myBreakBefore} \\
