@@ -99,8 +99,6 @@ sys.exit(wait())
 		mkdir -p "\$mntdir"
 		volsize=10000
 		cmd=src/zfs-fedora-installer/install-fedora-on-zfs
-		# cleanup
-		rm -rf root-${pname}.img boot-${pname}.img ${pname}.log
 		sudo \\
 			"\$cmd" \\
 			${myBuildFrom} \\
@@ -118,7 +116,7 @@ sys.exit(wait())
 			--chown="\$USER" \\
 			--chgrp=`groups | cut -d " " -f 1` \\
 			--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
-			root-${pname}.img || ret=\$?
+			root-${pname}.img || ret="\$?"
 		set +x
 		>&2 echo ==============Diagnostics==================
 		>&2 sudo zpool list || true
@@ -127,9 +125,9 @@ sys.exit(wait())
 		>&2 sudo losetup -la || true
 		>&2 sudo mount || true
 		>&2 echo =========== End Diagnostics ===============
-		if [ "$\ret" == "120" ] ; then ret=0 ; fi
-		exit \$ret
-		""".stripIndent().trim()
+		if [ "\$ret" == "120" ] ; then ret=0 ; fi
+		exit "\$ret"
+	""".stripIndent().trim()
 	return program
 }
 
@@ -348,6 +346,8 @@ pipeline {
 										def myBreakBefore = "--break-before=boot_to_install_bootloader"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
+										# cleanup
+										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 										sh program
 									}
 								}
