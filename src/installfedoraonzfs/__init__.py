@@ -967,11 +967,11 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # create bootloader installer
                 bootloadertext = \
 '''#!/bin/bash -xe
-error() {
+error() {{
     retval=$?
     echo There was an unrecoverable error finishing setup >&2
     exit $retval
-}
+}}
 trap error ERR
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
 mount /boot
