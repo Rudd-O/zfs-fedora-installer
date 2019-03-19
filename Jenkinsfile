@@ -73,7 +73,7 @@ def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparat
 }
 
 def runStage(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
-	stage("${name}") {
+	stage("${name.capitalize().replace('_', ' ')}") {
 		//timeout(time: timeout, unit: 'MINUTES') {
 			def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
