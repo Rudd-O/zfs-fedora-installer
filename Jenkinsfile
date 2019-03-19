@@ -209,6 +209,7 @@ pipeline {
 							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 						}
 						def runStage = { name, next, timeout ->
+                                                    {
 							stage("${name}") {
 								timeout(time: timeout, unit: 'MINUTES') {
 									def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
@@ -216,6 +217,7 @@ pipeline {
 									sh program
 								}
 							}
+                                                    }
                                                 }
 						return {
 							node('fedorazfs') {
