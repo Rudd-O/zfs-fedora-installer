@@ -71,7 +71,7 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 	return program
 }
 
-def runStage(String pname, String myBuildFrom, List stagesLeft, String paramShortCircuit, String paramBreakBefore, String mySourceBranch, String myLuks, String mySeparateBoot, String myRelease, Integer timeout) {
+def runStage(String pname, String myBuildFrom, String[] stagesLeft, String paramShortCircuit, String paramBreakBefore, String mySourceBranch, String myLuks, String mySeparateBoot, String myRelease, Integer timeout) {
 	def thisStage = stagesLeft[0]
 	def nextStage = ""
 	if (stagesLeft.length > 1) {
