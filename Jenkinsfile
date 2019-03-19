@@ -4,6 +4,25 @@
 def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
 def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+	if (mySeparateBoot == "yes") {
+		mySeparateBoot = "--separate-boot=boot-${pname}.img"
+	} else {
+		mySeparateBoot = ""
+	}
+	if (myBuildFrom == "RPMs") {
+		myBuildFrom = "--use-prebuilt-rpms=dist/RELEASE=${myRelease}/"
+	} else {
+		myBuildFrom = ""
+	}
+	if (myLuks == "yes") {
+		myLuks = "--luks-password=seed"
+	} else {
+		myLuks = ""
+	}
+	myRelease = "--releasever=${myRelease}"
+	if mySourceBranch != "" {
+		mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
+	}
 	def myBreakBefore = ""
 	if (name != "beginning") {
 		myBreakBefore = myBreakBefore + "--short-circuit=${name} "
@@ -51,6 +70,16 @@ def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparat
 		exit "\$ret"
 	""".stripIndent().trim()
 	return program
+}
+
+def runStage(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
+        stage("${name}") {
+                timeout(time: timeout, unit: 'MINUTES') {
+                        def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                        println "${desc}\n\n" + "Program that will be executed:\n${program}"
+                        sh program
+                }
+        }
 }
 
 pipeline {
@@ -188,35 +217,10 @@ pipeline {
 						def mySeparateBoot = it[3]
 						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
 						def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
-						if (mySeparateBoot == "yes") {
-							mySeparateBoot = "--separate-boot=boot-${pname}.img"
-						} else {
-							mySeparateBoot = ""
-						}
-						if (myBuildFrom == "RPMs") {
-							myBuildFrom = "--use-prebuilt-rpms=dist/RELEASE=${myRelease}/"
-						} else {
-							myBuildFrom = ""
-						}
-						if (myLuks == "yes") {
-							myLuks = "--luks-password=seed"
-						} else {
-							myLuks = ""
-						}
-						myRelease = "--releasever=${myRelease}"
 						def mySourceBranch = ""
 						if (env.SOURCE_BRANCH != "") {
-							mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
+							mySourceBranch = env.SOURCE_BRANCH
 						}
-						def runStage = { String name, String next, Integer timeout ->
-							stage("${name}") {
-								timeout(time: timeout, unit: 'MINUTES') {
-									def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-									println "${desc}\n\n" + "Program that will be executed:\n${program}"
-									sh program
-								}
-							}
-                                                }
 						return {
 							node('fedorazfs') {
 								stage("Install deps") {
@@ -272,11 +276,11 @@ pipeline {
 									// cleanup
 									sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 								}
-								runStage("beginning", "reload_chroot", 15)
-								runStage("reload_chroot", "bootloader_install", 5)
-								runStage("bootloader_install", "boot_to_test_non_hostonly", 15)
-								runStage("boot_to_test_non_hostonly", "boot_to_test_hostonly", 10)
-								runStage("boot_to_test_hostonly", "end", 10)
+								runStage(pname, myBuildFrom, "beginning", "reload_chroot", mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage(pname, myBuildFrom, "reload_chroot", "bootloader_install", mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
+								runStage(pname, myBuildFrom, "bootloader_install", "boot_to_test_non_hostonly", mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage(pname, myBuildFrom, "boot_to_test_non_hostonly", "boot_to_test_hostonly", mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+								runStage(pname, myBuildFrom, "boot_to_test_hostonly", "end", mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
 							}
 						}
 					}
