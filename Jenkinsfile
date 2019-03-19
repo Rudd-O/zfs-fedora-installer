@@ -345,19 +345,22 @@ pipeline {
 								stage("Unstash ${it.join(' ')}") {
 									unstash "zfs-fedora-installer"
 								}
+								stage("Remove old image ${it.join(' ')}") {
+									println "Remove old image ${it.join(' ')}"
+									// cleanup
+									sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
+								}
 								stage("Build image ${it.join(' ')}") {
 									println "Build ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = "--break-before=reload_chroot"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										// cleanup
-										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 										sh program
 									}
 								}
 								stage("reload_chroot ${it.join(' ')}") {
-									println "Bootload ${it.join(' ')}"
+									println "reload_chroot ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = "--break-before=prepare_bootloader_install"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
@@ -366,7 +369,7 @@ pipeline {
 									}
 								}
 								stage("prepare_bootloader_install ${it.join(' ')}") {
-									println "Bootload ${it.join(' ')}"
+									println "prepare_bootloader_install ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = "--break-before=boot_to_install_bootloader"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
@@ -375,7 +378,7 @@ pipeline {
 									}
 								}
 								stage("boot_to_install_bootloader ${it.join(' ')}") {
-									println "Bootload ${it.join(' ')}"
+									println "boot_to_install_bootloader ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = "--break-before=boot_to_test_hostonly"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
@@ -384,7 +387,7 @@ pipeline {
 									}
 								}
 								stage("boot_to_test_hostonly ${it.join(' ')}") {
-									println "Bootload ${it.join(' ')}"
+									println "boot_to_test_hostonly ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = ""
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
