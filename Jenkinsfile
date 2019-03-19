@@ -4,97 +4,7 @@
 def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
 def runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
-	def supervisor = '''
-supervise() {
-    python3 -c "
-import sys
-import os
-import pty
-import signal
-import subprocess
-import threading
-import termios
-import time
-
-
-signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))
-
-
-def noecho(fd):
-    new = termios.tcgetattr(fd)
-    new[3] &= ~termios.ECHO
-    termios.tcsetattr(fd, termios.TCSANOW, new)
-
-
-def supervise(cmd):
-    p = subprocess.Popen(
-        ['sleep', 'inf'],
-        stdin=open(os.devnull),
-        stdout=subprocess.PIPE,
-        stderr=open(os.devnull, 'wb')
-    )
-
-    pid, fd = pty.fork()
-
-    if pid == 0:
-        noecho(sys.stdin.fileno())
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os.execvp(cmd[0], cmd)
-
-    def relay():
-        try:
-            err = sys.stderr.buffer
-        except AttributeError:
-            err = sys.stderr
-        while True:
-            try:
-                c = os.read(fd, 1)
-                if c == '' or c == b'':
-                    err.write('Finished reading from PTY.\\n')
-                    err.flush()
-                    return
-            except OSError as e:
-                if e.errno == 5: return
-                raise
-            err.write(c)
-            err.flush()
-
-    t = threading.Thread(target=relay)
-    t.start()
-
-    def interrupt():
-        os.write(fd, b'\\x03')
-
-    def first_child_killed():
-        _ = p.stdout.read()
-        print('sleep inf got killed, return value %s' % ret, file=sys.stderr)
-        # When we reach here, Jenkins has SIGTERM'd the sleep inf
-        # so we will relay a Ctrl+C to the second child process.
-        interrupt()
-
-    t2 = threading.Thread(target=first_child_killed)
-    t2.setDaemon(True)
-    t2.start()
-
-    def wait():
-        try:
-            ret = os.waitpid(pid, 0)
-            return ret[1]
-        except KeyboardInterrupt:
-            interrupt()
-            t.join()
-            return wait()
-
-    return wait
-
-wait = supervise(sys.argv[1:])
-sys.exit(wait())
-
-" "$@"
-}
-'''
-	def program = supervisor + """
+	def program = """
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
 		volsize=10000
@@ -122,14 +32,14 @@ sys.exit(wait())
 			--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
 			root-${pname}.img
 		ret="\$?"
-		>&2 echo ==============Diagnostics==================
-		>&2 sudo zpool list || true
-		>&2 sudo blkid || true
-		>&2 sudo lsblk || true
-		>&2 sudo losetup -la || true
-		>&2 sudo mount || true
-		>&2 echo Return value of program: "\$ret"
-		>&2 echo =========== End Diagnostics ===============
+		#>&2 echo ==============Diagnostics==================
+		#>&2 sudo zpool list || true
+		#>&2 sudo blkid || true
+		#>&2 sudo lsblk || true
+		#>&2 sudo losetup -la || true
+		#>&2 sudo mount || true
+		#>&2 echo Return value of program: "\$ret"
+		#>&2 echo =========== End Diagnostics ===============
 		if [ "\$ret" == "120" ] ; then ret=0 ; fi
 		exit "\$ret"
 	""".stripIndent().trim()
