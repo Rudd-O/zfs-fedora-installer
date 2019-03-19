@@ -1007,7 +1007,7 @@ cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
 
-zfs inherit com.sun:auto-snapshot "{pool}"
+zfs inherit com.sun:auto-snapshot "{poolname}"
 dracut -Nf {initrd} {kver}
 lsinitrd {initrd}
 restorecon -v {initrd}
