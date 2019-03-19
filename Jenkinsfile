@@ -359,7 +359,7 @@ pipeline {
 								stage("reload_chroot ${it.join(' ')}") {
 									println "Bootload ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before="
+										def myBreakBefore = "--break-before=prepare_bootloader_install"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
