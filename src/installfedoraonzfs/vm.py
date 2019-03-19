@@ -111,9 +111,7 @@ def boot_image_in_qemu(hostname,
                        rootpassword,
                        rootuuid,
                        luksuuid,
-                       break_before,
-                       qemu_timeout,
-                       expected_break_before):
+                       qemu_timeout):
 
     if voldev:
         assert not get_associated_lodev(voldev), "%s still has a loopback device: %s" % (voldev, get_associated_lodev(voldev))
@@ -176,13 +174,11 @@ def boot_image_in_qemu(hostname,
     ])
 
     # check for stage stop
-    if break_before == expected_break_before:
-        logger.info(
-            "qemu process that would execute now: %s" % " ".join([
-                pipes.quote(s) for s in cmd
-            ])
-        )
-        raise BreakingBefore(break_before)
+    logger.info(
+        "qemu process will would execute now: %s" % " ".join([
+            pipes.quote(s) for s in cmd
+        ])
+    )
 
     babysitter = None
     if interactive_qemu:

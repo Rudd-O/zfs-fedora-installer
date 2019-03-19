@@ -123,10 +123,6 @@ def get_parser():
         action="store", default=None, help="space-separated list of options to pass to cryptsetup luksFormat (default no options)"
     )
     parser.add_argument(
-        "--no-cleanup", dest="nocleanup",
-        action="store_true", default=False, help="if an error occurs, do not clean up working volumes"
-    )
-    parser.add_argument(
         "--interactive-qemu", dest="interactive_qemu",
         action="store_true", default=False, help="QEMU will run interactively, with the console of your Linux system connected to your terminal; the normal timeout of %s seconds will not apply, and Ctrl+C will interrupt the emulation; this is useful to manually debug problems installing the bootloader; in this mode you are responsible for typing the password to any LUKS devices you have requested to be created" % qemu_timeout
     )
@@ -161,6 +157,14 @@ def get_parser():
              "ready to inspect"
     )
     parser.add_argument(
+        "--short-circuit", dest="short_circuit",
+        choices=break_stages,
+        action="store", default=None,
+        help="short-circuit to the specified stage (see below); useful to jump "
+             "ahead and execute from a particular stage thereon; it can be "
+             "combined with --break-before to stop at a later stage"
+    )
+    parser.add_argument(
         "--workdir", dest="workdir",
         action="store", default='/var/lib/zfs-fedora-installer',
         help="use this directory as a working (scratch) space for the mount points of the created pool"
@@ -170,7 +174,7 @@ def get_parser():
         action="store", default=None,
         help="file name for a detailed trace file of program activity (default no trace file)"
     )
-    parser.epilog = "Stages for the --break_before argument:\n%s" % (
+    parser.epilog = "Stages for the --break-before and --short-circuit arguments:\n%s" % (
         "".join("\n* %s:%s%s" % (k, " "*(max(len(x) for x in break_stages)-len(k)+1), v) for k,v in break_stages.items()),
     )
     return parser
@@ -182,10 +186,6 @@ def get_deploy_parser():
     parser.add_argument(
         "--use-prebuilt-rpms", dest="prebuiltrpms", metavar="DIR", type=str,
         action="store", default=None, help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build ZFS and GRUB RPMs, within the system)"
-    )
-    parser.add_argument(
-        "--no-cleanup", dest="nocleanup",
-        action="store_true", default=False, help="if an error occurs, do not clean up temporary mounts and files"
     )
     parser.add_argument(
         "--use-branch", dest="branch",
@@ -658,6 +658,17 @@ class Undoer:
         self.to_unmount = Tracker("unmount")
         self.to_rmrf = Tracker("rmrf")
 
+    def __enter__(self):
+        pass
+
+    def __exit__(self):
+        self.undo()
+
+    def wrap(f):
+        def wrapped(*a, **kw):
+            with self:
+                f(*a, **kw)
+
     def undo(self):
         logging.getLogger("Undoer").info("Rewinding stack of actions.")
         for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
@@ -685,7 +696,6 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    poolname='tank', hostname='localhost.localdomain',
                    rootpassword='password', swapsize=1024,
                    releasever=None, lukspassword=None,
-                   do_cleanup=True,
                    interactive_qemu=False,
                    luksoptions=None,
                    prebuilt_rpms_path=None,
@@ -694,6 +704,7 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                    chown=None,
                    chgrp=None,
                    break_before=None,
+                   short_circuit=None,
                    branch="master",
                    workdir='/var/lib/zfs-fedora-installer',
     ):
@@ -708,9 +719,6 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     original_bootdev = bootdev
 
     undoer = Undoer()
-    to_rmdir = undoer.to_rmdir
-    to_unmount = undoer.to_unmount
-    to_rmrf = undoer.to_rmrf
 
     def cleanup():
         undoer.undo()
@@ -718,10 +726,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
     if not releasever:
         releasever = ChrootPackageManager.get_my_releasever()
 
-    try:
-        # check for stage stop
-        if break_before == "beginning":
-            raise BreakingBefore(break_before)
+    @undoer.wrap
+    def beginning():
         logging.info("Program has begun.")
 
         with blockdev_context(
@@ -742,11 +748,8 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
                 logging.info("Adding basic files.")
                 # sync device files
                 check_call(["rsync", "-ax", "--numeric-ids",
-#                           "--exclude=mapper",
                             "--exclude=zvol",
-#                           "--exclude=disk",
                             "--exclude=sd*",
-#                           "--exclude=zd*",
                             "--delete", "--delete-excluded",
                             "/dev/", p("dev/")])
 
@@ -876,25 +879,35 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                                     prebuilt_rpms_path=prebuilt_rpms_path,
                                     branch=branch,
                                     break_before=break_before,
-                                    to_unmount=to_unmount,
-                                    to_rmdir=to_rmdir,)
+                                    to_unmount=undoer.to_unmount,
+                                    to_rmdir=undoer.to_rmdir,)
 
                 # release disk space now that installation is done
                 for pkgm in ('dnf', 'yum'):
                     for directory in ("cache", "lib"):
                         delete_contents(p(j("var", directory, pkgm)))
 
-                # check for stage stop
-                if break_before == "reload_chroot":
-                    raise BreakingBefore(break_before)
+    def get_kernel_initrd_kver(p):
+        try:
+            kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
+            kver = os.path.basename(os.path.dirname(kernel))
+            initrd = p(j("boot", "loader", kver, "initrd"))
+            hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
+            return kernel, initrd, hostonly, kver
+        except IndexError:
+            kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
+            kver = os.path.basename(kernel)[len("vmlinuz-"):]
+            initrd = p(j("boot", "initramfs-%s.img"%kver))
+            hostonly = p(j("boot", "initramfs-hostonly-%s.img"%kver))
+            return kernel, initrd, hostonly, kver
+        except Exception:
+            check_call(in_chroot(["ls", "-lRa", "/boot"]))
+            raise
 
+    @undoer.wrap
+    def reload_chroot():
         # The following reload in a different context scope is a workaround
         # for blkid failing without the reload happening first.
-
-        check_call(['sync'])
-
-        cleanup()
-
         with blockdev_context(
             voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
         ) as (
@@ -904,7 +917,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 poolname, rootpart, bootpart, efipart, undoer, workdir,
                 swapsize, lukspassword, luksoptions, create=False
             ) as (
-                _, p, q, in_chroot, rootuuid, _, bootpartuuid, efipartuuid
+                _, p, q, in_chroot, rootuuid, _, bootpartuuid, _
             ):
                 # Check that our UUIDs haven't changed from under us.
                 if bootpartuuid != first_bootpartuuid:
@@ -914,23 +927,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 if os.path.exists(p("usr/bin/dracut.real")):
                     check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
-                def get_kernel_initrd_kver():
-                    try:
-                        kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
-                        kver = os.path.basename(os.path.dirname(kernel))
-                        initrd = p(j("boot", "loader", kver, "initrd"))
-                        hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
-                        return kernel, initrd, hostonly, kver
-                    except IndexError:
-                        kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
-                        kver = os.path.basename(kernel)[len("vmlinuz-"):]
-                        initrd = p(j("boot", "initramfs-%s.img"%kver))
-                        hostonly = p(j("boot", "initramfs-hostonly-%s.img"%kver))
-                        return kernel, initrd, hostonly, kver
-                    except Exception:
-                        check_call(in_chroot(["ls", "-lRa", "/boot"]))
-                        raise
-                kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver()
+                kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
                 if os.path.isfile(initrd):
                     mayhapszfsko = check_output(["lsinitrd", initrd])
                 else:
@@ -955,15 +952,65 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 try:
                     check_call(["zfs", "list", "-t", "snapshot",
                                 "-H", "-o", "name", j(poolname, "ROOT", "os@initial")],
-                               stdout=file(os.devnull,"w"))
+                            stdout=file(os.devnull,"w"))
                 except subprocess.CalledProcessError, e:
                     check_call(["sync"])
                     check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
 
-                # check for stage stop
-                if break_before == "prepare_bootloader_install":
-                    raise BreakingBefore(break_before)
+    @undoer.wrap
+    def biiq(init, hostonly):
+        @undoer.wrap
+        def fish_kernel_initrd():
+            with blockdev_context(
+                voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
+            ) as (
+                rootpart, bootpart, efipart
+            ):
+                with filesystem_context(
+                    poolname, rootpart, bootpart, efipart, undoer, workdir,
+                    swapsize, lukspassword, luksoptions, create=False
+                ) as (
+                    _, p, q, _, rootuuid, luksuuid, bootpartuuid, _
+                ):
+                    kerneltempdir = tempfile.mkdtemp(
+                        prefix="install-fedora-on-zfs-bootbits-"
+                    )
+                    try:
+                        kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
+                        shutil.copy2(kernel, kerneltempdir)
+                        shutil.copy2(initrd, kerneltempdir)
+                        if os.path.isfile(hostonly_initrd):
+                            shutil.copy2(hostonly_initrd, kerneltempdir)
+                    except (KeyboardInterrupt, Exception):
+                        shutil.rmtree(kerneltempdir)
+                        raise
+            return kerneltempdir, kernel, initrd, hostonly_initrd, kver
+        kerneltempdir, kernel, initrd, hostonly_initrd, kver = fish_kernel_initrd()
+        undoer.to_rmrf.append(kerneltempdir)
+        return boot_image_in_qemu(
+            hostname, init, poolname,
+            original_voldev, original_bootdev,
+            os.path.join(kerneltempdir, os.path.basename(kernel)),
+            os.path.join(kerneltempdir, os.path.basename(initrd if not hostonly else hostonly_initrd)),
+            force_kvm, interactive_qemu,
+            lukspassword, rootpassword, rootuuid, luksuuid,
+            qemu_timeout
+        )
 
+    @undoer.wrap
+    def bootloader_install():
+        logging.info("Installing bootloader.")
+        with blockdev_context(
+            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
+        ) as (
+            rootpart, bootpart, efipart
+        ):
+            with filesystem_context(
+                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                swapsize, lukspassword, luksoptions, create=False
+            ) as (
+                _, p, q, in_chroot, _, _, _, _
+            ):
                 # create bootloader installer
                 bootloadertext = \
 '''#!/bin/bash -xe
@@ -1037,102 +1084,39 @@ echo cannot power off VM.  Please kill qemu.
                 bootloader.close()
                 os.chmod(bootloaderpath, 0755)
 
-                # copy necessary boot files to a temp dir
-                try:
-                    kerneltempdir = tempfile.mkdtemp(
-                        prefix="install-fedora-on-zfs-bootbits-"
-                    )
-                    to_rmrf.append(kerneltempdir)
-                    shutil.copy2(kernel, kerneltempdir)
-                    shutil.copy2(initrd, kerneltempdir)
-                except (KeyboardInterrupt, Exception):
-                    shutil.rmtree(kerneltempdir)
-                    raise
+        logging.info("Entering sub-phase preparation of bootloader in VM.")
+        return biiq("init=/installbootloader", False)
 
-        to_rmrf.remove(kerneltempdir)
-        cleanup()
-        to_rmrf.append(kerneltempdir)
+    def boot_to_test_x_hostonly(hostonly):
+        logging.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
+        return biiq("systemd.unit=multi-user.target", hostonly)
 
-        # All the time
-        # booting in and out of time
-        # Hear the blowing of the fans on your computer
+    def boot_to_test_non_hostonly():
+        return boot_to_test_x_hostonly(False)
 
-        biiq = lambda init, bb, whichinitrd: boot_image_in_qemu(
-            hostname, init, poolname,
-            original_voldev, original_bootdev,
-            os.path.join(kerneltempdir, os.path.basename(kernel)),
-            os.path.join(kerneltempdir, os.path.basename(whichinitrd)),
-            force_kvm, interactive_qemu,
-            lukspassword, rootpassword, rootuuid, luksuuid,
-            break_before, qemu_timeout, bb
-        )
+    def boot_to_test_hostonly():
+        return boot_to_test_x_hostonly(True)
 
-        # Girl, we need some, girl, we need some retries
-        # if we're gonna make it like a true bootloader
-        # We need some retries
-        # If we wanna make a good initrd
-
-        # There's this thing about systemd on F24 randomly segfaulting.
-        # We retry in those cases.
-
-        def biiq_bootloader():
-            logging.info("Entering preparation of bootloader in VM.")
-            return biiq("init=/installbootloader", "boot_to_install_bootloader", initrd)
-
-        def biiq_test_non_hostonly():
-            logging.info("Entering test of non-hostonly initial RAM disk in VM.")
-            biiq("systemd.unit=multi-user.target", "boot_to_test_non_hostonly", initrd)
-
-        def biiq_test_hostonly():
-            logging.info("Entering test of hostonly initial RAM disk in VM.")
-            biiq("systemd.unit=multi-user.target", "boot_to_test_hostonly", hostonly_initrd)
-
-        # install bootloader and create hostonly initrd using qemu
-        biiq_bootloader()
-
-        with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
-        ) as (
-            rootpart, bootpart, efipart
-        ):
-            with filesystem_context(
-                poolname, rootpart, bootpart, efipart, undoer, workdir,
-                swapsize, lukspassword, luksoptions, create=False
-            ) as (
-                _, _, _, _, _, _, _, _
-            ):
-                shutil.copy2(initrd, kerneltempdir)
-                shutil.copy2(hostonly_initrd, kerneltempdir)
-
-        to_rmrf.remove(kerneltempdir)
-        cleanup()
-        to_rmrf.append(kerneltempdir)
-
-        # test non-hostonly initrd using qemu
-        biiq_test_non_hostonly()
-
-        # test hostonly initrd using qemu
-        biiq_test_hostonly()
+    try:
+        # start main program
+        for stage in ['beginning', 'reload_chroot', 'bootloader_install',
+                      'boot_to_test_non_hostonly', 'boot_to_test_hostonly']:
+            if break_before == stage:
+                raise BreakingBefore(stage)
+            if short_circuit in (stage, None):
+                locals()[stage]()
+                short_circuit = None
 
     # tell the user we broke
     except BreakingBefore, e:
         print >> sys.stderr, "------------------------------------------------"
         print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
-        if do_cleanup:
-            print >> sys.stderr, "Cleaning up now"
-            cleanup()
         raise
 
     # end operating with the devices
     except BaseException, e:
         logging.exception("Unexpected error")
-        if do_cleanup:
-            print >> sys.stderr, "Cleaning up now"
-            cleanup()
         raise
-
-    # Truly delete all files left behind.
-    cleanup()
 
 
 def test_cmd(cmdname, expected_ret):
@@ -1212,7 +1196,6 @@ def install_fedora_on_zfs():
             args.voldev[0], args.volsize, args.bootdev, args.bootsize,
             args.poolname, args.hostname, args.rootpassword,
             args.swapsize, args.releasever, args.lukspassword,
-            not args.nocleanup,
             args.interactive_qemu,
             args.luksoptions,
             args.prebuiltrpms,
@@ -1222,6 +1205,7 @@ def install_fedora_on_zfs():
             chown=args.chown,
             chgrp=args.chgrp,
             break_before=args.break_before,
+            short_circuit=args.short_circuit,
             workdir=args.workdir,
         )
     except (ImpossiblePassphrase), e:
@@ -1461,9 +1445,6 @@ def deploy_zfs():
                               to_unmount=to_unmount,)
     except BaseException:
         logging.exception("Unexpected error")
-        if not args.nocleanup:
-            logging.info("Cleaning up now")
-            cleanup()
         raise
 
     cleanup()

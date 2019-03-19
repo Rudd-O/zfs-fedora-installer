@@ -360,35 +360,26 @@ pipeline {
 								}
 								stage("reload_chroot ${it.join(' ')}") {
 									println "reload_chroot ${it.join(' ')}"
-									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before=prepare_bootloader_install"
+									timeout(time: 5, unit: 'MINUTES') {
+										def myBreakBefore = "--short-circuit=reload_chroot --break-before=bootloader_install"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
 									}
 								}
-								stage("prepare_bootloader_install ${it.join(' ')}") {
-									println "prepare_bootloader_install ${it.join(' ')}"
-									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before=boot_to_install_bootloader"
-										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-										println "${desc}\n\n" + "Program that will be executed:\n${program}"
-										sh program
-									}
-								}
-								stage("boot_to_install_bootloader ${it.join(' ')}") {
-									println "boot_to_install_bootloader ${it.join(' ')}"
-									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before=boot_to_test_non_hostonly"
+								stage("bootloader_install ${it.join(' ')}") {
+									println "bootloader_install ${it.join(' ')}"
+									timeout(time: 5, unit: 'MINUTES') {
+										def myBreakBefore = "--short-circuit=bootloader_install --break-before=boot_to_test_non_hostonly"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
 									}
 								}
 								stage("boot_to_test_non_hostonly ${it.join(' ')}") {
-									println "boot_to_test_hostonly ${it.join(' ')}"
-									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before=boot_to_test_hostonly"
+									println "boot_to_test_non_hostonly ${it.join(' ')}"
+									timeout(time: 10, unit: 'MINUTES') {
+										def myBreakBefore = "--short-circuit=boot_to_test_non_hostonly --break-before=boot_to_test_hostonly"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
@@ -396,8 +387,8 @@ pipeline {
 								}
 								stage("boot_to_test_hostonly ${it.join(' ')}") {
 									println "boot_to_test_hostonly ${it.join(' ')}"
-									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = ""
+									timeout(time: 10, unit: 'MINUTES') {
+										def myBreakBefore = "--short-circuit=boot_to_test_hostonly"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										sh program
