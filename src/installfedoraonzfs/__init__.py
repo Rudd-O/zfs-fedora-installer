@@ -967,7 +967,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         prefix="install-fedora-on-zfs-bootbits-"
                     )
                     try:
-                        kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
+                        kernel, initrd, hostonly_initrd, _ = get_kernel_initrd_kver(p)
                         shutil.copy2(kernel, kerneltempdir)
                         shutil.copy2(initrd, kerneltempdir)
                         if os.path.isfile(hostonly_initrd):
@@ -975,8 +975,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     except (KeyboardInterrupt, Exception):
                         shutil.rmtree(kerneltempdir)
                         raise
-            return kerneltempdir, kernel, initrd, hostonly_initrd, kver
-        kerneltempdir, kernel, initrd, hostonly_initrd, kver = fish_kernel_initrd()
+            return kerneltempdir, kernel, initrd, hostonly_initrd
+        kerneltempdir, kernel, initrd, hostonly_initrd = fish_kernel_initrd()
         undoer.to_rmrf.append(kerneltempdir)
         return boot_image_in_qemu(
             hostname, init, poolname,
@@ -1040,10 +1040,10 @@ zfs inherit com.sun:auto-snapshot "{poolname}"
 /usr/sbin/genhomedircon
 /usr/sbin/restorecon -v -R / -e /sys -e /proc -e /run
 
-dracut -Nf {initrd} {kver}
+dracut -Nf {initrd} `uname -r`
 lsinitrd {initrd}
 restorecon -v {initrd}
-dracut -Hf {hostonly_initrd} {kver}
+dracut -Hf {hostonly_initrd} `uname -r`
 lsinitrd {hostonly_initrd}
 restorecon -v {hostonly_initrd}
 sync
@@ -1068,7 +1068,7 @@ sleep 5
 echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
-'''.format(**{"kver": kver, "poolname": poolname, "hostonly_initrd": q(hostonly_initrd), "initrd": q(initrd)})
+'''.format(**{"poolname": poolname, "hostonly_initrd": q(hostonly_initrd), "initrd": q(initrd)})
                 bootloaderpath = p("installbootloader")
                 bootloader = file(bootloaderpath,"w")
                 bootloader.write(bootloadertext)
