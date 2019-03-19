@@ -272,11 +272,11 @@ pipeline {
 									// cleanup
 									sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 								}
-								runStage("beginning", "reload_chroot", 15, it)
-								runStage("reload_chroot", "bootloader_install", 5, it)
-								runStage("bootloader_install", "boot_to_test_non_hostonly", 15, it)
-								runStage("boot_to_test_non_hostonly", "boot_to_test_hostonly", 10, it)
-								runStage("boot_to_test_hostonly", "end", 10, it)
+								runStage("beginning", "reload_chroot", 15)
+								runStage("reload_chroot", "bootloader_install", 5)
+								runStage("bootloader_install", "boot_to_test_non_hostonly", 15)
+								runStage("boot_to_test_non_hostonly", "boot_to_test_hostonly", 10)
+								runStage("boot_to_test_hostonly", "end", 10)
 							}
 						}
 					}
