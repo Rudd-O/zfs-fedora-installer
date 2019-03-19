@@ -664,7 +664,7 @@ class Undoer:
     def __exit__(self):
         self.undo()
 
-    def wrap(f):
+    def wrap(self, f):
         def wrapped(*a, **kw):
             with self:
                 f(*a, **kw)
