@@ -242,10 +242,9 @@ pipeline {
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
 				sh 'for d in dist/RELEASE=* ; do cp -a dist/grub-zfs-fixer*rpm $d ; done'
-				sh "find dist/ | sort"
-				sh 'find dist/RELEASE=* -type f | sort | grep -v debuginfo | xargs sha256sum > rpmsums'
+				sh 'find dist/RELEASE=* -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > rpmsums'
 				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
-				stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*'
+				stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*'
 				stash includes: 'rpmsums', name: 'rpmsums'
 				stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
 				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
@@ -314,12 +313,12 @@ pipeline {
 									println "Setup ${it.join(' ')}"
 									timeout(time: 10, unit: 'MINUTES') {
 										unstash "activate-zfs-in-qubes-vm"
+										sh 'find dist/RELEASE=* -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > local-rpmsums'
 										unstash "rpmsums"
-										sh "rm -rf dist"
 										def needsunstash = sh (
 											script: '''
 											set +e ; set -x
-											output=$(sha256sum -c < rpmsums 2>&1)
+											output=$(diff -Naur local-rpmsums rpmsums 2>&1)
 											if [ "$?" = "0" ]
 											then
 												echo MATCH
