@@ -99,6 +99,9 @@ sys.exit(wait())
 		mkdir -p "\$mntdir"
 		volsize=10000
 		cmd=src/zfs-fedora-installer/install-fedora-on-zfs
+		set -x
+		set +e
+		ret=0
 		sudo \\
 			"\$cmd" \\
 			${myBuildFrom} \\
@@ -117,15 +120,15 @@ sys.exit(wait())
 			--chown="\$USER" \\
 			--chgrp=`groups | cut -d " " -f 1` \\
 			--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
-			root-${pname}.img || ret="\$?"
-		set +x
+			root-${pname}.img
+		ret="\$?"
 		>&2 echo ==============Diagnostics==================
 		>&2 sudo zpool list || true
 		>&2 sudo blkid || true
 		>&2 sudo lsblk || true
 		>&2 sudo losetup -la || true
 		>&2 sudo mount || true
-		>&2 Return value of program: "\$ret"
+		>&2 echo Return value of program: "\$ret"
 		>&2 echo =========== End Diagnostics ===============
 		if [ "\$ret" == "120" ] ; then ret=0 ; fi
 		exit "\$ret"
