@@ -311,15 +311,12 @@ y
     if retcode != 0: raise subprocess.CalledProcessError(retcode, cmd)
 
 @contextlib.contextmanager
-def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create):
+def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
     '''Takes a volume device path, and possible a boot device path,
     and yields a properly partitioned set of volumes which can
     then be used to format and create pools on.
-
-    Work to be undone is executed by the undoer passed by the caller.
-
-    TODO: use context manager undo strategy instead.
     '''
+    undoer = Undoer()
     logging.info("Entering blockdev context.  Create=%s.", create)
     voltype = filetype(voldev)
 
@@ -418,7 +415,10 @@ def blockdev_context(voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, c
 #             assert r == 0, r
 
     logging.info("Blockdev context complete.")
-    yield rootpart, bootpart, efipart
+    try:
+        yield rootpart, bootpart, efipart
+    finally:
+        undoer.undo()
 
 def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
     '''Sets up boot and EFI file systems.
@@ -444,9 +444,10 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
     return bootpartuuid, efipartuuid
 
 @contextlib.contextmanager
-def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
+def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
                        swapsize, lukspassword, luksoptions, create):
 
+    undoer = Undoer()
     logging.info("Entering filesystem context.  Create=%s.", create)
     bootpartuuid, efipartuuid = setup_boot_filesystems(bootpart, efipart, poolname, create)
 
@@ -597,7 +598,10 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, undoer, workdir,
         return ["chroot", rootmountpoint] + lst
 
     logging.info("Filesystem context complete.")
-    yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
+    try:
+        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
+    finally:
+        undoer.undo()
 
 def get_file_size(filename):
     "Get the file size by seeking at end"
@@ -664,12 +668,6 @@ class Undoer:
     def __exit__(self, *unused_args):
         self.undo()
 
-    def wrap(self, f):
-        def wrapped(*a, **kw):
-            with self:
-                f(*a, **kw)
-        return wrapped
-
     def undo(self):
         logging.getLogger("Undoer").info("Rewinding stack of actions.")
         for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
@@ -721,23 +719,19 @@ def install_fedora(voldev, volsize, bootdev=None, bootsize=256,
 
     undoer = Undoer()
 
-    def cleanup():
-        undoer.undo()
-
     if not releasever:
         releasever = ChrootPackageManager.get_my_releasever()
 
-    @undoer.wrap
     def beginning():
         logging.info("Program has begun.")
 
         with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=True
+            voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
         ) as (
             rootpart, bootpart, efipart
         ):
             with filesystem_context(
-                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                poolname, rootpart, bootpart, efipart, workdir,
                 swapsize, lukspassword, luksoptions, create=True
             ) as (
                 rootmountpoint, p, _, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
@@ -875,9 +869,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                                     pkgmgr=pkgmgr,
                                     prebuilt_rpms_path=prebuilt_rpms_path,
                                     branch=branch,
-                                    break_before=break_before,
-                                    to_unmount=undoer.to_unmount,
-                                    to_rmdir=undoer.to_rmdir,)
+                                    break_before=break_before,)
 
                 # release disk space now that installation is done
                 for pkgm in ('dnf', 'yum'):
@@ -901,17 +893,16 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             check_call(in_chroot(["ls", "-lRa", "/boot"]))
             raise
 
-    @undoer.wrap
     def reload_chroot():
         # The following reload in a different context scope is a workaround
         # for blkid failing without the reload happening first.
         with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
+            voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
         ) as (
             rootpart, bootpart, efipart
         ):
             with filesystem_context(
-                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                poolname, rootpart, bootpart, efipart, workdir,
                 swapsize, lukspassword, luksoptions, create=False
             ) as (
                 _, p, q, in_chroot, rootuuid, _, bootpartuuid, _
@@ -948,17 +939,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(["sync"])
                     check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
 
-    @undoer.wrap
     def biiq(init, hostonly):
-        @undoer.wrap
         def fish_kernel_initrd():
             with blockdev_context(
-                voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
             ) as (
                 rootpart, bootpart, efipart
             ):
                 with filesystem_context(
-                    poolname, rootpart, bootpart, efipart, undoer, workdir,
+                    poolname, rootpart, bootpart, efipart, workdir,
                     swapsize, lukspassword, luksoptions, create=False
                 ) as (
                     _, p, q, _, rootuuid, luksuuid, bootpartuuid, _
@@ -976,28 +965,29 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         shutil.rmtree(kerneltempdir)
                         raise
             return kerneltempdir, kernel, initrd, hostonly_initrd
+        undoer = Undoer()
         kerneltempdir, kernel, initrd, hostonly_initrd = fish_kernel_initrd()
         undoer.to_rmrf.append(kerneltempdir)
-        return boot_image_in_qemu(
-            hostname, init, poolname,
-            original_voldev, original_bootdev,
-            os.path.join(kerneltempdir, os.path.basename(kernel)),
-            os.path.join(kerneltempdir, os.path.basename(initrd if not hostonly else hostonly_initrd)),
-            force_kvm, interactive_qemu,
-            lukspassword, rootpassword, rootuuid, luksuuid,
-            qemu_timeout
-        )
+        with undoer:
+            return boot_image_in_qemu(
+                hostname, init, poolname,
+                original_voldev, original_bootdev,
+                os.path.join(kerneltempdir, os.path.basename(kernel)),
+                os.path.join(kerneltempdir, os.path.basename(initrd if not hostonly else hostonly_initrd)),
+                force_kvm, interactive_qemu,
+                lukspassword, rootpassword, rootuuid, luksuuid,
+                qemu_timeout
+            )
 
-    @undoer.wrap
     def bootloader_install():
         logging.info("Installing bootloader.")
         with blockdev_context(
-            voldev, bootdev, undoer, volsize, bootsize, chown, chgrp, create=False
+            voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
         ) as (
             rootpart, bootpart, efipart
         ):
             with filesystem_context(
-                poolname, rootpart, bootpart, efipart, undoer, workdir,
+                poolname, rootpart, bootpart, efipart, workdir,
                 swapsize, lukspassword, luksoptions, create=False
             ) as (
                 _, p, q, in_chroot, _, _, _, _
@@ -1212,198 +1202,203 @@ def install_fedora_on_zfs():
 
 
 def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
-                          prebuilt_rpms_path, break_before, to_unmount, to_rmdir):
+                          prebuilt_rpms_path, break_before):
     arch = platform.machine()
     stringtoexclude = "debuginfo"
+    stringtoexclude2 = "debugsource"
 
     # check for stage stop
     if break_before == "install_prebuilt_rpms":
         raise BreakingBefore(break_before)
 
-    if prebuilt_rpms_path:
-        target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
-        if not os.path.isdir(target_rpms_path):
-            os.mkdir(target_rpms_path)
-        if ismount(target_rpms_path):
-            if os.stat(prebuilt_rpms_path).st_ino != os.stat(target_rpms_path):
-                umount(target_rpms_path)
+    undoer = Undoer()
+
+    with undoer:
+        if prebuilt_rpms_path:
+            target_rpms_path = p(j("tmp","zfs-fedora-installer-prebuilt-rpms"))
+            if not os.path.isdir(target_rpms_path):
+                os.mkdir(target_rpms_path)
+            if ismount(target_rpms_path):
+                if os.stat(prebuilt_rpms_path).st_ino != os.stat(target_rpms_path):
+                    umount(target_rpms_path)
+                    bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
+            else:
                 bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
+            if os.path.isdir(target_rpms_path):
+                undoer.to_rmdir.append(target_rpms_path)
+            if ismount(target_rpms_path):
+                undoer.to_unmount.append(target_rpms_path)
+            prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
+            prebuilt_rpms_to_install = set([
+                os.path.basename(s)
+                for s in prebuilt_rpms_to_install
+                if stringtoexclude not in os.path.basename(s)
+                and stringtoexclude2 not in os.path.basename(s)
+            ])
         else:
-            bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
-        if os.path.isdir(target_rpms_path):
-            to_rmdir.append(target_rpms_path)
-        if ismount(target_rpms_path):
-            to_unmount.append(target_rpms_path)
-        prebuilt_rpms_to_install = glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%(arch,))) + glob.glob(j(prebuilt_rpms_path,"*%s.rpm"%("noarch",)))
-        prebuilt_rpms_to_install = set([
-            os.path.basename(s)
-            for s in prebuilt_rpms_to_install
-            if stringtoexclude not in os.path.basename(s)
-        ])
-    else:
-        target_rpms_path = None
-        prebuilt_rpms_to_install = set()
+            target_rpms_path = None
+            prebuilt_rpms_to_install = set()
 
-    if prebuilt_rpms_to_install:
-        logging.info(
-            "Installing available prebuilt RPMs: %s",
-            prebuilt_rpms_to_install
-        )
-        files_to_install = [
-            j(target_rpms_path, s)
-            for s in prebuilt_rpms_to_install
-        ]
-        pkgmgr.install_local_packages(files_to_install)
-
-    if target_rpms_path:
-        umount(target_rpms_path)
-        to_unmount.remove(target_rpms_path)
-        check_call(["rmdir", target_rpms_path])
-        to_rmdir.remove(target_rpms_path)
-
-    # check for stage stop
-    if break_before == "install_grub_zfs_fixer":
-        raise BreakingBefore(break_before)
-
-    for project, patterns in (
-        (
-            "grub-zfs-fixer",
-            (
-                "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
-                "RPMS/*.%s.rpm" % ("noarch",),
-            ),
-        ),
-    ):
-        grubzfsfixerpath = j(os.path.dirname(__file__), os.path.pardir, os.path.pardir, "grub-zfs-fixer")
-        class FixerNotInstalledYet(Exception): pass
-        try:
-            logging.info("Checking if %s has the GRUB ZFS fixer installed", project)
-            try:
-                fixerlines = file(j(grubzfsfixerpath, "grub-zfs-fixer.spec")).readlines()
-                fixerversion = [ x.split()[1] for x in fixerlines if x.startswith("Version:") ][0]
-                fixerrelease = [ x.split()[1] for x in fixerlines if x.startswith("Release:") ][0]
-                check_output(in_chroot([
-                    "rpm",
-                    "-q",
-                    "grub-zfs-fixer-%s-%s" % (fixerversion, fixerrelease)
-                ]))
-            except subprocess.CalledProcessError:
-                raise FixerNotInstalledYet()
-        except FixerNotInstalledYet:
-            logging.info("%s does not have the GRUB ZFS fixer, building", project)
-            project_dir = p(j("usr","src",project))
-            def getrpms(pats, directory):
-                therpms = [
-                    rpmfile
-                    for pat in pats
-                    for rpmfile in glob.glob(j(directory, pat))
-                    if stringtoexclude not in os.path.basename(rpmfile)
-                ]
-                return therpms
-            files_to_install = getrpms(patterns, project_dir)
-            if not files_to_install:
-                if not os.path.isdir(project_dir):
-                    os.mkdir(project_dir)
-
-                pkgmgr.ensure_packages_installed(
-                    [
-                        "rpm-build", "tar", "gzip",
-                    ],
-                )
-                logging.info("Tarring %s tarball", project)
-                check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
-                            cwd=j(grubzfsfixerpath, os.path.pardir))
-                logging.info("Building project: %s", project)
-                project_dir_in_chroot = project_dir[len(p(""))-1:]
-                check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
-                files_to_install = getrpms(patterns, project_dir)
-
-            logging.info("Installing built RPMs: %s", files_to_install)
+        if prebuilt_rpms_to_install:
+            logging.info(
+                "Installing available prebuilt RPMs: %s",
+                prebuilt_rpms_to_install
+            )
+            files_to_install = [
+                j(target_rpms_path, s)
+                for s in prebuilt_rpms_to_install
+            ]
             pkgmgr.install_local_packages(files_to_install)
 
-    # Check we have a patched grub2-mkconfig.
-    mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
-    mkconfig_text = file(mkconfig_file).read()
-    if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
-        raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
+        if target_rpms_path:
+            umount(target_rpms_path)
+            undoer.to_unmount.remove(target_rpms_path)
+            check_call(["rmdir", target_rpms_path])
+            undoer.to_rmdir.remove(target_rpms_path)
 
-    for project, patterns, keystonepkgs, mindeps in (
-        (
-            "zfs",
-            (
-                "zfs-dkms-*.noarch.rpm",
-                "libnvpair*.%s.rpm" % arch,
-                "libuutil*.%s.rpm" % arch,
-                "libzfs?-[0123456789]*.%s.rpm" % arch,
-                "libzfs?-devel-[0123456789]*.%s.rpm" % arch,
-                "libzpool*.%s.rpm" % arch,
-                "zfs-[0123456789]*.%s.rpm" % arch,
-                "zfs-dracut-*.%s.rpm" % arch,
-            ),
-            ('zfs', 'zfs-dkms', 'zfs-dracut'),
-            [
-                "zlib-devel", "libuuid-devel", "bc", "libblkid-devel",
-                "libattr-devel", "lsscsi", "mdadm", "parted",
-                "libudev-devel", "libtool", "openssl-devel",
-                "make", "automake", "libtirpc-devel",
-            ],
-        ),
-    ):
         # check for stage stop
-        if break_before == "deploy_%s" % project:
+        if break_before == "install_grub_zfs_fixer":
             raise BreakingBefore(break_before)
 
-        try:
-            logging.info("Checking if keystone packages %s are installed", ", ".join(keystonepkgs))
-            check_call(in_chroot(["rpm", "-q"] + list(keystonepkgs)),
-                                stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
-        except subprocess.CalledProcessError:
-            logging.info("Package %s-dkms is not installed, building", project)
-            project_dir = p(j("usr","src",project))
-            def getrpms(pats, directory):
-                therpms = [
-                    rpmfile
-                    for pat in pats
-                    for rpmfile in glob.glob(j(directory, pat))
-                    if stringtoexclude not in os.path.basename(rpmfile)
-                ]
-                return therpms
-            files_to_install = getrpms(patterns, project_dir)
-            if not files_to_install:
-                if not os.path.isdir(project_dir):
-                    repo = "https://github.com/Rudd-O/%s" % project
-                    logging.info("Cloning git repository: %s", repo)
-                    cmd = ["git", "clone", repo, project_dir]
-                    check_call(cmd)
-                    cmd = ["git", "checkout", branch]
-                    check_call(cmd, cwd= project_dir)
-                    cmd = ["git", "--no-pager", "show"]
-                    check_call(cmd, cwd= project_dir)
-
-                pkgmgr.ensure_packages_installed(mindeps)
-
-                logging.info("Building project: %s", project)
-                cores = multiprocessing.cpu_count()
-                cmd = in_chroot(["bash", "-c",
-                    (
-                        "cd /usr/src/%s && "
-                        "./autogen.sh && "
-                        "./configure --with-config=user && "
-                        "make -j%s rpm-utils && "
-                        "make -j%s rpm-dkms" % (project, cores, cores)
-                    )
-                ])
-                check_call(cmd)
+        for project, patterns in (
+            (
+                "grub-zfs-fixer",
+                (
+                    "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
+                    "RPMS/*.%s.rpm" % ("noarch",),
+                ),
+            ),
+        ):
+            grubzfsfixerpath = j(os.path.dirname(__file__), os.path.pardir, os.path.pardir, "grub-zfs-fixer")
+            class FixerNotInstalledYet(Exception): pass
+            try:
+                logging.info("Checking if %s has the GRUB ZFS fixer installed", project)
+                try:
+                    fixerlines = file(j(grubzfsfixerpath, "grub-zfs-fixer.spec")).readlines()
+                    fixerversion = [ x.split()[1] for x in fixerlines if x.startswith("Version:") ][0]
+                    fixerrelease = [ x.split()[1] for x in fixerlines if x.startswith("Release:") ][0]
+                    check_output(in_chroot([
+                        "rpm",
+                        "-q",
+                        "grub-zfs-fixer-%s-%s" % (fixerversion, fixerrelease)
+                    ]))
+                except subprocess.CalledProcessError:
+                    raise FixerNotInstalledYet()
+            except FixerNotInstalledYet:
+                logging.info("%s does not have the GRUB ZFS fixer, building", project)
+                project_dir = p(j("usr","src",project))
+                def getrpms(pats, directory):
+                    therpms = [
+                        rpmfile
+                        for pat in pats
+                        for rpmfile in glob.glob(j(directory, pat))
+                        if stringtoexclude not in os.path.basename(rpmfile)
+                    ]
+                    return therpms
                 files_to_install = getrpms(patterns, project_dir)
+                if not files_to_install:
+                    if not os.path.isdir(project_dir):
+                        os.mkdir(project_dir)
 
-            logging.info("Installing built RPMs: %s", files_to_install)
-            pkgmgr.install_local_packages(files_to_install)
+                    pkgmgr.ensure_packages_installed(
+                        [
+                            "rpm-build", "tar", "gzip",
+                        ],
+                    )
+                    logging.info("Tarring %s tarball", project)
+                    check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
+                                cwd=j(grubzfsfixerpath, os.path.pardir))
+                    logging.info("Building project: %s", project)
+                    project_dir_in_chroot = project_dir[len(p(""))-1:]
+                    check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
+                    files_to_install = getrpms(patterns, project_dir)
 
-    # Check we have a ZFS.ko for at least one kernel.
-    modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko*"))
-    modules_files = glob.glob(modules_dir)
-    if not modules_files:
-        raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?" % modules_dir)
+                logging.info("Installing built RPMs: %s", files_to_install)
+                pkgmgr.install_local_packages(files_to_install)
+
+        # Check we have a patched grub2-mkconfig.
+        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
+        mkconfig_text = file(mkconfig_file).read()
+        if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
+            raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
+
+        for project, patterns, keystonepkgs, mindeps in (
+            (
+                "zfs",
+                (
+                    "zfs-dkms-*.noarch.rpm",
+                    "libnvpair*.%s.rpm" % arch,
+                    "libuutil*.%s.rpm" % arch,
+                    "libzfs?-[0123456789]*.%s.rpm" % arch,
+                    "libzfs?-devel-[0123456789]*.%s.rpm" % arch,
+                    "libzpool*.%s.rpm" % arch,
+                    "zfs-[0123456789]*.%s.rpm" % arch,
+                    "zfs-dracut-*.%s.rpm" % arch,
+                ),
+                ('zfs', 'zfs-dkms', 'zfs-dracut'),
+                [
+                    "zlib-devel", "libuuid-devel", "bc", "libblkid-devel",
+                    "libattr-devel", "lsscsi", "mdadm", "parted",
+                    "libudev-devel", "libtool", "openssl-devel",
+                    "make", "automake", "libtirpc-devel",
+                ],
+            ),
+        ):
+            # check for stage stop
+            if break_before == "deploy_%s" % project:
+                raise BreakingBefore(break_before)
+
+            try:
+                logging.info("Checking if keystone packages %s are installed", ", ".join(keystonepkgs))
+                check_call(in_chroot(["rpm", "-q"] + list(keystonepkgs)),
+                                    stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError:
+                logging.info("Package %s-dkms is not installed, building", project)
+                project_dir = p(j("usr","src",project))
+                def getrpms(pats, directory):
+                    therpms = [
+                        rpmfile
+                        for pat in pats
+                        for rpmfile in glob.glob(j(directory, pat))
+                        if stringtoexclude not in os.path.basename(rpmfile)
+                    ]
+                    return therpms
+                files_to_install = getrpms(patterns, project_dir)
+                if not files_to_install:
+                    if not os.path.isdir(project_dir):
+                        repo = "https://github.com/Rudd-O/%s" % project
+                        logging.info("Cloning git repository: %s", repo)
+                        cmd = ["git", "clone", repo, project_dir]
+                        check_call(cmd)
+                        cmd = ["git", "checkout", branch]
+                        check_call(cmd, cwd= project_dir)
+                        cmd = ["git", "--no-pager", "show"]
+                        check_call(cmd, cwd= project_dir)
+
+                    pkgmgr.ensure_packages_installed(mindeps)
+
+                    logging.info("Building project: %s", project)
+                    cores = multiprocessing.cpu_count()
+                    cmd = in_chroot(["bash", "-c",
+                        (
+                            "cd /usr/src/%s && "
+                            "./autogen.sh && "
+                            "./configure --with-config=user && "
+                            "make -j%s rpm-utils && "
+                            "make -j%s rpm-dkms" % (project, cores, cores)
+                        )
+                    ])
+                    check_call(cmd)
+                    files_to_install = getrpms(patterns, project_dir)
+
+                logging.info("Installing built RPMs: %s", files_to_install)
+                pkgmgr.install_local_packages(files_to_install)
+
+        # Check we have a ZFS.ko for at least one kernel.
+        modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko*"))
+        modules_files = glob.glob(modules_dir)
+        if not modules_files:
+            raise ZFSBuildFailure("expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?" % modules_dir)
 
 
 def deploy_zfs():
@@ -1417,26 +1412,13 @@ def deploy_zfs():
 
     pkgmgr = SystemPackageManager()
 
-    to_rmdir = []
-    to_unmount = []
-
-    def cleanup():
-        for fs in reversed(to_unmount):
-            umount(fs)
-        for filename in to_rmdir:
-            os.rmdir(filename)
-
     try:
         deploy_zfs_in_machine(p=p,
                               in_chroot=in_chroot,
                               pkgmgr=pkgmgr,
                               prebuilt_rpms_path=args.prebuiltrpms,
                               branch=args.branch,
-                              break_before=None,
-                              to_rmdir=to_rmdir,
-                              to_unmount=to_unmount,)
+                              break_before=None,)
     except BaseException:
         logging.exception("Unexpected error")
         raise
-
-    cleanup()
