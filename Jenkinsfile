@@ -107,6 +107,7 @@ sys.exit(wait())
 			${myLuks} \\
 			${mySeparateBoot} \\
 			${myRelease} \\
+			--trace-file=/dev/stderr \\
 			--workdir="\$mntdir" \\
 			--host-name="\$HOST_NAME" \\
 			--pool-name="${pname}" \\
