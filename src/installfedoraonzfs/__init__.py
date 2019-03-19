@@ -661,7 +661,7 @@ class Undoer:
     def __enter__(self):
         pass
 
-    def __exit__(self):
+    def __exit__(self, *unused_args):
         self.undo()
 
     def wrap(self, f):
