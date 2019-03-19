@@ -348,7 +348,7 @@ pipeline {
 								stage("Build image ${it.join(' ')}") {
 									println "Build ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
-										def myBreakBefore = "--break-before=boot_to_install_bootloader"
+										def myBreakBefore = "--break-before=reload_chroot"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"
 										// cleanup
@@ -356,7 +356,25 @@ pipeline {
 										sh program
 									}
 								}
-								stage("Bootload image ${it.join(' ')}") {
+								stage("reload_chroot ${it.join(' ')}") {
+									println "Bootload ${it.join(' ')}"
+									timeout(time: 15, unit: 'MINUTES') {
+										def myBreakBefore = "--break-before="
+										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+										println "${desc}\n\n" + "Program that will be executed:\n${program}"
+										sh program
+									}
+								}
+								stage("prepare_bootloader_install ${it.join(' ')}") {
+									println "Bootload ${it.join(' ')}"
+									timeout(time: 15, unit: 'MINUTES') {
+										def myBreakBefore = "--break-before=boot_to_install_bootloader"
+										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+										println "${desc}\n\n" + "Program that will be executed:\n${program}"
+										sh program
+									}
+								}
+								stage("boot_to_install_bootloader ${it.join(' ')}") {
 									println "Bootload ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = "--break-before=boot_to_test_hostonly"
@@ -365,7 +383,7 @@ pipeline {
 										sh program
 									}
 								}
-								stage("Test image ${it.join(' ')}") {
+								stage("boot_to_test_hostonly ${it.join(' ')}") {
 									println "Bootload ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = ""
