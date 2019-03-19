@@ -380,6 +380,15 @@ pipeline {
 								stage("boot_to_install_bootloader ${it.join(' ')}") {
 									println "boot_to_install_bootloader ${it.join(' ')}"
 									timeout(time: 15, unit: 'MINUTES') {
+										def myBreakBefore = "--break-before=boot_to_test_non_hostonly"
+										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+										println "${desc}\n\n" + "Program that will be executed:\n${program}"
+										sh program
+									}
+								}
+								stage("boot_to_test_non_hostonly ${it.join(' ')}") {
+									println "boot_to_test_hostonly ${it.join(' ')}"
+									timeout(time: 15, unit: 'MINUTES') {
 										def myBreakBefore = "--break-before=boot_to_test_hostonly"
 										def program = runProgram(pname, myBuildFrom, myBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 										println "${desc}\n\n" + "Program that will be executed:\n${program}"

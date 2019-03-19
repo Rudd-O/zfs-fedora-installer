@@ -1007,12 +1007,13 @@ cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
 
-zfs inherit com.sun:auto-snapshot "%s"
-test -f %s || {
-    dracut -Hf %s %s
-    lsinitrd %s
-    restorecon -v %s
-}
+zfs inherit com.sun:auto-snapshot "{pool}"
+dracut -Nf {initrd} {kver}
+lsinitrd {initrd}
+restorecon -v {initrd}
+dracut -Hf {hostonly_initrd} {kver}
+lsinitrd {hostonly_initrd}
+restorecon -v {hostonly_initrd}
 sync
 umount /boot/efi || true
 umount /boot || true
@@ -1032,7 +1033,7 @@ sleep 5
 echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
-'''%(poolname, q(hostonly_initrd), q(hostonly_initrd), kver, q(hostonly_initrd), q(hostonly_initrd))
+'''.format(**{"kver": kver, "poolname": poolname, "hostonly_initrd": q(hostonly_initrd), "initrd", q(initrd)})
                 bootloaderpath = p("installbootloader")
                 bootloader = file(bootloaderpath,"w")
                 bootloader.write(bootloadertext)
@@ -1077,14 +1078,16 @@ echo cannot power off VM.  Please kill qemu.
         # There's this thing about systemd on F24 randomly segfaulting.
         # We retry in those cases.
 
-        @retrymod.retry(2)
         def biiq_bootloader():
             logging.info("Entering preparation of bootloader in VM.")
             return biiq("init=/installbootloader", "boot_to_install_bootloader", initrd)
 
-        @retrymod.retry(2)
-        def biiq_test():
-            logging.info("Entering test of bootloader in VM.")
+        def biiq_test_non_hostonly():
+            logging.info("Entering test of non-hostonly initial RAM disk in VM.")
+            biiq("systemd.unit=multi-user.target", "boot_to_test_non_hostonly", initrd)
+
+        def biiq_test_hostonly():
+            logging.info("Entering test of hostonly initial RAM disk in VM.")
             biiq("systemd.unit=multi-user.target", "boot_to_test_hostonly", hostonly_initrd)
 
         # install bootloader and create hostonly initrd using qemu
@@ -1101,14 +1104,18 @@ echo cannot power off VM.  Please kill qemu.
             ) as (
                 _, _, _, _, _, _, _, _
             ):
+                shutil.copy2(initrd, kerneltempdir)
                 shutil.copy2(hostonly_initrd, kerneltempdir)
 
         to_rmrf.remove(kerneltempdir)
         cleanup()
         to_rmrf.append(kerneltempdir)
 
+        # test non-hostonly initrd using qemu
+        biiq_test_non_hostonly()
+
         # test hostonly initrd using qemu
-        biiq_test()
+        biiq_test_hostonly()
 
     # tell the user we broke
     except BreakingBefore, e:
