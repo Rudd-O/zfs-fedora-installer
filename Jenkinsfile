@@ -74,11 +74,11 @@ def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparat
 
 def runStage(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
         stage("${name}") {
-                timeout(time: timeout, unit: 'MINUTES') {
+                //timeout(time: timeout, unit: 'MINUTES') {
                         def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
                         println "${desc}\n\n" + "Program that will be executed:\n${program}"
                         sh program
-                }
+                //}
         }
 }
 
