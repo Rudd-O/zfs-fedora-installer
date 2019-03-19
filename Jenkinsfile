@@ -72,14 +72,16 @@ def runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparat
 	return program
 }
 
-def runStage(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
+def runStage(pname, myBuildFrom, name, next, paramShortCircuit, paramBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
 	stage("${name.capitalize().replace('_', ' ')}") {
+		when (paramShortCircuit == "" || paramShortCircuit == name) {
 		//timeout(time: timeout, unit: 'MINUTES') {
 			def program = runProgram(pname, myBuildFrom, name, next, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
 			sh program
 		//}
+		}
 	}
 }
 
@@ -109,6 +111,8 @@ pipeline {
 		string defaultValue: 'seed.dragonfear', description: '', name: 'HOST_NAME', trim: true
 		string defaultValue: 'yes no', description: '', name: 'SEPARATE_BOOT', trim: true
 		string defaultValue: 'yes no', description: '', name: 'LUKS', trim: true
+		string defaultValue: '', description: 'Stop before this stage.', name: 'BREAK_BEFORE', trim: true
+		string defaultValue: '', description: 'Start with this stage.  If this variable is defined, the disk images from prior builds will not be cleaned up prior to short-circuiting to this stage.', name: 'SHORT_CIRCUIT', trim: true
 		string defaultValue: '', description: "Override which Fedora releases to build for.  If empty, defaults to ${RELEASE}.", name: 'RELEASE', trim: true
 	}
 
@@ -273,14 +277,15 @@ pipeline {
 									unstash "zfs-fedora-installer"
 								}
 								stage("Remove old image") {
-									// cleanup
-									sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
+									when (params.SHORT_CIRCUIT == "") {
+										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
+									}
 								}
-								runStage(pname, myBuildFrom, "beginning", "reload_chroot", mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
-								runStage(pname, myBuildFrom, "reload_chroot", "bootloader_install", mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
-								runStage(pname, myBuildFrom, "bootloader_install", "boot_to_test_non_hostonly", mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
-								runStage(pname, myBuildFrom, "boot_to_test_non_hostonly", "boot_to_test_hostonly", mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
-								runStage(pname, myBuildFrom, "boot_to_test_hostonly", "end", mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+								runStage(pname, myBuildFrom, "beginning", "reload_chroot", params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage(pname, myBuildFrom, "reload_chroot", "bootloader_install", params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
+								runStage(pname, myBuildFrom, "bootloader_install", "boot_to_test_non_hostonly", params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage(pname, myBuildFrom, "boot_to_test_non_hostonly", "boot_to_test_hostonly", params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+								runStage(pname, myBuildFrom, "boot_to_test_hostonly", "end", params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
 							}
 						}
 					}
