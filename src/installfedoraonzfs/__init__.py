@@ -668,6 +668,7 @@ class Undoer:
         def wrapped(*a, **kw):
             with self:
                 f(*a, **kw)
+        return wrapped
 
     def undo(self):
         logging.getLogger("Undoer").info("Rewinding stack of actions.")
