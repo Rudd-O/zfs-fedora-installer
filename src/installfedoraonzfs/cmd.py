@@ -160,7 +160,7 @@ def _unlockf(f):
 
 
 def isbindmount(target):
-    f = file("/etc/mtab", "ab")
+    f = file("/etc/mtab")
     _lockf(f)
     try:
         mountpoints = [x.strip().split()[1].decode("string_escape") for x in f.readlines()]
@@ -280,7 +280,7 @@ class lockfile(object):
 
     def __enter__(self):
         logger.debug("Grabbing lock %s", self.path)
-        self.f = open(self.path, 'ab')
+        self.f = open(self.path, 'wb')
         _lockf(self.f)
         logger.debug("Grabbed lock %s", self.path)
 
