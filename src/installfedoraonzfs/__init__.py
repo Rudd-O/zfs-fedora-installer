@@ -950,7 +950,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     poolname, rootpart, bootpart, efipart, workdir,
                     swapsize, lukspassword, luksoptions, create=False
                 ) as (
-                    _, p, q, _, rootuuid, luksuuid, bootpartuuid, _
+                    _, p, _, _, rootuuid, luksuuid, _, _
                 ):
                     kerneltempdir = tempfile.mkdtemp(
                         prefix="install-fedora-on-zfs-bootbits-"
@@ -964,9 +964,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     except (KeyboardInterrupt, Exception):
                         shutil.rmtree(kerneltempdir)
                         raise
-            return kerneltempdir, kernel, initrd, hostonly_initrd
+            return rootuuid, luksuuid, kerneltempdir, kernel, initrd, hostonly_initrd
         undoer = Undoer()
-        kerneltempdir, kernel, initrd, hostonly_initrd = fish_kernel_initrd()
+        rootuuid, luksuuid, kerneltempdir, kernel, initrd, hostonly_initrd = fish_kernel_initrd()
         undoer.to_rmrf.append(kerneltempdir)
         with undoer:
             return boot_image_in_qemu(
