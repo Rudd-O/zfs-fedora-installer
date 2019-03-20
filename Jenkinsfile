@@ -233,15 +233,13 @@ pipeline {
 						}
 						return {
 							node('fedorazfs') {
+								lock("activatezfs") {
 								stage("Install deps") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										def program = '''
-											(
-												flock 9
 												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
 												rpm -q \$deps || sudo dnf install -qy \$deps
-											) 9> /tmp/\$USER-dnf-lock
 										'''.stripIndent().trim()
 										println "Program that will be executed:\n${program}"
 										retry(2) {
@@ -250,6 +248,8 @@ pipeline {
 									}
                                                                         }
 								}
+                                                                }
+								lock("activatezfs") {
 								stage("Activate ZFS") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
@@ -277,12 +277,13 @@ pipeline {
 											sudo ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
 										""".stripIndent().trim()
 										println "Program that will be executed:\n${program}"
-										retry(5) {
+										retry(2) {
 											sh program
 										}
 									}
                                                                         }
 								}
+                                                                }
 								stage("Unstash") {
 									when (params.SHORT_CIRCUIT == "") {
 										unstash "zfs-fedora-installer"
