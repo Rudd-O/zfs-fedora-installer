@@ -36,6 +36,7 @@ def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks,
 		set -x
 		set +e
 		ret=0
+		ls -l
 		sudo \\
 			"\$cmd" \\
 			${myBuildFrom} \\
