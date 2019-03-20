@@ -3,7 +3,7 @@
 
 def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
-def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
 	if (mySeparateBoot == "yes") {
 		mySeparateBoot = "--separate-boot=boot-${pname}.img"
 	} else {
@@ -73,16 +73,16 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 
 def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
 	def thisStageIdx = allStages.findIndexOf{ s -> s == thisStage }
-	def nextStageIdx = thisStageIdx + 1
+	def thisStage = allStages[thisStageIdx]
+	def nextStage = allStages[thisStageIdx + 1]
 	def paramShortCircuitIdx = allStages.findIndexOf{ s -> s == paramShortCircuit }
 	def paramBreakBeforeIdx = allStages.findIndexOf{ s -> s == paramBreakBefore }
-	def nextStage = allStages[nextStageIdx]
 	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
         def stageName = thisStage.toString().capitalize().replace('_', ' ')
 	stage("${stageName}") {
 		when (whenCond) {
 		//timeout(time: timeout, unit: 'MINUTES') {
-			def program = runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+			def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
 			//sh program
