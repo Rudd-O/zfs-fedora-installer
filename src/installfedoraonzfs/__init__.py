@@ -199,6 +199,37 @@ def get_deploy_parser():
     return parser
 
 
+def get_run_command_parser():
+    parser = argparse.ArgumentParser(
+        description="Run a command in a Fedora system inside a ZFS pool within a disk image or device",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "voldev", metavar="VOLDEV", type=str, nargs=1,
+        help="path to volume (device to use or regular file to create)"
+    )
+    parser.add_argument(
+        "--separate-boot", dest="bootdev", metavar="BOOTDEV", type=str,
+        action="store", default=None, help="place /boot in a separate volume"
+    )
+    parser.add_argument(
+        "--pool-name", dest="poolname", metavar="POOLNAME", type=str,
+        action="store", default="tank", help="pool name (default tank)"
+    )
+    parser.add_argument(
+        "--workdir", dest="workdir",
+        action="store", default='/var/lib/zfs-fedora-installer',
+        help="use this directory as a working (scratch) space for the mount points of the created pool"
+    )
+    parser.add_argument(
+        "--trace-file", dest="trace_file",
+        action="store", default=None,
+        help="file name for a detailed trace file of program activity (default no trace file)"
+    )
+    parser.add_argument('args', nargs=argparse.REMAINDER)
+    return parser
+
+
 def filetype(dev):
     '''returns 'file' or 'blockdev' or 'doesntexist' for dev'''
     try:
@@ -1422,3 +1453,20 @@ def deploy_zfs():
     except BaseException:
         logging.exception("Unexpected error")
         raise
+
+
+def run_command_in_filesystem_context():
+    args = get_run_command_parser().parse_args()
+    log_config(args.trace_file)
+    with blockdev_context(
+        args.voldev[0], args.bootdev, 0, 0, None, None, create=False
+    ) as (
+        rootpart, bootpart, efipart
+    ):
+        with filesystem_context(
+            args.poolname, rootpart, bootpart, efipart, args.workdir,
+            0, "", "", create=False
+        ) as (
+            _, _, _, in_chroot, _, _, _, _
+        ):
+            return subprocess.call(in_chroot(args.args))
