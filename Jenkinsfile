@@ -29,6 +29,7 @@ def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks,
 		myBreakBefore = "--break-before=${nextStage}"
 	}
 	def program = """
+		yumcache="/mnt/jenkins/yumcache"
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
 		volsize=10000
@@ -48,6 +49,7 @@ def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks,
 			${myRelease} \\
 			--trace-file=/dev/stderr \\
 			--workdir="\$mntdir" \\
+			--yum-cachedir="\$yumcache" \\
 			--host-name="\$HOST_NAME" \\
 			--pool-name="${pname}" \\
 			--vol-size=\$volsize \\
