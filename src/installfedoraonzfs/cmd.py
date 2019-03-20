@@ -285,5 +285,6 @@ def lockfile(path):
     try:
         yield lf
     finally:
+        logger.debug("Releasing lock %s", path)
         lf.close()
         logger.debug("Released lock %s", path)
