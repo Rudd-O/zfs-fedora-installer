@@ -233,6 +233,7 @@ pipeline {
 						return {
 							node('fedorazfs') {
 								stage("Install deps") {
+									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										def program = '''
 											(
@@ -246,8 +247,10 @@ pipeline {
 											sh program
 										}
 									}
+                                                                        }
 								}
 								stage("Activate ZFS") {
+									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										unstash "activate-zfs-in-qubes-vm"
 										sh 'find dist/RELEASE=* -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > local-rpmsums'
@@ -277,6 +280,7 @@ pipeline {
 											sh program
 										}
 									}
+                                                                        }
 								}
 								stage("Unstash") {
 									unstash "zfs-fedora-installer"
