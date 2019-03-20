@@ -74,14 +74,14 @@ def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks,
 	return program
 }
 
-def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, theIt) {
 	def thisStageIdx = allStages.findIndexOf{ s -> s == thisStage }
 	def nextStage = allStages[thisStageIdx + 1]
 	def paramShortCircuitIdx = allStages.findIndexOf{ s -> s == paramShortCircuit }
 	def paramBreakBeforeIdx = allStages.findIndexOf{ s -> s == paramBreakBefore }
 	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
 	def stageName = thisStage.toString().capitalize().replace('_', ' ')
-	stage("${stageName}") {
+	stage("${stageName} ${theIt.join(' ')}") {
 		when (whenCond) {
 			def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
@@ -234,7 +234,7 @@ pipeline {
 						return {
 							node('fedorazfs') {
 								lock("activatezfs") {
-								stage("Install deps") {
+								stage("Install deps ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										def program = '''
@@ -250,7 +250,7 @@ pipeline {
 								}
                                                                 }
 								lock("activatezfs") {
-								stage("Activate ZFS") {
+								stage("Activate ZFS ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										unstash "activate-zfs-in-qubes-vm"
@@ -284,12 +284,12 @@ pipeline {
                                                                         }
 								}
                                                                 }
-								stage("Unstash") {
+								stage("Unstash ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 										unstash "zfs-fedora-installer"
 									}
 								}
-								stage("Remove old image") {
+								stage("Remove old image ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 									}
@@ -297,27 +297,27 @@ pipeline {
 								timeout(30) {
 								runStage("beginning",
 									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
 								timeout(5) {
 								runStage("reload_chroot",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
 								timeout(15) {
 								runStage("bootloader_install",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
 								timeout(10) {
 								runStage("boot_to_test_non_hostonly",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
 								timeout(10) {
 								runStage("boot_to_test_hostonly",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
 							}
 						}
