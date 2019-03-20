@@ -71,7 +71,7 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 	return program
 }
 
-def runStage(pname, myBuildFrom, thisStage, allStages, paramShortCircuit, paramBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
+def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
 	def thisStageIdx = allStages.findIndexOf{ it == thisStage }
 	def nextStageIdx = thisStageIdx + 1
 	def paramShortCircuitIdx = allStages.findIndexOf{ it == paramShortCircuit }
@@ -85,7 +85,7 @@ def runStage(pname, myBuildFrom, thisStage, allStages, paramShortCircuit, paramB
 			def program = runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
-			sh program
+			//sh program
 		//}
 		}
 	}
@@ -287,26 +287,21 @@ pipeline {
 										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 									}
 								}
-								runStage(pname, myBuildFrom,
-                                                                         "beginning",
+								runStage("beginning",
 									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
-								runStage(pname, myBuildFrom,
-                                                                         "reload_chroot",
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage("reload_chroot",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
-								runStage(pname, myBuildFrom,
-                                                                         "bootloader_install"
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
+								runStage("bootloader_install"
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
-								runStage(pname, myBuildFrom,
-                                                                         "boot_to_test_non_hostonly",
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage("boot_to_test_non_hostonly",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
-								runStage(pname, myBuildFrom,
-                                                                         "boot_to_test_hostonly",
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+								runStage("boot_to_test_hostonly",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
 							}
 						}
 					}
