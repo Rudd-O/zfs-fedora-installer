@@ -77,15 +77,15 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 	def paramShortCircuitIdx = allStages.findIndexOf{ s -> s == paramShortCircuit }
 	def paramBreakBeforeIdx = allStages.findIndexOf{ s -> s == paramBreakBefore }
 	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
-        def stageName = thisStage.toString().capitalize().replace('_', ' ')
+	def stageName = thisStage.toString().capitalize().replace('_', ' ')
 	stage("${stageName}") {
 		when (whenCond) {
-		//timeout(time: timeout, unit: 'MINUTES') {
-			def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
-			println "${desc}\n\n" + "Program that will be executed:\n${program}"
-			//sh program
-		//}
+			timeout(time: timeout, unit: 'MINUTES') {
+				def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+				def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
+				println "${desc}\n\n" + "Program that will be executed:\n${program}"
+				sh program
+			}
 		}
 	}
 }
