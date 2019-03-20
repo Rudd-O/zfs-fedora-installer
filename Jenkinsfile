@@ -289,20 +289,28 @@ pipeline {
 								timeout(15) {
 								runStage("beginning",
 									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
                                                                 }
+								timeout(5) {
 								runStage("reload_chroot",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                }
+								timeout(15) {
 								runStage("bootloader_install",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                }
+								timeout(10) {
 								runStage("boot_to_test_non_hostonly",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                }
+								timeout(10) {
 								runStage("boot_to_test_hostonly",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
+                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+                                                                }
 							}
 						}
 					}
