@@ -182,7 +182,7 @@ pipeline {
 		}
 		stage('Copy from master') {
 			agent { label 'master' }
-			when { allOf { not { equals expected: 'NOT_BUILT', actual: currentBuild.result }, equals expected: "", params.SHORT_CIRCUIT } }
+			when { allOf { [not { equals expected: 'NOT_BUILT', actual: currentBuild.result }, equals expected: "", params.SHORT_CIRCUIT] } }
 			steps {
 				sh "rm -rf build dist"
 				copyArtifacts(
