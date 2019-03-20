@@ -87,9 +87,13 @@ def make_temp_yum_config(source, directory, **kwargs):
     return tempyumconfig
 
 
-@contextlib.contextmanager
-def dummylock():
-    yield
+class dummylock(object):
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *unused_args):
+        pass
 
 
 class ChrootPackageManager(object):
@@ -159,7 +163,6 @@ class ChrootPackageManager(object):
                 cachedir   = j(self.cachedir, pkgmgr, str(ver), "cache")
                 makedirs([persistdir, cachedir])
                 # /yumcache/(dnf|yum)/(ver)/lock
-                lock = lockfile(j(self.cachedir, pkgmgr, str(ver), "lock"))
                 # /chroot/var/(lib|cache)/(dnf|yum)
                 persistin, cachein = makedirs([
                     j(self.chroot, "tmp-%s-%s" % (pkgmgr, x))
@@ -177,6 +180,7 @@ class ChrootPackageManager(object):
             # /var/(lib|cache)/(dnf|yum)
             parms["persistdir"] = persistin[len(self.chroot):]
             parms["cachedir"] = cachein[len(self.chroot):]
+            lock = lockfile(j(self.cachedir, pkgmgr, str(ver), "lock"))
         else:
             lock = dummylock()
 
@@ -202,9 +206,9 @@ class ChrootPackageManager(object):
 
         pkgmgr, config, lock = self.grab_pm(method)
         try:
-            with lock:
                 try:
-                    cmdmod.check_call_no_output(in_chroot(["rpm", "-q"] + packages))
+                    with lock:
+                        cmdmod.check_call_no_output(in_chroot(["rpm", "-q"] + packages))
                     logger.info("All required packages are available")
                     return
                 except subprocess.CalledProcessError:
@@ -222,14 +226,16 @@ class ChrootPackageManager(object):
                         + packages
                     )
                     try:
-                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                        with lock:
+                            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
                     except RpmdbCorruptionError:
                         if method == "out_of_chroot":
                             # We do not support recovery in this case.
                             raise
                         logger.warning("Repairing RPMDB corruption before retrying package install...")
                         cmdmod.check_call(in_chroot(["rpm", "--rebuilddb"]))
-                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+                        with lock:
+                            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
                 return out, ret
         finally:
             self.ungrab_pm()

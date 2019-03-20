@@ -131,10 +131,6 @@ def get_output_exitcode(cmd, **kwargs):
     return output, retval
 
 
-if __name__ == "__main__":
-    print get_output_exitcode(["bash", "-c", "echo yes ; echo YFU >&2 ; false"])
-
-
 def Popen(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     cmd = args[0]
@@ -164,7 +160,7 @@ def _unlockf(f):
 
 
 def isbindmount(target):
-    f = file("/etc/mtab")
+    f = file("/etc/mtab", "ab")
     _lockf(f)
     try:
         mountpoints = [x.strip().split()[1].decode("string_escape") for x in f.readlines()]
@@ -277,14 +273,26 @@ def makedirs(ds):
     return ds
 
 
-@contextlib.contextmanager
-def lockfile(path):
-    logger.debug("Grabbing lock %s", path)
-    lf = _lockf(open(path, 'wb'))
-    logger.debug("Grabbed lock %s", path)
-    try:
-        yield lf
-    finally:
-        logger.debug("Releasing lock %s", path)
-        lf.close()
-        logger.debug("Released lock %s", path)
+class lockfile(object):
+    def __init__(self, path):
+        self.path = path
+        self.f = None
+
+    def __enter__(self):
+        logger.debug("Grabbing lock %s", self.path)
+        self.f = open(self.path, 'ab')
+        _lockf(self.f)
+        logger.debug("Grabbed lock %s", self.path)
+
+    def __exit__(self, *unused_args):
+        logger.debug("Releasing lock %s", self.path)
+        _unlockf(self.f)
+        self.f.close()
+        self.f = None
+        logger.debug("Released lock %s", self.path)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    with lockfile("lock") as f:
+        print f
