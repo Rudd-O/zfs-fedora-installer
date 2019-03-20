@@ -73,7 +73,6 @@ def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks,
 
 def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
 	def thisStageIdx = allStages.findIndexOf{ s -> s == thisStage }
-	def thisStage = allStages[thisStageIdx]
 	def nextStage = allStages[thisStageIdx + 1]
 	def paramShortCircuitIdx = allStages.findIndexOf{ s -> s == paramShortCircuit }
 	def paramBreakBeforeIdx = allStages.findIndexOf{ s -> s == paramBreakBefore }
