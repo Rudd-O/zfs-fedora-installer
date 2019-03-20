@@ -55,7 +55,7 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 			--chown="\$USER" \\
 			--chgrp=`groups | cut -d " " -f 1` \\
 			--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
-			root-${pname}.img
+			root-${pname}.img >&2
 		ret="\$?"
 		#>&2 echo ==============Diagnostics==================
 		#>&2 sudo zpool list || true
