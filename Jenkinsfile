@@ -233,7 +233,6 @@ pipeline {
 						}
 						return {
 							node('fedorazfs') {
-                                                            timestamps {
 								lock("activatezfs") {
 								stage("Install deps ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
@@ -320,7 +319,6 @@ pipeline {
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
                                                                          params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
-                                                            }
 							}
 						}
 					}
