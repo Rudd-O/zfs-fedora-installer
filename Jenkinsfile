@@ -79,7 +79,8 @@ def runStage(pname, myBuildFrom, stage, allStages, paramShortCircuit, paramBreak
 	def thisStage = allStages[thisStageIdx]
 	def nextStage = allStages[nextStageIdx]
 	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
-	stage("${thisStage.capitalize().replace('_', ' ')}") {
+        def stageName = thisStage.capitalize().replace('_', ' ')
+	stage("${stageName}") {
 		when (whenCond) {
 		//timeout(time: timeout, unit: 'MINUTES') {
 			def program = runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks, mySeparateBoot, myRelease)
