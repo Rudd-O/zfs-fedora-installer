@@ -293,7 +293,7 @@ pipeline {
 										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 									}
 								}
-								timeout(15) {
+								timeout(30) {
 								runStage("beginning",
 									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
 									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
