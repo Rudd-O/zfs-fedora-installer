@@ -80,7 +80,7 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 	def stageName = thisStage.toString().capitalize().replace('_', ' ')
 	stage("${stageName}") {
 		when (whenCond) {
-                    timeout(time: funcs.toInt(timeout), unit: 'MINUTES') {
+                    timeout(timeout) {
 			def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
