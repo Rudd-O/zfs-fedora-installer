@@ -71,12 +71,11 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 	return program
 }
 
-def runStage(pname, myBuildFrom, stage, allStages, paramShortCircuit, paramBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
-	def thisStageIdx = allStages.findIndexOf{ it == stage }
+def runStage(pname, myBuildFrom, thisStage, allStages, paramShortCircuit, paramBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
+	def thisStageIdx = allStages.findIndexOf{ it == thisStage }
 	def nextStageIdx = thisStageIdx + 1
 	def paramShortCircuitIdx = allStages.findIndexOf{ it == paramShortCircuit }
 	def paramBreakBeforeIdx = allStages.findIndexOf{ it == paramBreakBefore }
-	def thisStage = allStages[thisStageIdx]
 	def nextStage = allStages[nextStageIdx]
 	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
         def stageName = thisStage.toString().capitalize().replace('_', ' ')
