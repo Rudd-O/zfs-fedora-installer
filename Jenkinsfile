@@ -71,7 +71,7 @@ def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks,
 	return program
 }
 
-def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, Integer timeout) {
+def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeoutClosure) {
 	def thisStageIdx = allStages.findIndexOf{ s -> s == thisStage }
 	def nextStage = allStages[thisStageIdx + 1]
 	def paramShortCircuitIdx = allStages.findIndexOf{ s -> s == paramShortCircuit }
@@ -80,7 +80,7 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 	def stageName = thisStage.toString().capitalize().replace('_', ' ')
 	stage("${stageName}") {
 		when (whenCond) {
-                    timeout (timeout) {
+                    timeoutClosure {
 			def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
@@ -288,7 +288,7 @@ pipeline {
 								}
 								runStage("beginning",
 									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout(15))
 								runStage("reload_chroot",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
 									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
