@@ -79,7 +79,7 @@ def runStage(pname, myBuildFrom, stage, allStages, paramShortCircuit, paramBreak
 	def thisStage = allStages[thisStageIdx]
 	def nextStage = allStages[nextStageIdx]
 	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
-        def stageName = thisStage.capitalize().replace('_', ' ')
+        def stageName = thisStage.toString().capitalize().replace('_', ' ')
 	stage("${stageName}") {
 		when (whenCond) {
 		//timeout(time: timeout, unit: 'MINUTES') {
