@@ -1340,7 +1340,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     "zlib-devel", "libuuid-devel", "bc", "libblkid-devel",
                     "libattr-devel", "lsscsi", "mdadm", "parted",
                     "libudev-devel", "libtool", "openssl-devel",
-                    "make", "automake", "libtirpc-devel",
+                    "make", "automake", "libtirpc-devel", "libffi-devel",
                 ],
             ),
         ):

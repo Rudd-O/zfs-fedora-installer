@@ -96,20 +96,15 @@ class dummylock(object):
         pass
 
 
-class ChrootPackageManager(object):
-
-    chroot = None
-    cachedir = None
+class BasePackageManager(object):
 
     cachemounts = None
     pkgmgr_config = None
 
-    def __init__(self, chroot, releasever, cachedir=None):
-        self.releasever = releasever
+    cachedir = None
+
+    def __init__(self):
         self.myreleasever = self.get_my_releasever()
-        self.chroot = chroot
-        self.cachemounts = []
-        self.cachedir = None if cachedir is None else os.path.abspath(cachedir)
 
     @staticmethod
     def get_my_releasever():
@@ -200,6 +195,18 @@ class ChrootPackageManager(object):
             self.pkgmgr_config.close()
             self.pkgmgr_config = None
 
+
+class ChrootPackageManager(BasePackageManager):
+
+    chroot = None
+
+    def __init__(self, chroot, releasever, cachedir=None):
+        BasePackageManager.__init__(self)
+        self.releasever = releasever
+        self.chroot = chroot
+        self.cachemounts = []
+        self.cachedir = None if cachedir is None else os.path.abspath(cachedir)
+
     def ensure_packages_installed(self, packages, method="in_chroot"):
         def in_chroot(lst):
             return ["chroot", self.chroot] + lst
@@ -277,15 +284,16 @@ class ChrootPackageManager(object):
             self.ungrab_pm()
 
 
-class SystemPackageManager(object):
+class SystemPackageManager(BasePackageManager):
 
     def __init__(self):
+        BasePackageManager.__init__(self)
         if os.path.exists("/etc/dnf/dnf.conf"):
             self.strategy = "dnf"
         else:
             self.strategy = "yum"
 
-    def ensure_packages_installed(self, packages, method="in_chroot"):
+    def ensure_packages_installed(self, packages, method="out_of_chroot"):
         logger.info("Checking packages are available: %s", packages)
         try:
             cmdmod.check_call_no_output(["rpm", "-q"] + packages)
@@ -305,15 +313,12 @@ class SystemPackageManager(object):
         return out, ret
 
     def install_local_packages(self, packages):
-        def in_chroot(lst):
-            return ["chroot", self.chroot] + lst
-
         packages = [ os.path.abspath(p) for p in packages ]
         for package in packages:
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
 
-        pkgmgr, config, lock = self.grab_pm("in_chroot")
+        pkgmgr, config, lock = self.grab_pm("out_of_chroot")
         try:
             with lock:
                 for option, retries in options_retries:
