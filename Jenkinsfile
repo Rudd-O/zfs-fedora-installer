@@ -25,7 +25,7 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 	}
 	def myShortCircuit = "--short-circuit=${thisStage}"
 	def myBreakBefore = ""
-	if (nextStage != "") {
+	if (nextStage != null) {
 		myBreakBefore = "--break-before=${nextStage}"
 	}
 	def program = """
@@ -71,14 +71,16 @@ def runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks,
 	return program
 }
 
-def runStage(pname, myBuildFrom, stagesLeft, paramShortCircuit, paramBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
-	def thisStage = stagesLeft[0]
-	def nextStage = ""
-	if (stagesLeft.length > 1) {
-		next = stagesLeft[1]
-	}
-	stage("${stagesLeft[0].capitalize().replace('_', ' ')}") {
-		when (paramShortCircuit == "" || stagesLeft.contains(paramShortCircuit)) {
+def runStage(pname, myBuildFrom, stage, allStages, paramShortCircuit, paramBreakBefore, mySourceBranch, myLuks, mySeparateBoot, myRelease, timeout) {
+	def thisStageIdx = allStages.findIndexOf{ it == stage }
+	def nextStageIdx = thisStageIdx + 1
+	def paramShortCircuitIdx = allStages.findIndexOf{ it == paramShortCircuit }
+	def paramBreakBeforeIdx = allStages.findIndexOf{ it == paramBreakBefore }
+	def thisStage = allStages[thisStageIdx]
+	def nextStage = allStages[nextStageIdx]
+	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
+	stage("${thisStage.capitalize().replace('_', ' ')}") {
+		when (whenCond) {
 		//timeout(time: timeout, unit: 'MINUTES') {
 			def program = runProgram(pname, myBuildFrom, thisStage, nextStage, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
@@ -285,15 +287,25 @@ pipeline {
 										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
 									}
 								}
-								runStage(pname, myBuildFrom, String[] ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+								runStage(pname, myBuildFrom,
+                                                                         "beginning",
+									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
+								runStage(pname, myBuildFrom,
+                                                                         "reload_chroot",
+                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+									params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
+								runStage(pname, myBuildFrom,
+                                                                         "bootloader_install"
+                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
                                                                          params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
-								runStage(pname, myBuildFrom, String[] ["reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
-								runStage(pname, myBuildFrom, String[] ["bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
-								runStage(pname, myBuildFrom, String[] ["boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+								runStage(pname, myBuildFrom,
+                                                                         "boot_to_test_non_hostonly",
+                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
                                                                          params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
-								runStage(pname, myBuildFrom, String[] ["boot_to_test_hostonly"],
+								runStage(pname, myBuildFrom,
+                                                                         "boot_to_test_hostonly",
+                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
                                                                          params.SHORT_CIRCUIT, params.BREAK_BEFORE, mySourceBranch, myLuks, mySeparateBoot, myRelease, 10)
 							}
 						}
