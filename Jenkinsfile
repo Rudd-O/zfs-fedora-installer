@@ -292,7 +292,7 @@ pipeline {
 								runStage("reload_chroot",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
 									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 5)
-								runStage("bootloader_install"
+								runStage("bootloader_install",
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
                                                                          params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, 15)
 								runStage("boot_to_test_non_hostonly",
