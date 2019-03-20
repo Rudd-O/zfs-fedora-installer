@@ -36,7 +36,7 @@ BASE_PACKAGES = ("basesystem rootfiles bash nano binutils rsync NetworkManager "
                  "libseccomp util-linux sed pciutils").split()
 BASIC_FORMAT = '%(asctime)8s  %(levelname)2s  %(message)s'
 TRACE_FORMAT = '%(asctime)8s  %(levelname)2s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s'
-qemu_timeout = 180
+qemu_timeout = 360
 
 
 def log_config(trace_file=None):
