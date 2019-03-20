@@ -281,7 +281,9 @@ pipeline {
                                                                         }
 								}
 								stage("Unstash") {
-									unstash "zfs-fedora-installer"
+									when (params.SHORT_CIRCUIT == "") {
+										unstash "zfs-fedora-installer"
+									}
 								}
 								stage("Remove old image") {
 									when (params.SHORT_CIRCUIT == "") {
