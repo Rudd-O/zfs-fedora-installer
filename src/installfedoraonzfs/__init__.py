@@ -945,11 +945,14 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     mayhapszfsko = check_output(["lsinitrd", initrd])
                 else:
                     mayhapszfsko = ""
-                # At this point, we regenerate the initrds.
+                # At this point, we regenerate the initrd, if it does not have zfs.ko.
                 if "zfs.ko" not in mayhapszfsko:
                     check_call(in_chroot(["dracut", "-Nf", q(initrd), kver]))
                     for l in check_output(["lsinitrd", initrd]).splitlines(False):
                         logging.debug("initramfs: %s", l)
+                mayhapszfsko = check_output(["lsinitrd", initrd])
+                if "zfs.ko" not in mayhapszfsko:
+                    assert 0, 'Invalid initramfs %s' % initrd
 
                 # Kill the resolv.conf file written only to install packages.
                 if os.path.isfile(p(j("etc", "resolv.conf"))):
@@ -1066,6 +1069,9 @@ cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
 
+rm -f /etc/zfs/zpool.cache
+zpool set cachefile=/etc/zfs/zpool.cache "{poolname}"
+ls -la /etc/zfs/zpool.cache
 zfs inherit com.sun:auto-snapshot "{poolname}"
 
 /usr/sbin/genhomedircon
