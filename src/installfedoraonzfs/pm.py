@@ -27,6 +27,8 @@ def check_call_detect_rpmdberror(cmd):
     out, ret = cmdmod.get_output_exitcode(cmd)
     if ret != 0 and ("Rpmdb checksum is invalid" in out
                      or "Thread died in Berkeley DB library" in out
+                     or "environment reference count went negative" in out
+                     or "error: rpmdb" in out
                      or "You probably have corrupted RPMDB" in out):
         raise RpmdbCorruptionError(ret, cmd, output=out)
     elif ret != 0 and "--downloadonly" in cmd:
