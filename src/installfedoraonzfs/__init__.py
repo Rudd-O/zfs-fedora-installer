@@ -1053,7 +1053,6 @@ cp /boot/efi/EFI/fedora/grubenv /boot/grub2/grubenv
 chmod 644 /boot/grub2/grubenv
 set -x
 grub2-install --target=i386-pc /dev/sda
-grub2-install --target=x86_64-efi /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
 cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
 sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
