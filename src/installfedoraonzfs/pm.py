@@ -327,9 +327,9 @@ class SystemPackageManager(BasePackageManager):
             logger.info("Installing packages %s: %s", option, ", ".join(packages))
             cmd = (
                 [self.strategy]
-                + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                + (['localinstall'] if self.strategy == "yum" else ['install'])
                 + ['-y']
-                + (['--'] if pkgmgr == "yum" else [])
+                + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
             out, ret = check_call_detect_rpmdberror(cmd)
