@@ -37,7 +37,7 @@ WILDCARD = "*"
 class CmdInteractionTest(unittest.TestCase):
 
     def test_rpmdb_corruption_is_retryable(self):
-        f = pm.check_call_retry_rpmdberror
+        f = pm.check_call_detect_rpmdberror
         self.assertRaises(
             pm.RpmdbCorruptionError,
             lambda: f(["bash", "-c", "echo You probably have corrupted RPMDB, running 'rpm --rebuilddb' might fix the issue.; false"]),
@@ -45,6 +45,10 @@ class CmdInteractionTest(unittest.TestCase):
         self.assertRaises(
             pm.RpmdbCorruptionError,
             lambda: f(["bash", "-c", "echo Rpmdb checksum is invalid: blah; false"]),
+        )
+        self.assertRaises(
+            pm.RpmdbCorruptionError,
+            lambda: f(["bash", "-c", "echo Thread died in Berkeley DB library; false"]),
         )
 
 
@@ -64,18 +68,20 @@ class TestEnsurePackagesInstalled(unittest.TestCase):
 
     def testRpmdbCorruptionIsRetried(self):
         expected = [
-            ["chroot", WILDCARD, "dnf", "install", "-qy", "--downloadonly",
+            ["chroot", WILDCARD, "dnf", "install", "-y", "--downloadonly",
               "-c", WILDCARD, "/basesystem.rpm"],
-            ["chroot", WILDCARD, "dnf", "install", "-qy",
+            ["chroot", WILDCARD, "dnf", "install", "-y",
               "-c", WILDCARD, "/basesystem.rpm"],
+            ["chroot", WILDCARD, "bash", "-c", "rm -f /var/lib/rpm/__db*"],
             ["chroot", WILDCARD, "rpm", "--rebuilddb"],
-            ["chroot", WILDCARD, "dnf", "install", "-qy",
+            ["chroot", WILDCARD, "dnf", "install", "-y",
               "-c", WILDCARD, "/basesystem.rpm"],
         ]
         behaviors = [
             ('', 0),
             pm.RpmdbCorruptionError(1, [], ''),
             None,
+            ('', 0),
             ('', 0),
         ]
         results, fun = mock_check_call_no_output(behaviors)
@@ -94,7 +100,7 @@ class TestEnsurePackagesInstalled(unittest.TestCase):
                                 None
                             )
                             c.install_local_packages([tmpd + "/basesystem.rpm"])
-        assert len(expected) == len(results), (expected, results)
+        assert len(expected) == len(results), (str(expected) + "\n" + str(results))
         for exp, res in zip(expected, results):
             self.assertListEqual(exp, res)
 
@@ -144,9 +150,9 @@ for release in (23, 25, 27):
             ],
             [
                 ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["chroot", WILDCARD, "dnf", "install", "-qy", "--disableplugin=*qubes*",
+                ["chroot", WILDCARD, "dnf", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD, "--downloadonly", "basesystem"],
-                ["chroot", WILDCARD, "dnf", "install", "-qy", "--disableplugin=*qubes*",
+                ["chroot", WILDCARD, "dnf", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD, "basesystem"],
             ]
         ),
@@ -162,10 +168,10 @@ for release in (23, 25, 27):
             ],
             [
                 ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["dnf", "install", "-qy", "--disableplugin=*qubes*",
+                ["dnf", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD, "--downloadonly",
                   WILDCARD, "--releasever={0}", "basesystem"],
-                ["dnf", "install", "-qy", "--disableplugin=*qubes*",
+                ["dnf", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD,
                   WILDCARD, "--releasever={0}", "basesystem"],
             ]
@@ -182,9 +188,9 @@ for release in (23, 25, 27):
             ],
             [
                 ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["chroot", WILDCARD, "yum", "install", "-qy", "--disableplugin=*qubes*",
+                ["chroot", WILDCARD, "yum", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD, "--downloadonly", "--", "basesystem"],
-                ["chroot", WILDCARD, "yum", "install", "-qy", "--disableplugin=*qubes*",
+                ["chroot", WILDCARD, "yum", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD, "--", "basesystem"],
             ]
         ),
@@ -200,10 +206,10 @@ for release in (23, 25, 27):
             ],
             [
                 ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["yum", "install", "-qy", "--disableplugin=*qubes*",
+                ["yum", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD, "--downloadonly",
                   WILDCARD, "--releasever={0}", "--", "basesystem"],
-                ["yum", "install", "-qy", "--disableplugin=*qubes*",
+                ["yum", "install", "-y", "--disableplugin=*qubes*",
                   "-c", WILDCARD,
                   WILDCARD, "--releasever={0}", "--", "basesystem"],
             ]

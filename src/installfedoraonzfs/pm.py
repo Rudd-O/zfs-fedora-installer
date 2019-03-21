@@ -23,9 +23,10 @@ class RpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): p
 class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError): pass
 
 
-def check_call_retry_rpmdberror(cmd):
+def check_call_detect_rpmdberror(cmd):
     out, ret = cmdmod.get_output_exitcode(cmd)
     if ret != 0 and ("Rpmdb checksum is invalid" in out
+                     or "Thread died in Berkeley DB library" in out
                      or "You probably have corrupted RPMDB" in out):
         raise RpmdbCorruptionError(ret, cmd, output=out)
     elif ret != 0 and "--downloadonly" in cmd:
@@ -35,9 +36,27 @@ def check_call_retry_rpmdberror(cmd):
     return out, ret
 
 
-# We do not do retries when there is RPMDB corruption or depsolve issues.
-# We only do retries when we have been asked to do --downloadonly.
-options_retries = ((["--downloadonly"], 5), ([], 0))
+def run_and_repair(cmd, method, chroot, in_chroot, lock):
+    try:
+        with lock:
+            out, ret = check_call_detect_rpmdberror(cmd)
+    except RpmdbCorruptionError:
+        logger.warning("Repairing RPMDB corruption before retrying package install...")
+        if method == "out_of_chroot":
+            # We do not support recovery in this case.
+            with lock:
+                cmdmod.check_call(["bash", "-c", "rm -f %s/var/lib/rpm/__db*" % pipes.quote(chroot)])
+                cmdmod.check_call(["rpmdb", "--rebuilddb", "--root=%s" % chroot])
+                out, ret = check_call_detect_rpmdberror(cmd)
+        else:
+            with lock:
+                cmdmod.check_call(in_chroot(["bash", "-c", "rm -f /var/lib/rpm/__db*"]))
+                cmdmod.check_call(in_chroot(["rpm", "--rebuilddb"]))
+                out, ret = check_call_detect_rpmdberror(cmd)
+    return out, ret
+
+
+options_ = (["--downloadonly"], [])
 
 
 logger = logging.getLogger("PM")
@@ -213,37 +232,27 @@ class ChrootPackageManager(BasePackageManager):
 
         pkgmgr, config, lock = self.grab_pm(method)
         try:
-                try:
-                    with lock:
-                        cmdmod.check_call_no_output(in_chroot(["rpm", "-q"] + packages))
-                    logger.info("All required packages are available")
-                    return
-                except subprocess.CalledProcessError:
-                    pass
-                for option, retries in options_retries:
-                    logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
-                    cmd = (
-                        ([pkgmgr] if method == "out_of_chroot" else in_chroot([pkgmgr]))
-                        + ["install", "-y", "--disableplugin=*qubes*"]
-                        + (["-c", config.name if method == "out_of_chroot" else config.name[len(self.chroot):]])
-                        + option
-                        + (['--installroot=%s' % self.chroot,
-                            '--releasever=%d' % self.releasever] if method == "out_of_chroot" else [])
-                        + (['--'] if pkgmgr == "yum" else [])
-                        + packages
-                    )
-                    try:
-                        with lock:
-                            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
-                    except RpmdbCorruptionError:
-                        if method == "out_of_chroot":
-                            # We do not support recovery in this case.
-                            raise
-                        logger.warning("Repairing RPMDB corruption before retrying package install...")
-                        cmdmod.check_call(in_chroot(["rpm", "--rebuilddb"]))
-                        with lock:
-                            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
-                return out, ret
+            try:
+                with lock:
+                    cmdmod.check_call_no_output(in_chroot(["rpm", "-q"] + packages))
+                logger.info("All required packages are available")
+                return
+            except subprocess.CalledProcessError:
+                pass
+            for option in options_:
+                logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
+                cmd = (
+                    ([pkgmgr] if method == "out_of_chroot" else in_chroot([pkgmgr]))
+                    + ["install", "-y", "--disableplugin=*qubes*"]
+                    + (["-c", config.name if method == "out_of_chroot" else config.name[len(self.chroot):]])
+                    + option
+                    + (['--installroot=%s' % self.chroot,
+                        '--releasever=%d' % self.releasever] if method == "out_of_chroot" else [])
+                    + (['--'] if pkgmgr == "yum" else [])
+                    + packages
+                )
+                out, ret = run_and_repair(cmd, method, self.chroot, in_chroot, lock)
+            return out, ret
         finally:
             self.ungrab_pm()
 
@@ -260,26 +269,20 @@ class ChrootPackageManager(BasePackageManager):
 
         pkgmgr, config, lock = self.grab_pm("in_chroot")
         try:
-            with lock:
-                # always happens in chroot
-                # packages must be a list of paths to RPMs valid within the chroot
-                for option, retries in options_retries:
-                    logger.info("Installing packages %s: %s", option, ", ".join(packages))
-                    cmd = in_chroot(
-                        [pkgmgr]
-                        + (['localinstall'] if pkgmgr == "yum" else ['install'])
-                        + ['-y']
-                        + option
-                        + ['-c', config.name[len(self.chroot):]]
-                        + (['--'] if pkgmgr == "yum" else [])
-                    ) + [ p[len(self.chroot):] for p in packages ]
-                    try:
-                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
-                    except RpmdbCorruptionError:
-                        logger.warning("Repairing RPMDB corruption before retrying package install...")
-                        cmdmod.check_call(in_chroot(["rpm", "--rebuilddb"]))
-                        out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
-                return out, ret
+            # always happens in chroot
+            # packages must be a list of paths to RPMs valid within the chroot
+            for option in options_:
+                logger.info("Installing packages %s: %s", option, ", ".join(packages))
+                cmd = in_chroot(
+                    [pkgmgr]
+                    + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                    + ['-y']
+                    + option
+                    + ['-c', config.name[len(self.chroot):]]
+                    + (['--'] if pkgmgr == "yum" else [])
+                ) + [ p[len(self.chroot):] for p in packages ]
+                out, ret = run_and_repair(cmd, "in_chroot", self.chroot, in_chroot, lock)
+            return out, ret
         finally:
             self.ungrab_pm()
 
@@ -301,7 +304,7 @@ class SystemPackageManager(BasePackageManager):
             return
         except subprocess.CalledProcessError:
             pass
-        for option, retries in options_retries:
+        for option in options_:
             logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
             cmd = (
                 [self.strategy, 'install', '-y']
@@ -309,7 +312,7 @@ class SystemPackageManager(BasePackageManager):
                 + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
-            out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
+            out, ret = check_call_detect_rpmdberror(cmd)
         return out, ret
 
     def install_local_packages(self, packages):
@@ -318,22 +321,17 @@ class SystemPackageManager(BasePackageManager):
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
 
-        pkgmgr, config, lock = self.grab_pm("out_of_chroot")
-        try:
-            with lock:
-                for option, retries in options_retries:
-                    logger.info("Installing packages %s: %s", option, ", ".join(packages))
-                    cmd = (
-                        [self.strategy]
-                        + (['localinstall'] if pkgmgr == "yum" else ['install'])
-                        + ['-y']
-                        + (['--'] if pkgmgr == "yum" else [])
-                        + packages
-                    )
-                    out, ret = retrymod.retry(retries)(check_call_retry_rpmdberror)(cmd)
-                return out, ret
-        finally:
-            self.ungrab_pm()
+        for option in options_:
+            logger.info("Installing packages %s: %s", option, ", ".join(packages))
+            cmd = (
+                [self.strategy]
+                + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                + ['-y']
+                + (['--'] if pkgmgr == "yum" else [])
+                + packages
+            )
+            out, ret = check_call_detect_rpmdberror(cmd)
+        return out, ret
 
 
 def get_parser():

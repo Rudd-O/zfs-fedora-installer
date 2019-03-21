@@ -1050,6 +1050,15 @@ do
     echo -n "#" >> /boot/grub2/grubenv
 done
 chmod 644 /boot/grub2/grubenv
+# Copy the grubenv file to the EFI directory.
+# UEFI GRUB manages its grubenv separate from BIOS GRUB.
+# It is recommended for systems that only boot from UEFI
+# to make /boot/grub2/grubenv into a symlink to
+# /boot/efi/EFI/fedora/grubenv -- but we cannot do that
+# ourselves because then GRUB's savedefault feature would
+# not function in BIOS boot scenarios, and this is
+# intended to boot both in BIOS and in UEFI machines.
+cp -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
 set -x
 grub2-install --target=i386-pc /dev/sda
 grub2-mkconfig -o /boot/grub2/grub.cfg
