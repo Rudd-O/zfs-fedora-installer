@@ -1043,13 +1043,12 @@ ln -sf /proc/self/mounts /etc/mtab
 mount
 
 rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
-echo "# GRUB Environment Block" > /boot/efi/EFI/fedora/grubenv
+echo "# GRUB Environment Block" > /boot/grub2/grubenv
 set +x
 for x in `seq 999`
 do
-    echo -n "#" >> /boot/efi/EFI/fedora/grubenv
+    echo -n "#" >> /boot/grub2/grubenv
 done
-cp /boot/efi/EFI/fedora/grubenv /boot/grub2/grubenv
 chmod 644 /boot/grub2/grubenv
 set -x
 grub2-install --target=i386-pc /dev/sda
