@@ -108,7 +108,7 @@ class BasePackageManager(object):
 
     @staticmethod
     def get_my_releasever():
-        return int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
+        return int(check_output(["grep", "-oP", "(?<=VERSION_ID=)[^ ]*", "/usr/lib/os-release"]))
 
     def grab_pm(self, method):
         if self.cachemounts or self.pkgmgr_config:
