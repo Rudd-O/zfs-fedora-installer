@@ -1306,69 +1306,15 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
         if break_before == "install_grub_zfs_fixer":
             raise BreakingBefore(break_before)
 
-        for project, patterns in (
+        for project, patterns, keystonepkgs, mindeps in (
             (
                 "grub-zfs-fixer",
                 (
-                    "RPMS/%s/*.%s.rpm" % ("noarch", "noarch"),
-                    "RPMS/*.%s.rpm" % ("noarch",),
+                    "grub-zfs-fixer-*.noarch.rpm",
                 ),
+                ('grub-zfs-fixer',),
+                [],
             ),
-        ):
-            grubzfsfixerpath = j(os.path.dirname(__file__), os.path.pardir, os.path.pardir, "grub-zfs-fixer")
-            class FixerNotInstalledYet(Exception): pass
-            try:
-                logging.info("Checking if %s has the GRUB ZFS fixer installed", project)
-                try:
-                    fixerlines = file(j(grubzfsfixerpath, "grub-zfs-fixer.spec")).readlines()
-                    fixerversion = [ x.split()[1] for x in fixerlines if x.startswith("Version:") ][0]
-                    fixerrelease = [ x.split()[1] for x in fixerlines if x.startswith("Release:") ][0]
-                    check_output(in_chroot([
-                        "rpm",
-                        "-q",
-                        "grub-zfs-fixer-%s-%s" % (fixerversion, fixerrelease)
-                    ]))
-                except subprocess.CalledProcessError:
-                    raise FixerNotInstalledYet()
-            except FixerNotInstalledYet:
-                logging.info("%s does not have the GRUB ZFS fixer, building", project)
-                project_dir = p(j("usr","src",project))
-                def getrpms(pats, directory):
-                    therpms = [
-                        rpmfile
-                        for pat in pats
-                        for rpmfile in glob.glob(j(directory, pat))
-                        if stringtoexclude not in os.path.basename(rpmfile)
-                    ]
-                    return therpms
-                files_to_install = getrpms(patterns, project_dir)
-                if not files_to_install:
-                    if not os.path.isdir(project_dir):
-                        os.mkdir(project_dir)
-
-                    pkgmgr.ensure_packages_installed(
-                        [
-                            "rpm-build", "tar", "gzip",
-                        ],
-                    )
-                    logging.info("Tarring %s tarball", project)
-                    check_call(['tar', 'cvzf', j(project_dir, "%s.tar.gz" % project), project],
-                                cwd=j(grubzfsfixerpath, os.path.pardir))
-                    logging.info("Building project: %s", project)
-                    project_dir_in_chroot = project_dir[len(p(""))-1:]
-                    check_call(in_chroot(["rpmbuild", "--define", "_topdir %s"%(project_dir_in_chroot,), "-ta", j(project_dir_in_chroot,"%s.tar.gz" % project)]))
-                    files_to_install = getrpms(patterns, project_dir)
-
-                logging.info("Installing built RPMs: %s", files_to_install)
-                pkgmgr.install_local_packages(files_to_install)
-
-        # Check we have a patched grub2-mkconfig.
-        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
-        mkconfig_text = file(mkconfig_file).read()
-        if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
-            raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
-
-        for project, patterns, keystonepkgs, mindeps in (
             (
                 "zfs",
                 (
@@ -1412,7 +1358,9 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     return therpms
                 files_to_install = getrpms(patterns, project_dir)
                 if not files_to_install:
-                    if not os.path.isdir(project_dir):
+                    if os.path.isdir(project_dir):
+                        check_call("git pull".split(), cwd=project_dir)
+                    else:
                         repo = "https://github.com/Rudd-O/%s" % project
                         logging.info("Cloning git repository: %s", repo)
                         cmd = ["git", "clone", repo, project_dir]
@@ -1422,24 +1370,38 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                         cmd = ["git", "--no-pager", "show"]
                         check_call(cmd, cwd= project_dir)
 
-                    pkgmgr.ensure_packages_installed(mindeps)
+                    if mindeps:
+                        pkgmgr.ensure_packages_installed(mindeps)
 
                     logging.info("Building project: %s", project)
-                    cores = multiprocessing.cpu_count()
-                    cmd = in_chroot(["bash", "-c",
-                        (
+                    if project == "zfs":
+                        cores = multiprocessing.cpu_count()
+                        cmd = (
                             "cd /usr/src/%s && "
                             "./autogen.sh && "
                             "./configure --with-config=user && "
                             "make -j%s rpm-utils && "
                             "make -j%s rpm-dkms" % (project, cores, cores)
                         )
-                    ])
+                    elif project == "grub-zfs-fixer":
+                        cmd = (
+                            "cd /usr/src/%s && "
+                            "make rpm" % (project,)
+                        )
+                    else:
+                        assert 0, "not reached"
+                    cmd = in_chroot(["bash", "-c", cmd])
                     check_call(cmd)
                     files_to_install = getrpms(patterns, project_dir)
 
                 logging.info("Installing built RPMs: %s", files_to_install)
                 pkgmgr.install_local_packages(files_to_install)
+
+        # Check we have a patched grub2-mkconfig.
+        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
+        mkconfig_text = file(mkconfig_file).read()
+        if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
+            raise ZFSBuildFailure("expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?" % mkconfig_file)
 
         # Check we have a ZFS.ko for at least one kernel.
         modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko*"))
