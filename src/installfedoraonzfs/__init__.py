@@ -955,7 +955,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         logging.debug("initramfs: %s", l)
                 mayhapszfsko = check_output(["lsinitrd", initrd])
                 if "zfs.ko" not in mayhapszfsko:
-                    assert 0, 'Invalid initramfs %s' % initrd
+                    assert 0, 'ZFS kernel module was not found in the initramfs %s -- perhaps it failed to build.' % initrd
 
                 # Kill the resolv.conf file written only to install packages.
                 if os.path.isfile(p(j("etc", "resolv.conf"))):
