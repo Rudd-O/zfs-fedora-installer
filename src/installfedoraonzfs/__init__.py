@@ -218,7 +218,7 @@ def get_run_command_parser():
     )
     parser.add_argument(
         "--workdir", dest="workdir",
-        action="store", default='/var/lib/zfs-fedora-installer',
+        action="store", default='/run/zfs-fedora-installer',
         help="use this directory as a working (scratch) space for the mount points of the created pool"
     )
     parser.add_argument(
