@@ -1369,7 +1369,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                 check_call(in_chroot(["rpm", "-q"] + list(keystonepkgs)),
                                     stdout=file(os.devnull,"w"), stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError:
-                logging.info("Package %s-dkms is not installed, building", project)
+                logging.info("Packages %s are not installed, building", keystonepkgs)
                 project_dir = p(j("usr","src",project))
                 def getrpms(pats, directory):
                     therpms = [
@@ -1382,6 +1382,8 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                 files_to_install = getrpms(patterns, project_dir)
                 if not files_to_install:
                     if os.path.isdir(project_dir):
+                        cmd = ["git", "checkout", branch]
+                        check_call(cmd, cwd= project_dir)
                         check_call("git pull".split(), cwd=project_dir)
                     else:
                         repo = "https://github.com/Rudd-O/%s" % project
