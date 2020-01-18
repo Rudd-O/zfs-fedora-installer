@@ -895,12 +895,15 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     retcode = pw.wait()
                     if retcode != 0: raise subprocess.CalledProcessError(retcode, cmd)
 
-                deploy_zfs_in_machine(p=p,
-                                    in_chroot=in_chroot,
-                                    pkgmgr=pkgmgr,
-                                    prebuilt_rpms_path=prebuilt_rpms_path,
-                                    branch=branch,
-                                    break_before=break_before,)
+                deploy_zfs_in_machine(
+                    p=p,
+                    in_chroot=in_chroot,
+                    pkgmgr=pkgmgr,
+                    prebuilt_rpms_path=prebuilt_rpms_path,
+                    branch=branch,
+                    break_before=break_before,
+                    install_current_kernel_devel=False,
+                )
 
                 # release disk space now that installation is done
                 for pkgm in ('dnf', 'yum'):
@@ -1248,7 +1251,8 @@ def install_fedora_on_zfs():
 
 
 def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
-                          prebuilt_rpms_path, break_before):
+                          prebuilt_rpms_path, break_before,
+                          install_current_kernel_devel):
     arch = platform.machine()
     stringtoexclude = "debuginfo"
     stringtoexclude2 = "debugsource"
@@ -1305,6 +1309,17 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
         # check for stage stop
         if break_before == "install_grub_zfs_fixer":
             raise BreakingBefore(break_before)
+
+        # kernel devel
+        if install_current_kernel_devel:
+            uname_r = check_output(in_chroot("uname -r".split())).strip()
+            if "pvops.qubes" in uname_r:
+                assert 0, (
+                    "Installation on non-HVM Qubes AppVMs is unsupported due to the unavailability of kernel-devel packages in-VM (kernel version %s).\n"
+                    "If you want to boot an AppVM as HVM, follow the instructions here: https://www.qubes-os.org/doc/managing-vm-kernel/#using-kernel-installed-in-the-vm ."
+                ) % (uname_r, )
+            pkgs = ["kernel-%s" % uname_r, "kernel-devel-%s" % uname_r]
+            pkgmgr.ensure_packages_installed(pkgs)
 
         for project, patterns, keystonepkgs, mindeps in (
             (
@@ -1422,12 +1437,15 @@ def deploy_zfs():
     pkgmgr = SystemPackageManager()
 
     try:
-        deploy_zfs_in_machine(p=p,
-                              in_chroot=in_chroot,
-                              pkgmgr=pkgmgr,
-                              prebuilt_rpms_path=args.prebuiltrpms,
-                              branch=args.branch,
-                              break_before=None,)
+        deploy_zfs_in_machine(
+            p=p,
+            in_chroot=in_chroot,
+            pkgmgr=pkgmgr,
+            prebuilt_rpms_path=args.prebuiltrpms,
+            branch=args.branch,
+            break_before=None,
+            install_current_kernel_devel=True,
+        )
     except BaseException:
         logging.exception("Unexpected error")
         raise
