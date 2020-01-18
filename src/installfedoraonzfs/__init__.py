@@ -1328,7 +1328,9 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     "grub-zfs-fixer-*.noarch.rpm",
                 ),
                 ('grub-zfs-fixer',),
-                [],
+                [
+                    "make", "rpm-build",
+                ],
                 "cd /usr/src/%s && make rpm" % ('grub-zfs-fixer',)
             ),
             (
