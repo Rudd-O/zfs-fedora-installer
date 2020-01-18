@@ -1321,7 +1321,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
             pkgs = ["kernel-%s" % uname_r, "kernel-devel-%s" % uname_r]
             pkgmgr.ensure_packages_installed(pkgs)
 
-        for project, patterns, keystonepkgs, mindeps in (
+        for project, patterns, keystonepkgs, mindeps, buildcmd in (
             (
                 "grub-zfs-fixer",
                 (
@@ -1329,6 +1329,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                 ),
                 ('grub-zfs-fixer',),
                 [],
+                "cd /usr/src/%s && make rpm" % ('grub-zfs-fixer',)
             ),
             (
                 "zfs",
@@ -1350,6 +1351,13 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     "make", "automake", "libtirpc-devel", "libffi-devel",
                     "python3-devel", "python3-cffi", "libaio-devel",
                 ],
+                (
+                    "cd /usr/src/%s && "
+                    "./autogen.sh && "
+                    "./configure --with-config=user && "
+                    "make -j%s rpm-utils && "
+                    "make -j%s rpm-dkms" % ('zfs', multiprocessing.cpu_count(), multiprocessing.cpu_count())
+                ),
             ),
         ):
             # check for stage stop
@@ -1389,23 +1397,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                         pkgmgr.ensure_packages_installed(mindeps)
 
                     logging.info("Building project: %s", project)
-                    if project == "zfs":
-                        cores = multiprocessing.cpu_count()
-                        cmd = (
-                            "cd /usr/src/%s && "
-                            "./autogen.sh && "
-                            "./configure --with-config=user && "
-                            "make -j%s rpm-utils && "
-                            "make -j%s rpm-dkms" % (project, cores, cores)
-                        )
-                    elif project == "grub-zfs-fixer":
-                        cmd = (
-                            "cd /usr/src/%s && "
-                            "make rpm" % (project,)
-                        )
-                    else:
-                        assert 0, "not reached"
-                    cmd = in_chroot(["bash", "-c", cmd])
+                    cmd = in_chroot(["bash", "-c", buildcmd])
                     check_call(cmd)
                     files_to_install = getrpms(patterns, project_dir)
 
