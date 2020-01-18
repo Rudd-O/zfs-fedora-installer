@@ -1341,7 +1341,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     "libzfs?-devel-[0123456789]*.%s.rpm" % arch,
                     "libzpool*.%s.rpm" % arch,
                     "zfs-[0123456789]*.%s.rpm" % arch,
-                    "zfs-dracut-*.%s.rpm" % arch,
+                    "zfs-dracut-*.noarch.rpm",
                 ),
                 ('zfs', 'zfs-dkms', 'zfs-dracut'),
                 [
