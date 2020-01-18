@@ -1201,7 +1201,7 @@ def install_fedora_on_zfs():
         print >> sys.stderr, "error: rsync is not available. Please use your package manager to install rsync."
         return 5
     if not test_zfs():
-        print >> sys.stderr, "error: ZFS is not installed properly. Please install https://github.com/Rudd-O/zfs and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        print >> sys.stderr, "error: ZFS is not installed properly. Please install ZFS with `deploy-zfs` and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
         return 5
     if not test_mkfs_ext4():
         print >> sys.stderr, "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
