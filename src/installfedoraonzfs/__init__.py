@@ -1218,8 +1218,8 @@ def install_fedora_on_zfs():
     if not test_yum():
         print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         return 5
-    if not test_qemu():
-        print >> sys.stderr, "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm)."
+    if not args.break_before and not test_qemu():
+        print >> sys.stderr, "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present)."
         return 5
     log_config(args.trace_file)
     try:
