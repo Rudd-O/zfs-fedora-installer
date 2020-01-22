@@ -204,6 +204,7 @@ pipeline {
 		stage('Parallelize') {
 			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
+			failFast true
 			steps {
 				script {
 					if (params.RELEASE != '') {
