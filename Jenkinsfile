@@ -265,6 +265,7 @@ pipeline {
 											returnStdout: true
 										).trim()
 										if (needsunstash != "MATCH") {
+											sh 'rm -rf -- out/'
 											unstash "rpms"
 										}
 										def program = '''
