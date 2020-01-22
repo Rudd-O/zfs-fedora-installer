@@ -115,8 +115,8 @@ pipeline {
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_RPMS', trim: true
 		string defaultValue: 'seed', description: '', name: 'POOL_NAME', trim: true
 		string defaultValue: 'seed.dragonfear', description: '', name: 'HOST_NAME', trim: true
-		string defaultValue: 'yes no', description: '', name: 'SEPARATE_BOOT', trim: true
-		string defaultValue: 'yes no', description: '', name: 'LUKS', trim: true
+		string defaultValue: 'yes', description: '', name: 'SEPARATE_BOOT', trim: true
+		string defaultValue: 'yes', description: '', name: 'LUKS', trim: true
 		string defaultValue: '', description: 'Stop before this stage.', name: 'BREAK_BEFORE', trim: true
 		string defaultValue: '', description: 'Start with this stage.  If this variable is defined, the disk images from prior builds will not be cleaned up prior to short-circuiting to this stage.', name: 'SHORT_CIRCUIT', trim: true
 		string defaultValue: '', description: "Override which Fedora releases to build for.  If empty, defaults to ${RELEASE}.", name: 'RELEASE', trim: true
@@ -145,11 +145,6 @@ pipeline {
 					env.GRUB_UPSTREAM_PROJECT = params.GRUB_UPSTREAM_PROJECT
 					if (funcs.isUpstreamCause(currentBuild)) {
 						def upstreamProject = funcs.getUpstreamProject(currentBuild)
-						if (env.BRANCH_NAME != "master") {
-							currentBuild.description = "Skipped test triggered by upstream job ${upstreamProject} because this test is from the ${env.BRANCH_NAME} branch of zfs-fedora-installer."
-							currentBuild.result = 'NOT_BUILT'
-							return
-						}
 						env.UPSTREAM_PROJECT = upstreamProject
 						env.SOURCE_BRANCH = ""
 						env.BUILD_FROM_SOURCE = "no"
@@ -198,10 +193,9 @@ pipeline {
 					fingerprintArtifacts: true,
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
-				sh 'for d in dist/RELEASE=* ; do cp -a dist/grub-zfs-fixer*rpm $d ; done'
-				sh 'find dist/RELEASE=* -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > rpmsums'
+				sh 'find out/*/*.rpm -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > rpmsums'
 				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
-				stash includes: 'dist/RELEASE=*/**', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*'
+				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*'
 				stash includes: 'rpmsums', name: 'rpmsums'
 				stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
 				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
