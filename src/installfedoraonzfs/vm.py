@@ -372,6 +372,9 @@ class BootDriver(threading.Thread):
                     "Freezing execution." in s):
                     # systemd or udevd exploded.  Raise retryable SystemdSegfault later.
                     segfaulted = True
+                if (" Not enough available memory to open a keyslot." in s):
+                    # OOM.  Raise non-retryable OOMed.
+                    oom = True
                 if (" Killed" in s):
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
