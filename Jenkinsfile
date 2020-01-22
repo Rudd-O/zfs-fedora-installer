@@ -1,8 +1,6 @@
 // https://github.com/Rudd-O/shared-jenkins-libraries
 @Library('shared-jenkins-libraries@master') _
 
-def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
-
 def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
 	if (mySeparateBoot == "yes") {
 		mySeparateBoot = "--separate-boot=boot-${pname}.img"
@@ -110,7 +108,7 @@ pipeline {
 		string defaultValue: 'yes', description: '', name: 'LUKS', trim: true
 		string defaultValue: '', description: 'Stop before this stage.', name: 'BREAK_BEFORE', trim: true
 		string defaultValue: '', description: 'Start with this stage.  If this variable is defined, the disk images from prior builds will not be cleaned up prior to short-circuiting to this stage.', name: 'SHORT_CIRCUIT', trim: true
-		string defaultValue: '', description: "Override which Fedora releases to build for.  If empty, defaults to ${RELEASE}.", name: 'RELEASE', trim: true
+		string defaultValue: funcs.loadParameter('parameters.groovy', 'RELEASE', '30'), description: "Override which Fedora releases to build for.", name: 'RELEASE', trim: true
 	}
 
 	stages {
