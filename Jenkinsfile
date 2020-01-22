@@ -39,7 +39,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 		ret=0
 		ls -l
 		sudo \\
-			python3 -u "\$cmd" \\
+			python2 -u "\$cmd" \\
 			${myBuildFrom} \\
 			${myShortCircuit} \\
 			${myBreakBefore} \\
