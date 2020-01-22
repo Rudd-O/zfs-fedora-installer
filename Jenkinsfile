@@ -88,6 +88,8 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 	}
 }
 
+def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '30')
+
 pipeline {
 
 	agent none
@@ -108,7 +110,7 @@ pipeline {
 		string defaultValue: 'yes', description: '', name: 'LUKS', trim: true
 		string defaultValue: '', description: 'Stop before this stage.', name: 'BREAK_BEFORE', trim: true
 		string defaultValue: '', description: 'Start with this stage.  If this variable is defined, the disk images from prior builds will not be cleaned up prior to short-circuiting to this stage.', name: 'SHORT_CIRCUIT', trim: true
-		string defaultValue: funcs.loadParameter('parameters.groovy', 'RELEASE', '30'), description: "Override which Fedora releases to build for.", name: 'RELEASE', trim: true
+		string defaultValue: RELEASE, description: "Override which Fedora releases to build for.", name: 'RELEASE', trim: true
 	}
 
 	stages {
