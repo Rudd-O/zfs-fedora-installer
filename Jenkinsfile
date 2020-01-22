@@ -19,7 +19,6 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 	} else {
 		myLuks = ""
 	}
-	myRelease = "--releasever=${myRelease}"
 	if (mySourceBranch != "") {
 		mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 	}
@@ -46,7 +45,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 			${mySourceBranch} \\
 			${myLuks} \\
 			${mySeparateBoot} \\
-			${myRelease} \\
+			--releasever=${myRelease} \\
 			--trace-file=/dev/stderr \\
 			--workdir="\$mntdir" \\
 			--yum-cachedir="\$yumcache" \\
