@@ -267,8 +267,7 @@ pipeline {
 										}
 										unstash "activate-zfs-in-qubes-vm"
 										def aprogram = '''
-											release=`rpm -q --queryformat="%{version}" fedora-release || rpm -q --queryformat="%{version}" fedora-release-cloud`
-											sudo ./activate-zfs-in-qubes-vm out/$release/
+											sudo ./activate-zfs-in-qubes-vm out/
 										'''.stripIndent().trim()
 										println "Program that will be executed:\n${aprogram}"
 										retry(2) {
