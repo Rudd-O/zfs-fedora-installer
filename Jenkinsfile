@@ -98,13 +98,6 @@ pipeline {
 		checkoutToSubdirectory 'src/zfs-fedora-installer'
 	}
 
-	triggers {
-		upstream(
-			upstreamProjects: "zfs/${currentBuild.projectName}",
-			threshold: hudson.model.Result.SUCCESS
-		)
-	}
-
 	parameters {
 		string defaultValue: "zfs/${currentBuild.projectName}", description: '', name: 'UPSTREAM_PROJECT', trim: true
 		string defaultValue: 'master', description: '', name: 'SOURCE_BRANCH', trim: true
