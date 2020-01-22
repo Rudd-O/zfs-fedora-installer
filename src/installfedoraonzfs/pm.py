@@ -133,6 +133,8 @@ class BasePackageManager(object):
             return int(check_output(["grep", "-oP", "(?<=VERSION_ID=)[^ ]*", "/usr/lib/os-release"]))
         except subprocess.CalledProcessError:
             return int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
+        except subprocess.CalledProcessError:
+            return int(check_output(["rpm", "-q", "fedora-release-cloud", "--queryformat=%{version}"]))
 
     def grab_pm(self, method):
         if self.cachemounts or self.pkgmgr_config:
