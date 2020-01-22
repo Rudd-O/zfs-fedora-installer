@@ -182,7 +182,7 @@ pipeline {
 			agent { label 'master' }
 			when { allOf { not { equals expected: 'NOT_BUILT', actual: currentBuild.result }; equals expected: "", actual: params.SHORT_CIRCUIT } }
 			steps {
-				sh "rm -rf build dist"
+				sh "rm -rf out"
 				copyArtifacts(
 					projectName: env.UPSTREAM_PROJECT,
 					fingerprintArtifacts: true,
