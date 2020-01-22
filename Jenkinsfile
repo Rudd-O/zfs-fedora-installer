@@ -29,7 +29,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 		myBreakBefore = "--break-before=${nextStage}"
 	}
 	def program = """
-		yumcache="/mnt/jenkins/yumcache"
+		yumcache="/jenkins/yumcache/${myRelease}"
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
 		volsize=10000
@@ -97,7 +97,6 @@ pipeline {
 
 	options {
 		checkoutToSubdirectory 'src/zfs-fedora-installer'
-		disableConcurrentBuilds()
 	}
 
 	triggers {
@@ -221,7 +220,7 @@ pipeline {
 						def myBuildFrom = it[1]
 						def myLuks = it[2]
 						def mySeparateBoot = it[3]
-						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
 						def mySourceBranch = ""
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = env.SOURCE_BRANCH
