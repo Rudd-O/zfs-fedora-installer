@@ -3,14 +3,14 @@
 
 def RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '28')
 
-def runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
 	if (mySeparateBoot == "yes") {
 		mySeparateBoot = "--separate-boot=boot-${pname}.img"
 	} else {
 		mySeparateBoot = ""
 	}
 	if (myBuildFrom == "RPMs") {
-		myBuildFrom = "--use-prebuilt-rpms=dist/RELEASE=${myRelease}/"
+		myBuildFrom = "--use-prebuilt-rpms=out/${myRelease}/"
 	} else {
 		myBuildFrom = ""
 	}
@@ -83,7 +83,7 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 	def stageName = thisStage.toString().capitalize().replace('_', ' ')
 	stage("${stageName} ${theIt.join(' ')}") {
 		when (whenCond) {
-			def program = runProgram(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+			def program = buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
 			sh program
@@ -193,7 +193,7 @@ pipeline {
 					fingerprintArtifacts: true,
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
-				sh 'find out/*/*.rpm -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > rpmsums'
+				sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > rpmsums'
 				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
 				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*'
 				stash includes: 'rpmsums', name: 'rpmsums'
@@ -248,7 +248,7 @@ pipeline {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										unstash "activate-zfs-in-qubes-vm"
-										sh 'find dist/RELEASE=* -type f | tee /dev/stderr | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum > local-rpmsums'
+										sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > local-rpmsums'
 										unstash "rpmsums"
 										def needsunstash = sh (
 											script: '''
@@ -266,10 +266,10 @@ pipeline {
 										if (needsunstash != "MATCH") {
 											unstash "rpms"
 										}
-										def program = """
+										def program = '''
 											release=`rpm -q --queryformat="%{version}" fedora-release`
-											sudo ./activate-zfs-in-qubes-vm dist/RELEASE=\$release/
-										""".stripIndent().trim()
+											sudo ./activate-zfs-in-qubes-vm out/$release/
+										'''.stripIndent().trim()
 										println "Program that will be executed:\n${program}"
 										retry(2) {
 											sh program
