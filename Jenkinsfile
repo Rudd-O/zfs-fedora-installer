@@ -228,27 +228,9 @@ pipeline {
 						}
 						return {
 							node('fedorazfs') {
-								lock("activatezfs") {
-								stage("Install deps ${it.join(' ')}") {
+								stage("Unstash RPMs ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
-										def program = '''
-												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
-												rpm -q \$deps || sudo dnf install -qy \$deps
-										'''.stripIndent().trim()
-										println "Program that will be executed:\n${program}"
-										retry(2) {
-											sh program
-										}
-									}
-                                                                        }
-								}
-                                                                }
-								lock("activatezfs") {
-								stage("Activate ZFS ${it.join(' ')}") {
-									when (params.SHORT_CIRCUIT == "") {
-									timeout(time: 10, unit: 'MINUTES') {
-										unstash "activate-zfs-in-qubes-vm"
 										sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > local-rpmsums'
 										unstash "rpmsums"
 										def needsunstash = sh (
@@ -268,13 +250,29 @@ pipeline {
 											sh 'rm -rf -- out/'
 											unstash "rpms"
 										}
+									}
+                                                                        }
+								}
+								lock("activatezfs") {
+								stage("Activate ZFS ${it.join(' ')}") {
+									when (params.SHORT_CIRCUIT == "") {
+									timeout(time: 10, unit: 'MINUTES') {
 										def program = '''
-											release=`rpm -q --queryformat="%{version}" fedora-release`
-											sudo ./activate-zfs-in-qubes-vm out/$release/
+												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
+												rpm -q \$deps || sudo dnf install -qy \$deps
 										'''.stripIndent().trim()
 										println "Program that will be executed:\n${program}"
 										retry(2) {
 											sh program
+										}
+										unstash "activate-zfs-in-qubes-vm"
+										def aprogram = '''
+											release=`rpm -q --queryformat="%{version}" fedora-release`
+											sudo ./activate-zfs-in-qubes-vm out/$release/
+										'''.stripIndent().trim()
+										println "Program that will be executed:\n${aprogram}"
+										retry(2) {
+											sh aprogram
 										}
 									}
                                                                         }
