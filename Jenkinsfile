@@ -57,7 +57,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 			--root-password=seed \\
 			--chown="\$USER" \\
 			--chgrp=`groups | cut -d " " -f 1` \\
-			--luks-options='-c aes-xts-plain64:sha256 -h sha256 -s 512 --use-random --align-payload 4096' \\
+			--luks-options='--use-random --align-payload 4096' \\
 			root-${pname}.img >&2
 		ret="\$?"
 		#>&2 echo ==============Diagnostics==================
@@ -266,12 +266,8 @@ pipeline {
 											sh program
 										}
 										unstash "activate-zfs-in-qubes-vm"
-										def aprogram = '''
-											sudo ./activate-zfs-in-qubes-vm out/
-										'''.stripIndent().trim()
-										println "Program that will be executed:\n${aprogram}"
 										retry(2) {
-											sh aprogram
+											sh 'sudo ./activate-zfs-in-qubes-vm out/'
 										}
 									}
                                                                         }
