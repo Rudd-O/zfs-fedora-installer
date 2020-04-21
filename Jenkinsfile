@@ -54,7 +54,6 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 			--root-password=seed \\
 			--chown="\$USER" \\
 			--chgrp=`groups | cut -d " " -f 1` \\
-			--luks-options='--use-random --align-payload 4096' \\
 			root-${pname}.img >&2
 		ret="\$?"
 		#>&2 echo ==============Diagnostics==================
