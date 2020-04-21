@@ -401,13 +401,16 @@ def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
             (bdev + "2", bdev + "3"),
         ]
         for efipart, bootpart in parts:
+            logging.info("About to check for the existence of %s and %s.", efipart, bootpart)
             if os.path.exists(efipart) and os.path.exists(bootpart):
+                logging.info("Both %s and %s exist.", efipart, bootpart)
                 return efipart, bootpart
         return None, None
 
     efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
     if None in (bootpart, efipart):
         if not create:
+            assert 0, (efipart, bootpart)
             raise Exception("Wanted to partition boot device %s but create=False" % (bootdev or voldev))
         partition_boot(bootdev or voldev, bootsize, not bootdev)
 

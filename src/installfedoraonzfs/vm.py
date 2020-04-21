@@ -175,7 +175,7 @@ def boot_image_in_qemu(hostname,
 
     # check for stage stop
     logger.info(
-        "qemu process will would execute now: %s" % " ".join([
+        "qemu process to execute now: %s" % " ".join([
             pipes.quote(s) for s in cmd
         ])
     )
