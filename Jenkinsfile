@@ -104,7 +104,8 @@ pipeline {
 		string defaultValue: 'seed', description: '', name: 'POOL_NAME', trim: true
 		string defaultValue: 'seed.dragonfear', description: '', name: 'HOST_NAME', trim: true
 		string defaultValue: 'yes', description: '', name: 'SEPARATE_BOOT', trim: true
-		string defaultValue: 'yes', description: '', name: 'LUKS', trim: true
+		// Having trouble with LUKS being yes on Fedora 25.
+		string defaultValue: 'no', description: '', name: 'LUKS', trim: true
 		string defaultValue: '', description: 'Stop before this stage.', name: 'BREAK_BEFORE', trim: true
 		string defaultValue: '', description: 'Start with this stage.  If this variable is defined, the disk images from prior builds will not be cleaned up prior to short-circuiting to this stage.', name: 'SHORT_CIRCUIT', trim: true
 		string defaultValue: '', description: "Which Fedora releases to build for (empty means the job's default).", name: 'RELEASE', trim: true
