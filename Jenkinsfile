@@ -172,6 +172,7 @@ pipeline {
 					env.BUILD_TRIGGER = funcs.describeCause(currentBuild)
 					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT}.  ${env.BUILD_TRIGGER}."
 				}
+				sh '''rpm -q rpm-build || sudo dnf install -y rpm-build'''
 			}
 		}
 		stage('Copy from master') {
