@@ -172,7 +172,6 @@ pipeline {
 					env.BUILD_TRIGGER = funcs.describeCause(currentBuild)
 					currentBuild.description = "Test of ${env.BUILD_FROM} from source branch ${env.SOURCE_BRANCH} and RPMs from ${env.UPSTREAM_PROJECT}.  ${env.BUILD_TRIGGER}."
 				}
-				sh '''rpm -q rpm-build || sudo dnf install -y rpm-build'''
 			}
 		}
 		stage('Copy from master') {
@@ -191,10 +190,8 @@ pipeline {
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
 				sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > rpmsums'
-				sh 'cp -a "$JENKINS_HOME"/userContent/activate-zfs-in-qubes-vm .'
 				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*'
 				stash includes: 'rpmsums', name: 'rpmsums'
-				stash includes: 'activate-zfs-in-qubes-vm', name: 'activate-zfs-in-qubes-vm'
 				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
 			}
 		}
@@ -250,31 +247,30 @@ pipeline {
 									}
                                                                         }
 								}
+								stage("Unstash ${it.join(' ')}") {
+									when (params.SHORT_CIRCUIT == "") {
+										unstash "zfs-fedora-installer"
+									}
+								}
 								lock("activatezfs") {
 								stage("Activate ZFS ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
 										def program = '''
-												deps="rsync e2fsprogs dosfstools cryptsetup qemu gdisk python2"
+												deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python2"
 												rpm -q \$deps || sudo dnf install -qy \$deps
 										'''.stripIndent().trim()
 										println "Program that will be executed:\n${program}"
 										retry(2) {
 											sh program
 										}
-										unstash "activate-zfs-in-qubes-vm"
 										retry(2) {
-											sh 'sudo ./activate-zfs-in-qubes-vm out/'
+											sh 'sudo src/zfs-fedora-installer/activate-zfs-in-qubes-vm out/'
 										}
 									}
                                                                         }
 								}
                                                                 }
-								stage("Unstash ${it.join(' ')}") {
-									when (params.SHORT_CIRCUIT == "") {
-										unstash "zfs-fedora-installer"
-									}
-								}
 								stage("Remove old image ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
