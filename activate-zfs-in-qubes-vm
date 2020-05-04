@@ -49,6 +49,7 @@ function deployzfshere() {
 	fi
 	rpm -q createrepo_c || $cmd install $opts -y createrepo_c
 	rpm -q elfutils-devel || $cmd install $opts -y elfutils-devel
+	rpm -q rsync || $cmd install $opts -y rsync
 
 	release=`rpm -q fedora-release fedora-release-cloud grub2 --queryformat '%{version}\n' | grep -v ' is not installed' | tail -1`
 	if [ "$release" == "" ] ; then echo "No release detected, aborting" >&2 ; exit 8 ; fi
