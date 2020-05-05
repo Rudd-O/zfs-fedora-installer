@@ -23,6 +23,9 @@ class RpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): p
 class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError): pass
 
 
+class PluginSelinuxRetryable(retrymod.Retryable, subprocess.CalledProcessError): pass
+
+
 def check_call_detect_rpmdberror(cmd):
     out, ret = cmdmod.get_output_exitcode(cmd)
     if ret != 0 and ("Rpmdb checksum is invalid" in out
@@ -31,6 +34,8 @@ def check_call_detect_rpmdberror(cmd):
                      or "error: rpmdb" in out
                      or "You probably have corrupted RPMDB" in out):
         raise RpmdbCorruptionError(ret, cmd, output=out)
+    elif ret != 0 and "error: Plugin selinux" in out:
+        raise PluginSelinuxRetryable(ret, cmd, output=out)
     elif ret != 0 and "--downloadonly" in cmd:
         raise DownloadFailed(ret, cmd, output=out)
     elif ret != 0:
