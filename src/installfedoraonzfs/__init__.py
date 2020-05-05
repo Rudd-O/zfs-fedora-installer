@@ -246,6 +246,7 @@ def losetup(path):
     dev = check_output(
         ["losetup", "-P", "--find", "--show", path]
     )[:-1]
+    check_output(["blockdev", "--rereadpt", dev])
     return dev
 
 def import_pool(poolname, rootmountpoint):
