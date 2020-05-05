@@ -84,7 +84,7 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
 			sh(
                             script: program,
-                            label: "${theIt.join(' ')}: phase ${stageName}"
+                            label: "${stageName} command run"
                         )
 		}
 	}
