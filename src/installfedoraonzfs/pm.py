@@ -47,6 +47,10 @@ def run_and_repair(cmd, method, chroot, in_chroot, lock):
     try:
         with lock:
             out, ret = check_call_detect_rpmdberror(cmd)
+    except PluginSelinuxRetryable:
+        logger.warning("Problem with SELinux, retrying package install...")
+        with lock:
+            out, ret = check_call_detect_rpmdberror(cmd)
     except RpmdbCorruptionError:
         logger.warning("Repairing RPMDB corruption before retrying package install...")
         if method == "out_of_chroot":
