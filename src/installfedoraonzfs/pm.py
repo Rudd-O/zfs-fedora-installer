@@ -47,10 +47,6 @@ def run_and_repair(cmd, method, chroot, in_chroot, lock):
     try:
         with lock:
             out, ret = check_call_detect_rpmdberror(cmd)
-    except PluginSelinuxRetryable:
-        logger.warning("Problem with SELinux, retrying package install...")
-        with lock:
-            out, ret = check_call_detect_rpmdberror(cmd)
     except RpmdbCorruptionError:
         logger.warning("Repairing RPMDB corruption before retrying package install...")
         if method == "out_of_chroot":
@@ -267,7 +263,7 @@ class ChrootPackageManager(BasePackageManager):
                     + (['--'] if pkgmgr == "yum" else [])
                     + packages
                 )
-                out, ret = run_and_repair(cmd, method, self.chroot, in_chroot, lock)
+                out, ret = retrymod.retry(2)(lambda: run_and_repair(cmd, method, self.chroot, in_chroot, lock))
             return out, ret
         finally:
             self.ungrab_pm()
@@ -297,7 +293,7 @@ class ChrootPackageManager(BasePackageManager):
                     + ['-c', config.name[len(self.chroot):]]
                     + (['--'] if pkgmgr == "yum" else [])
                 ) + [ p[len(self.chroot):] for p in packages ]
-                out, ret = run_and_repair(cmd, "in_chroot", self.chroot, in_chroot, lock)
+                out, ret = retrymod.retry(2)(lambda: run_and_repair(cmd, "in_chroot", self.chroot, in_chroot, lock))
             return out, ret
         finally:
             self.ungrab_pm()
