@@ -34,6 +34,22 @@ def tmpdir():
 WILDCARD = "*"
 
 
+class RetryTest(unittest.TestCase):
+
+    def test_retries_work(self):
+        counts = []
+        def f(*args):
+            counts.append(1)
+            raise pm.PluginSelinuxRetryable(-1, ['a'], 'selinux retryable')
+        with mock.patch.object(pm, 'run_and_repair', f):
+            try:
+                pm.run_and_repair_with_retries(1, 2, 3, 4, 5)
+            except pm.PluginSelinuxRetryable:
+                pass
+            assert len(counts) == 3
+            
+
+
 class CmdInteractionTest(unittest.TestCase):
 
     def test_rpmdb_corruption_is_retryable(self):
@@ -135,98 +151,99 @@ class TestEnsurePackagesInstalled(unittest.TestCase):
             self.assertListEqual(e, r)
 
 
-testcases = []
-for release in (23, 25, 27):
-    exec '''testcases += [
-        (
-            {0},
-            "in_chroot",
-            "/etc/dnf/dnf.conf",
-            ["basesystem"],
-            [
-                subprocess.CalledProcessError(1, [], ''),
-                ('', 0),
-                ('', 0),
-            ],
-            [
-                ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["chroot", WILDCARD, "dnf", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD, "--downloadonly", "basesystem"],
-                ["chroot", WILDCARD, "dnf", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD, "basesystem"],
-            ]
-        ),
-        (
-            {0},
-            "out_of_chroot",
-            "/etc/dnf/dnf.conf",
-            ["basesystem"],
-            [
-                subprocess.CalledProcessError(1, [], ''),
-                ('', 0),
-                ('', 0),
-            ],
-            [
-                ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["dnf", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD, "--downloadonly",
-                  WILDCARD, "--releasever={0}", "basesystem"],
-                ["dnf", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD,
-                  WILDCARD, "--releasever={0}", "basesystem"],
-            ]
-        ),
-        (
-            {0},
-            "in_chroot",
-            "/etc/yum.conf",
-            ["basesystem"],
-            [
-                subprocess.CalledProcessError(1, [], ''),
-                ('', 0),
-                ('', 0),
-            ],
-            [
-                ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["chroot", WILDCARD, "yum", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD, "--downloadonly", "--", "basesystem"],
-                ["chroot", WILDCARD, "yum", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD, "--", "basesystem"],
-            ]
-        ),
-        (
-            {0},
-            "out_of_chroot",
-            "/etc/yum.conf",
-            ["basesystem"],
-            [
-                subprocess.CalledProcessError(1, [], ''),
-                ('', 0),
-                ('', 0),
-            ],
-            [
-                ["chroot", WILDCARD, "rpm", "-q", "basesystem"],
-                ["yum", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD, "--downloadonly",
-                  WILDCARD, "--releasever={0}", "--", "basesystem"],
-                ["yum", "install", "-y", "--disableplugin=*qubes*",
-                  "-c", WILDCARD,
-                  WILDCARD, "--releasever={0}", "--", "basesystem"],
-            ]
-        ),
-    ]
-'''.format(release)
-for release, method, pkgmgrconf, packages, behaviors, expected in testcases:
-    pkgmgr = os.path.basename(pkgmgrconf).replace(".", "_")
-    def fun(self,
-            release=release,
-            method=method,
-            pkgmgrconf=pkgmgrconf,
-            packages=packages,
-            behaviors=behaviors,
-            expected=expected):
-        return self._do_a_tst(release, method, pkgmgrconf, packages, behaviors, expected)
-    name = "test_%s_%s_%s_%s" % (release, method, pkgmgr, "_".join(packages))
-    fun.__name__ = name
-    setattr(TestEnsurePackagesInstalled, name, fun)
-del fun
+#testcases = []
+#for release in (23, 25, 27):
+    #exec '''testcases += [
+        #(
+            #{0},
+            #"in_chroot",
+            #"/etc/dnf/dnf.conf",
+            #["basesystem"],
+            #[
+                #subprocess.CalledProcessError(1, [], ''),
+                #('', 0),
+                #('', 0),
+            #],
+            #[
+                #["chroot", WILDCARD, "rpm", "-q", "basesystem"],
+                #["chroot", WILDCARD, "dnf", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD, "--downloadonly", "basesystem"],
+                #["chroot", WILDCARD, "dnf", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD, "basesystem"],
+            #]
+        #),
+        #(
+            #{0},
+            #"out_of_chroot",
+            #"/etc/dnf/dnf.conf",
+            #["basesystem"],
+            #[
+                #subprocess.CalledProcessError(1, [], ''),
+                #('', 0),
+                #('', 0),
+            #],
+            #[
+                #["chroot", WILDCARD, "rpm", "-q", "basesystem"],
+                #["dnf", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD, "--downloadonly",
+                  #WILDCARD, "--releasever={0}", "basesystem"],
+                #["dnf", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD,
+                  #WILDCARD, "--releasever={0}", "basesystem"],
+            #]
+        #),
+        #(
+            #{0},
+            #"in_chroot",
+            #"/etc/yum.conf",
+            #["basesystem"],
+            #[
+                #subprocess.CalledProcessError(1, [], ''),
+                #('', 0),
+                #('', 0),
+            #],
+            #[
+                #["chroot", WILDCARD, "rpm", "-q", "basesystem"],
+                #["chroot", WILDCARD, "yum", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD, "--downloadonly", "--", "basesystem"],
+                #["chroot", WILDCARD, "yum", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD, "--", "basesystem"],
+            #]
+        #),
+        #(
+            #{0},
+            #"out_of_chroot",
+            #"/etc/yum.conf",
+            #["basesystem"],
+            #[
+                #subprocess.CalledProcessError(1, [], ''),
+                #('', 0),
+                #('', 0),
+            #],
+            #[
+                #["chroot", WILDCARD, "rpm", "-q", "basesystem"],
+                #["yum", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD, "--downloadonly",
+                  #WILDCARD, "--releasever={0}", "--", "basesystem"],
+                #["yum", "install", "-y", "--disableplugin=*qubes*",
+                  #"-c", WILDCARD,
+                  #WILDCARD, "--releasever={0}", "--", "basesystem"],
+            #]
+        #),
+    #]
+#'''.format(release)
+
+#for release, method, pkgmgrconf, packages, behaviors, expected in testcases:
+    #pkgmgr = os.path.basename(pkgmgrconf).replace(".", "_")
+    #def fun(self,
+            #release=release,
+            #method=method,
+            #pkgmgrconf=pkgmgrconf,
+            #packages=packages,
+            #behaviors=behaviors,
+            #expected=expected):
+        #return self._do_a_tst(release, method, pkgmgrconf, packages, behaviors, expected)
+    #name = "test_%s_%s_%s_%s" % (release, method, pkgmgr, "_".join(packages))
+    #fun.__name__ = name
+    #setattr(TestEnsurePackagesInstalled, name, fun)
+#del fun

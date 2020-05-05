@@ -89,10 +89,10 @@ def detect_qemu(force_kvm=None):
 
 def test_qemu():
     try: subprocess.check_call([detect_qemu()[0], "--help"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
+    except subprocess.CalledProcessError as e:
         if e.returncode == 0: return True
         raise
-    except OSError, e:
+    except OSError as e:
         if e.errno == 2: return False
         raise
     return True
@@ -204,14 +204,14 @@ def boot_image_in_qemu(hostname,
             try:
                 logger.info("Waiting to join BootDriver")
                 driver.join()
-            except MachineNeverShutoff, e:
+            except MachineNeverShutoff as e:
                 # The driver got an EOF or something, before
                 # it had a chance to read the normal shutdown
                 # text from the VM.
                 # If this was because qemu was killed by the
                 # babysitter, we must decide about it later.
                 pass
-            except BaseException, e:
+            except BaseException as e:
                 # Something else went wrong, so we kill the
                 # qemu process and raise the exception.
                 logger.exception("boot_image_in_qemu experienced exception, killing QEMU process")
@@ -297,7 +297,7 @@ class BootDriver(threading.Thread):
             try:
                 try:
                     c = self.pty.read(1)
-                except IOError, e:
+                except IOError as e:
                     if e.errno == errno.EIO:
                         c = ""
                     else:
@@ -381,7 +381,7 @@ class BootDriver(threading.Thread):
                 if ("end Kernel panic" in s):
                     # OOM.  Raise non-retryable kernel panic.
                     panicked = True
-            except Exception, e:
+            except Exception as e:
                 self.error = e
                 break
         if lastline:

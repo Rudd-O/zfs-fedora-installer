@@ -25,6 +25,7 @@ def check_call(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     kwargs["close_fds"] = True
     kwargs["stdin"] = open(os.devnull)
+    kwargs['universal_newlines'] = True
     cmd = args[0]
     logger.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.check_call(*args,**kwargs)
@@ -35,6 +36,7 @@ def check_output(*args, **kwargs):
     if "logall" in kwargs:
         del kwargs["logall"]
     cwd = kwargs.get("cwd", os.getcwd())
+    kwargs['universal_newlines'] = True
     kwargs["close_fds"] = True
     cmd = args[0]
     logger.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
@@ -87,7 +89,7 @@ class Tee(threading.Thread):
                         continue
                 for w in pollables[readables[0]]:
                     w.write(data)
-            except Exception, e:
+            except Exception as e:
                 readables[0].close()
                 del pollables[readables[0]]
                 if not self.err:
@@ -110,13 +112,14 @@ def get_output_exitcode(cmd, **kwargs):
     stdout and stderr will be mixed in the returned output.
     """
     cwd = kwargs.get("cwd", os.getcwd())
+    kwargs['universal_newlines'] = True
     stdin = kwargs.get("stdin")
     stdout = kwargs.get("stdout", sys.stdout)
     stderr = kwargs.get("stderr", sys.stderr)
     if stderr == subprocess.STDOUT:
         assert 0, "you cannot specify subprocess.STDOUT on this function"
 
-    f = tempfile.TemporaryFile()
+    f = tempfile.TemporaryFile(mode='w+')
     try:
         logger.debug("Get output exitcode %s in cwd %r", format_cmdline(cmd), cwd)
         p = subprocess.Popen(cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
@@ -134,6 +137,7 @@ def get_output_exitcode(cmd, **kwargs):
 def Popen(*args,**kwargs):
     cwd = kwargs.get("cwd", os.getcwd())
     cmd = args[0]
+    kwargs['universal_newlines'] = True
     logger.debug("Popening %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.Popen(*args,**kwargs)
 
@@ -194,7 +198,7 @@ def mpdecode(encoded_mountpoint):
                 pos = pos + 3
             else:
                 raise ValueError("Unparsable mount point %r at pos %s" % (encoded_mountpoint, pos))
-          except IndexError, e:
+          except IndexError as e:
               raise ValueError("Unparsable mount point %r at pos %s: %s" % (encoded_mountpoint, pos, e))
         else:
             chars.append(c)
@@ -267,7 +271,7 @@ def makedirs(ds):
         while not os.path.isdir(subdir):
             try:
                 os.makedirs(subdir)
-            except OSError, e:
+            except OSError as e:
                 if e.errno != errno.EEXIST:
                     raise
     return ds
@@ -295,4 +299,4 @@ class lockfile(object):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     with lockfile("lock") as f:
-        print f
+        print(f)

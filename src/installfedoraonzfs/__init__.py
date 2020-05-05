@@ -234,7 +234,7 @@ def filetype(dev):
     '''returns 'file' or 'blockdev' or 'doesntexist' for dev'''
     try:
         s = os.stat(dev)
-    except OSError, e:
+    except OSError as e:
         if e.errno == 2: return 'doesntexist'
         raise
     if stat.S_ISBLK(s.st_mode): return 'blockdev'
@@ -495,7 +495,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
             luksuuid = "luks-" + rootuuid
         except IndexError:
             needsdoing = True
-        except subprocess.CalledProcessError, e:
+        except subprocess.CalledProcessError as e:
             if e.returncode != 2: raise
             needsdoing = True
         if needsdoing:
@@ -529,7 +529,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
         try:
             logging.info("Trying to import pool %s.", poolname)
             func(poolname, rootmountpoint)
-        except subprocess.CalledProcessError, e:
+        except subprocess.CalledProcessError as e:
             if not create:
                 raise Exception("Wanted to create ZFS pool %s on %s but create=False" % (poolname, rootpart))
             logging.info("Creating pool %s.", poolname)
@@ -547,7 +547,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
     try:
         check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
                             stdout=file(os.devnull,"w"))
-    except subprocess.CalledProcessError, e:
+    except subprocess.CalledProcessError as e:
         if not create:
             raise Exception("Wanted to create ZFS file system ROOT on %s but create=False" % poolname)
         check_call(["zfs", "create", j(poolname, "ROOT")])
@@ -557,7 +557,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
                             stdout=file(os.devnull,"w"))
         if not os.path.ismount(rootmountpoint):
             check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
-    except subprocess.CalledProcessError, e:
+    except subprocess.CalledProcessError as e:
         if not create:
             raise Exception("Wanted to create ZFS file system ROOT/os on %s but create=False" % poolname)
         check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
@@ -567,7 +567,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
     try:
         check_call(["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
                             stdout=file(os.devnull,"w"))
-    except subprocess.CalledProcessError, e:
+    except subprocess.CalledProcessError as e:
         if not create:
             raise Exception("Wanted to create ZFS file system swap on %s but create=False" % poolname)
         check_call(["zfs", "create", "-V", "%dM"%swapsize, "-b", "4K", j(poolname, "swap")])
@@ -626,7 +626,7 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
         if not os.path.isdir(p(m)):
             os.mkdir(p(m))
             if m == "var/log/audit":
-                os.chmod(p(m), 0700)
+                os.chmod(p(m), 0o700)
 
     def in_chroot(lst):
         return ["chroot", rootmountpoint] + lst
@@ -829,7 +829,7 @@ UUID=%s /boot/efi vfat noatime 0 1
 '''%s UUID=%s none discard
 '''%(luksuuid,rootuuid)
                     file(p(j("etc", "crypttab")),"w").write(crypttab)
-                    os.chmod(p(j("etc", "crypttab")), 0600)
+                    os.chmod(p(j("etc", "crypttab")), 0o600)
 
                 pkgmgr = ChrootPackageManager(rootmountpoint, releasever, yum_cachedir_path)
 
@@ -855,7 +855,7 @@ UUID=%s /boot/efi vfat noatime 0 1
 
 echo This is a fake dracut.
 """)
-                    os.chmod(p("usr/bin/dracut"), 0755)
+                    os.chmod(p("usr/bin/dracut"), 0o755)
 
                 if luksuuid:
                     luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards"%(rootuuid,)
@@ -975,7 +975,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     check_call(["zfs", "list", "-t", "snapshot",
                                 "-H", "-o", "name", j(poolname, "ROOT", "os@initial")],
                             stdout=file(os.devnull,"w"))
-                except subprocess.CalledProcessError, e:
+                except subprocess.CalledProcessError as e:
                     check_call(["sync"])
                     check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
 
@@ -1116,7 +1116,7 @@ echo cannot power off VM.  Please kill qemu.
                 bootloader = file(bootloaderpath,"w")
                 bootloader.write(bootloadertext)
                 bootloader.close()
-                os.chmod(bootloaderpath, 0755)
+                os.chmod(bootloaderpath, 0o755)
 
         logging.info("Entering sub-phase preparation of bootloader in VM.")
         return biiq("init=/installbootloader", False)
@@ -1142,13 +1142,13 @@ echo cannot power off VM.  Please kill qemu.
                 short_circuit = None
 
     # tell the user we broke
-    except BreakingBefore, e:
+    except BreakingBefore as e:
         print >> sys.stderr, "------------------------------------------------"
         print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
         raise
 
     # end operating with the devices
-    except BaseException, e:
+    except BaseException as e:
         logging.exception("Unexpected error")
         raise
 
@@ -1158,10 +1158,10 @@ def test_cmd(cmdname, expected_ret):
                                stdin=file(os.devnull, "r"),
                                stdout=file(os.devnull, "w"),
                                stderr=file(os.devnull, "w"))
-    except subprocess.CalledProcessError, e:
+    except subprocess.CalledProcessError as e:
         if e.returncode == expected_ret: return True
         return False
-    except OSError, e:
+    except OSError as e:
         if e.errno == 2: return False
         raise
     return True
@@ -1188,10 +1188,10 @@ def test_yum():
     pkgmgrs = {"yum":True, "dnf": True}
     for pkgmgr in pkgmgrs:
         try: subprocess.check_call([pkgmgr], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
-        except subprocess.CalledProcessError, e:
+        except subprocess.CalledProcessError as e:
             if e.returncode != 1:
                 pkgmgrs[pkgmgr] = False
-        except OSError, e:
+        except OSError as e:
             if e.errno == 2:
                 pkgmgrs[pkgmgr] = False
                 continue
@@ -1242,10 +1242,10 @@ def install_fedora_on_zfs():
             short_circuit=args.short_circuit,
             workdir=args.workdir,
         )
-    except (ImpossiblePassphrase), e:
+    except ImpossiblePassphrase as e:
         print >> sys.stderr, "error:", e
         return os.EX_USAGE
-    except (ZFSMalfunction, ZFSBuildFailure), e:
+    except (ZFSMalfunction, ZFSBuildFailure) as e:
         print >> sys.stderr, "error:", e
         return 9
     except BreakingBefore:

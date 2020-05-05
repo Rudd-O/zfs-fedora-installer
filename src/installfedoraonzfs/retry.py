@@ -4,7 +4,7 @@ import logging
 import time
 
 
-class Retryable: pass
+class Retryable(BaseException): pass
 
 
 class retry(object):
