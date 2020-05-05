@@ -221,7 +221,7 @@ pipeline {
 							mySourceBranch = env.SOURCE_BRANCH
 						}
 						return {
-							node('fedorazfs') {
+							node('mock') {
 								stage("Unstash RPMs ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
