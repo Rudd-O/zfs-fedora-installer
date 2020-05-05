@@ -190,7 +190,7 @@ pipeline {
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
 				sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > rpmsums'
-				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*'
+				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*,**/*python*'
 				stash includes: 'rpmsums', name: 'rpmsums'
 				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
 			}
@@ -225,7 +225,7 @@ pipeline {
 								stage("Unstash RPMs ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
-										sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > local-rpmsums'
+										sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | grep -v python | xargs sha256sum | tee /dev/stderr > local-rpmsums'
 										unstash "rpmsums"
 										def needsunstash = sh (
 											script: '''
