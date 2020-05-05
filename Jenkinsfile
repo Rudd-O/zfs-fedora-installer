@@ -82,7 +82,10 @@ def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, m
 			def program = buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
 			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
 			println "${desc}\n\n" + "Program that will be executed:\n${program}"
-			sh program
+			sh(
+                            script: program,
+                            label: "${theIt.join(' ')}: phase ${stageName}"
+                        )
 		}
 	}
 }
