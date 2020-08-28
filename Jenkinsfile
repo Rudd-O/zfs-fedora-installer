@@ -198,7 +198,7 @@ pipeline {
 				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
 			}
 		}
-		stage('Parallelize') {
+		stage('Serialize') {
 			agent { label 'master' }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			failFast true
@@ -223,8 +223,7 @@ pipeline {
 						if (env.SOURCE_BRANCH != "") {
 							mySourceBranch = env.SOURCE_BRANCH
 						}
-						return {
-							node('fedorazfs') {
+						return node('fedorazfs') {
 								stage("Unstash RPMs ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
 									timeout(time: 10, unit: 'MINUTES') {
@@ -304,10 +303,16 @@ pipeline {
                                                                          ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
                                                                          params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
                                                                 }
-							}
 						}
 					}
-					parallel funcs.combo(task, axisList)
+					def tasks = funcs.combo(task, axisList)
+					tasks.each {
+                                            stage(it.key) {
+                                                script {
+                                                    it.value
+                                                }
+                                            }
+                                        }
 				}
 			}
 		}
