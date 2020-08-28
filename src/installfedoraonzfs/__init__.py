@@ -1362,6 +1362,7 @@ def deploy_zfs_in_machine(p, in_chroot, pkgmgr, branch,
                     "libudev-devel", "libtool", "openssl-devel",
                     "make", "automake", "libtirpc-devel", "libffi-devel",
                     "python3-devel", "python3-cffi", "libaio-devel",
+                    "rpm-build",
                 ],
                 (
                     "cd /usr/src/%s && "
