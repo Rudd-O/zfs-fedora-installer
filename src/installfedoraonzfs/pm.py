@@ -39,6 +39,7 @@ def check_call_detect_rpmdberror(cmd):
     elif ret != 0 and "--downloadonly" in cmd:
         raise DownloadFailed(ret, cmd, output=out)
     elif ret != 0:
+        logger.error("This is not a retryable error, it should not be retried.")
         raise subprocess.CalledProcessError(ret, cmd, output=out)
     return out, ret
 
