@@ -63,6 +63,11 @@ def run_and_repair(cmd, method, chroot, in_chroot, lock):
     return out, ret
 
 
+def run_and_repair_with_retries(cmd, method, chroot, in_chroot, lock):
+    r = retrymod.retry(2)
+    return r(lambda: run_and_repair(cmd, method, chroot, in_chroot, lock))()
+
+
 options_ = (["--downloadonly"], [])
 
 
@@ -264,7 +269,7 @@ class ChrootPackageManager(BasePackageManager):
                     + (['--'] if pkgmgr == "yum" else [])
                     + packages
                 )
-                out, ret = run_and_repair(cmd, method, self.chroot, in_chroot, lock)
+                out, ret = run_and_repair_with_retries(cmd, method, self.chroot, in_chroot, lock)
             return out, ret
         finally:
             self.ungrab_pm()
@@ -294,7 +299,7 @@ class ChrootPackageManager(BasePackageManager):
                     + ['-c', config.name[len(self.chroot):]]
                     + (['--'] if pkgmgr == "yum" else [])
                 ) + [ p[len(self.chroot):] for p in packages ]
-                out, ret = run_and_repair(cmd, "in_chroot", self.chroot, in_chroot, lock)
+                out, ret = run_and_repair_with_retries(cmd, "in_chroot", self.chroot, in_chroot, lock)
             return out, ret
         finally:
             self.ungrab_pm()
@@ -325,7 +330,7 @@ class SystemPackageManager(BasePackageManager):
                 + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
-            out, ret = run_and_repair(cmd)
+            out, ret = run_and_repair_with_retries(cmd)
         return out, ret
 
     def install_local_packages(self, packages):
@@ -343,7 +348,7 @@ class SystemPackageManager(BasePackageManager):
                 + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
-            out, ret = run_and_repair(cmd)
+            out, ret = run_and_repair_with_retries(cmd)
         return out, ret
 
 
