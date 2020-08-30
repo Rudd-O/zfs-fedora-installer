@@ -608,19 +608,14 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
         mount(efipart, p("boot/efi"))
     undoer.to_unmount.append(p("boot/efi"))
 
-    if not os.path.ismount(p("proc")):
-        mount("/proc", p("proc"), "--bind")
-    undoer.to_unmount.append(p("proc"))
-
-    if not os.path.ismount(p("sys")):
-        mount("/sys", p("sys"), "--bind")
-    undoer.to_unmount.append(p("sys"))
-
-    selinuxfs= p(j("sys", "fs", "selinux"))
-    if os.path.isdir(selinuxfs):
-        if not os.path.ismount(selinuxfs) and os.path.ismount("/sys/fs/selinux"):
-            mount("/sys/fs/selinux", selinuxfs, "--bind")
-        undoer.to_unmount.append(selinuxfs)
+    for srcmount, bindmount in [
+        ("/proc", p("proc")),
+        ("/sys", p("sys")),
+        ("/sys/fs/selinux", p("sys/fs/selinux")),
+    ]:
+        if not os.path.ismount(bindmount) and os.path.ismount(srcmount):
+            mount(srcmount, bindmount, "--bind")
+        undoer.to_unmount.append(bindmount)
 
     # create needed directories to succeed in chrooting as per #22
     for m in "etc var var/lib var/lib/dbus var/log var/log/audit".split():
