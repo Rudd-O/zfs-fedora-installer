@@ -30,9 +30,9 @@ import installfedoraonzfs.retry as retrymod
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
-BASE_PACKAGES = ("basesystem rootfiles bash nano binutils rsync NetworkManager "
-                 "rpm vim-minimal e2fsprogs passwd pam net-tools cryptsetup "
-                 "kbd-misc kbd policycoreutils selinux-policy-targeted "
+BASE_PACKAGES = ("filesystem basesystem rootfiles bash nano binutils rsync "
+                 "NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools "
+                 "cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted "
                  "libseccomp util-linux sed pciutils").split()
 BASIC_FORMAT = '%(asctime)8s  %(levelname)2s  %(message)s'
 TRACE_FORMAT = '%(asctime)8s  %(levelname)2s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s'
@@ -608,19 +608,19 @@ def filesystem_context(poolname, rootpart, bootpart, efipart, workdir,
         mount(efipart, p("boot/efi"))
     undoer.to_unmount.append(p("boot/efi"))
 
+    if not os.path.ismount(p("proc")):
+        mount("/proc", p("proc"), "--bind")
+    undoer.to_unmount.append(p("proc"))
+
     if not os.path.ismount(p("sys")):
-        mount("sysfs", p("sys"), "-t", "sysfs")
+        mount("/sys", p("sys"), "--bind")
     undoer.to_unmount.append(p("sys"))
 
     selinuxfs= p(j("sys", "fs", "selinux"))
     if os.path.isdir(selinuxfs):
-        if not os.path.ismount(selinuxfs):
-            mount("selinuxfs", selinuxfs, "-t", "selinuxfs")
+        if not os.path.ismount(selinuxfs) and os.path.ismount("/sys/fs/selinux"):
+            mount("/sys/fs/selinux", selinuxfs, "--bind")
         undoer.to_unmount.append(selinuxfs)
-
-    if not os.path.ismount(p("proc")):
-        mount("proc", p("proc"), "-t", "proc")
-    undoer.to_unmount.append(p("proc"))
 
     # create needed directories to succeed in chrooting as per #22
     for m in "etc var var/lib var/lib/dbus var/log var/log/audit".split():
