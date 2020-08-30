@@ -33,7 +33,7 @@ from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 BASE_PACKAGES = ("filesystem basesystem rootfiles bash nano binutils rsync "
                  "NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools "
                  "cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted "
-                 "libseccomp util-linux sed pciutils").split()
+                 "libseccomp util-linux sed pciutils kmod").split()
 BASIC_FORMAT = '%(asctime)8s  %(levelname)2s  %(message)s'
 TRACE_FORMAT = '%(asctime)8s  %(levelname)2s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s'
 qemu_timeout = 360
