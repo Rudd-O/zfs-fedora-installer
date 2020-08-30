@@ -331,7 +331,11 @@ class SystemPackageManager(BasePackageManager):
                 + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
-            out, ret = run_and_repair_with_retries(cmd)
+            unused_pkgmgr, unused_config, lock = self.grab_pm("out_of_chroot")
+            try:
+                out, ret = run_and_repair_with_retries(cmd, "out_of_chroot", None, None, lock)
+            finally:
+                self.ungrab_pm()
         return out, ret
 
     def install_local_packages(self, packages):
@@ -349,7 +353,11 @@ class SystemPackageManager(BasePackageManager):
                 + (['--'] if self.strategy == "yum" else [])
                 + packages
             )
-            out, ret = run_and_repair_with_retries(cmd)
+            unused_pkgmgr, unused_config, lock = self.grab_pm("out_of_chroot")
+            try:
+                out, ret = run_and_repair_with_retries(cmd, "out_of_chroot", None, None, lock)
+            finally:
+                self.ungrab_pm()
         return out, ret
 
 
