@@ -95,7 +95,7 @@ pipeline {
 	agent none
 
 	options {
-		checkoutToSubdirectory 'src/zfs-fedora-installer'
+		checkoutToSubdirectory 'src'
 	}
 
 	parameters {
@@ -130,7 +130,7 @@ pipeline {
 				}
 				script {
 					env.GIT_HASH = sh (
-						script: "cd src/zfs-fedora-installer && git rev-parse --short HEAD",
+						script: "cd src && git rev-parse --short HEAD",
 						returnStdout: true
 					).trim()
 					println "Git hash is reported as ${env.GIT_HASH}"
@@ -195,7 +195,7 @@ pipeline {
 				sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | xargs sha256sum | tee /dev/stderr > rpmsums'
 				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*,**/*python*'
 				stash includes: 'rpmsums', name: 'rpmsums'
-				stash includes: 'src/zfs-fedora-installer/**', name: 'zfs-fedora-installer'
+				stash includes: 'src/**', name: 'zfs-fedora-installer'
 			}
 		}
 		stage('Serialize') {
@@ -267,7 +267,7 @@ pipeline {
 											sh program
 										}
 										retry(2) {
-											sh 'sudo src/zfs-fedora-installer/activate-zfs-in-qubes-vm out/'
+											sh 'sudo src/activate-zfs-in-qubes-vm out/'
 										}
 									}
                                                                         }
