@@ -120,7 +120,7 @@ pipeline {
 			steps {
 				script{
 					if (params.RELEASE == '') {
-						env.RELEASE = funcs.loadParameter('parameters.groovy', 'RELEASE', '30')
+						env.RELEASE = funcs.loadParameter('RELEASE', '30')
 					} else {
 						env.RELEASE = params.RELEASE
 					}
