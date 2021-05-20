@@ -30,7 +30,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
 		volsize=10000
-		cmd=src/zfs-fedora-installer/install-fedora-on-zfs
+		cmd=src/install-fedora-on-zfs
 		set -x
 		set +e
 		ret=0
