@@ -36,6 +36,8 @@ def check_call_detect_rpmdberror(cmd):
         raise RpmdbCorruptionError(ret, cmd, output=out)
     elif ret != 0 and "error: Plugin selinux" in out:
         raise PluginSelinuxRetryable(ret, cmd, output=out)
+    elif ret != 0 and "Found bdb_ro Packages database while attempting sqlite backend: using bdb_ro backend" in out:
+        raise PluginSelinuxRetryable(ret, cmd, output=out)
     elif ret != 0 and "--downloadonly" in cmd:
         raise DownloadFailed(ret, cmd, output=out)
     elif ret != 0:
