@@ -473,7 +473,7 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
     if 'TYPE="vfat"' not in output:
         if not create:
             raise Exception("Wanted to create EFI file system on %s but create=False" % efipart)
-        check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + label_postfix, efipart])
+        check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + label_postfix[:7], efipart])
     efipartuuid = check_output(["blkid", "-c", "/dev/null", efipart, "-o", "value", "-s", "UUID"]).strip()
 
     return bootpartuuid, efipartuuid
