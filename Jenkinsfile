@@ -255,23 +255,18 @@ pipeline {
 									}
 								}
 								lock("activatezfs") {
-								stage("Activate ZFS ${it.join(' ')}") {
-									when (params.SHORT_CIRCUIT == "") {
-									timeout(time: 10, unit: 'MINUTES') {
-										def program = '''
-												deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python2"
-												rpm -q \$deps || sudo dnf install -qy \$deps
-										'''.stripIndent().trim()
-										println "Program that will be executed:\n${program}"
-										retry(2) {
-											sh program
-										}
-										retry(2) {
-											sh 'sudo src/activate-zfs-in-qubes-vm out/'
-										}
+									stage("Activate ZFS ${it.join(' ')}") {
+										when (params.SHORT_CIRCUIT == "") {
+											timeout(time: 10, unit: 'MINUTES') {
+												def program = '''
+													deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python2"
+													rpm -q \$deps || sudo dnf install -qy \$deps
+												'''.stripIndent().trim()
+												sh program
+												sh 'sudo src/activate-zfs-in-qubes-vm out/'
+											}
+                                                                        	}
 									}
-                                                                        }
-								}
                                                                 }
 								stage("Remove old image ${it.join(' ')}") {
 									when (params.SHORT_CIRCUIT == "") {
