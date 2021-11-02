@@ -76,10 +76,6 @@ EOF
 	# This is dangerous for several reasons.  What really ought to happen is a deploy using yum from a known, prekeyed, and signed
 	# yum repository, but I don't yet have a file server with trusted packages, and I am working on that.
 	$cmd $opts -y --enablerepo=zfs-temp install \
-	   libuutil1 \
-	   libzpool2 \
-	   libnvpair1 \
-	   libzfs2 \
 	   zfs \
 	   zfs-dkms \
 
