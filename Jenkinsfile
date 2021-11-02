@@ -196,6 +196,17 @@ pipeline {
 				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*,**/*python*'
 				stash includes: 'rpmsums', name: 'rpmsums'
 				stash includes: 'src/**', name: 'zfs-fedora-installer'
+				script {
+					env.DETECTED_RELEASES = sh (
+						script: "cd out && ls -1 */zfs-dracut*noarch.rpm | sed 's|/.*||'",
+						returnStdout: true
+					).trim().replace("\n", ' ')
+					println "The detected releases are ${env.DETECTED_RELEASES}"
+					if (params.RELEASE == '') {
+						println "Overriding releases ${env.RELEASE} with detected releases ${env.DETECTED_RELEASES}"
+						env.RELEASE = env.DETECTED_RELEASES
+					}
+				}
 			}
 		}
 		stage('Serialize') {
@@ -204,11 +215,8 @@ pipeline {
 			failFast true
 			steps {
 				script {
-					if (params.RELEASE != '') {
-						RELEASE = params.RELEASE
-					}
 					def axisList = [
-						RELEASE.split(' '),
+						env.RELEASE.split(' '),
 						env.BUILD_FROM.split(' '),
 						params.LUKS.split(' '),
 						params.SEPARATE_BOOT.split(' '),
