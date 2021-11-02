@@ -55,10 +55,10 @@ function deployzfshere() {
 	if [ "$release" == "" ] ; then echo "No release detected, aborting" >&2 ; exit 8 ; fi
 
 	tmprpmdir=`mktemp -d`
-	rsync -a "$pathtorpms"/ "$tmprpmdir"/
+	rsync -av "$pathtorpms"/ "$tmprpmdir"/
 	pushd "$tmprpmdir"
 	find -type f | grep '[.]'fc"$release" | tee /dev/stderr > pkglist
-	createrepo_c -i pkglist .
+	createrepo_c -v -i pkglist .
 	popd
 
 	# Now we create the temporary yum / dnf repository.
