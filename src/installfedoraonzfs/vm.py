@@ -34,6 +34,9 @@ class SystemdSegfault(Retryable, Exception): pass
 class MachineNeverShutoff(Exception): pass
 
 
+class BadPW(Exception): pass
+
+
 class Babysitter(threading.Thread):
 
     def __init__(self, popenobject, timeout):
@@ -292,6 +295,7 @@ class BootDriver(threading.Thread):
         segfaulted = False
         oom = False
         panicked = False
+        badpw = False
 
         while True:
             try:
@@ -315,6 +319,8 @@ class BootDriver(threading.Thread):
                         raise OOMed("a process appears to have been OOMed.")
                     if panicked:
                         raise Panicked("kernel has panicked.")
+                    if badpw:
+                        raise BadPW("authentication failed")
                 elif c == "\r":
                     pass
                 else:
@@ -375,6 +381,9 @@ class BootDriver(threading.Thread):
                 if (" Not enough available memory to open a keyslot." in s):
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
+                if (" authentication failure." in s):
+                    # OOM.  Raise non-retryable OOMed.
+                    badpw = True
                 if (" Killed" in s):
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
