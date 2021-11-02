@@ -886,7 +886,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 # set password
                 pwfile = file(p(j("etc", "shadow"))).readlines()
-                pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") ])
+                pwnotset = bool([ l for l in pwfile if l.startswith("root:*:") or  l.startswith("root::") ])
                 if pwnotset:
                     cmd = in_chroot(["passwd", "--stdin", "root"])
                     pw = Popen(cmd, stdin=subprocess.PIPE)
