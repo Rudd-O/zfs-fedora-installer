@@ -153,7 +153,7 @@ def boot_image_in_qemu(hostname,
         emucmd,
         ] + screenmode + [
         "-name", hostname,
-        "-M", "pc-1.2",
+        "-M", "pc",
         "-no-reboot",
         '-m', '1536',
         '-uuid', vmuuid,
