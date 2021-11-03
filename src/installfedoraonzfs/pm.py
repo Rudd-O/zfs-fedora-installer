@@ -297,6 +297,7 @@ class ChrootPackageManager(BasePackageManager):
                 cmd = in_chroot(
                     [pkgmgr]
                     + (['localinstall'] if pkgmgr == "yum" else ['install'])
+                    + ['--releasever=%d' % self.releasever]
                     + ['-y']
                     + option
                     + ['-c', config.name[len(self.chroot):]]
