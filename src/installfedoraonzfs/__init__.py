@@ -899,6 +899,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         for l in moduleconf.splitlines():
                             logging.error("%s", l)
                         raise subprocess.CalledProcessError(retcode, cmd)
+                else:
+                    logging.info("Not setting password -- first line of /etc/shadow: %s", pwfile[0].strip())
 
                 deploy_zfs_in_machine(
                     p=p,
