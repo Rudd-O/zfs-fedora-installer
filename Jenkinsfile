@@ -272,6 +272,7 @@ pipeline {
 												'''.stripIndent().trim()
 												sh program
 												sh 'sudo src/activate-zfs-in-qubes-vm out/'
+												sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
 											}
                                                                         	}
 									}
