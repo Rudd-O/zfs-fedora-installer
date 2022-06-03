@@ -12,31 +12,50 @@ import logging
 import sys
 import subprocess
 
-from installfedoraonzfs.cmd import check_output, bindmount, umount, ismount, makedirs, lockfile
+from installfedoraonzfs.cmd import (
+    check_output,
+    bindmount,
+    umount,
+    ismount,
+    makedirs,
+    lockfile,
+)
 from installfedoraonzfs import cmd as cmdmod
 import installfedoraonzfs.retry as retrymod
 
 
-class RpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError): pass
+class RpmdbCorruptionError(retrymod.Retryable, subprocess.CalledProcessError):
+    pass
 
 
-class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError): pass
+class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError):
+    pass
 
 
-class PluginSelinuxRetryable(retrymod.Retryable, subprocess.CalledProcessError): pass
+class PluginSelinuxRetryable(retrymod.Retryable, subprocess.CalledProcessError):
+    pass
+
+
+RELEASEVERPKG = "fedora-release"
 
 
 def check_call_detect_rpmdberror(cmd):
     out, ret = cmdmod.get_output_exitcode(cmd)
-    if ret != 0 and ("Rpmdb checksum is invalid" in out
-                     or "Thread died in Berkeley DB library" in out
-                     or "environment reference count went negative" in out
-                     or "error: rpmdb" in out
-                     or "You probably have corrupted RPMDB" in out):
+    if ret != 0 and (
+        "Rpmdb checksum is invalid" in out
+        or "Thread died in Berkeley DB library" in out
+        or "environment reference count went negative" in out
+        or "error: rpmdb" in out
+        or "You probably have corrupted RPMDB" in out
+    ):
         raise RpmdbCorruptionError(ret, cmd, output=out)
     elif ret != 0 and "error: Plugin selinux" in out:
         raise PluginSelinuxRetryable(ret, cmd, output=out)
-    elif ret != 0 and "Found bdb_ro Packages database while attempting sqlite backend: using bdb_ro backend" in out:
+    elif (
+        ret != 0
+        and "Found bdb_ro Packages database while attempting sqlite backend: using bdb_ro backend"
+        in out
+    ):
         raise RpmdbCorruptionError(ret, cmd, output=out)
     elif ret != 0 and "--downloadonly" in cmd:
         raise DownloadFailed(ret, cmd, output=out)
@@ -55,7 +74,9 @@ def run_and_repair(cmd, method, chroot, in_chroot, lock):
         if method == "out_of_chroot":
             # We do not support recovery in this case.
             with lock:
-                cmdmod.check_call(["bash", "-c", "rm -f %s/var/lib/rpm/__db*" % pipes.quote(chroot)])
+                cmdmod.check_call(
+                    ["bash", "-c", "rm -f %s/var/lib/rpm/__db*" % pipes.quote(chroot)]
+                )
                 cmdmod.check_call(["rpmdb", "--rebuilddb", "--root=%s" % chroot])
                 out, ret = check_call_detect_rpmdberror(cmd)
         else:
@@ -103,18 +124,30 @@ skip_if_unavailable=False
 
 def make_temp_yum_config(source, directory, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
-    with open(source, 'r') as f:
+    with open(source, "r") as f:
         yumconfigtext = f.read()
     for optname, optval in kwargs.items():
         if optval is None:
-            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M)
+            yumconfigtext, repls = re.subn(
+                "^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M
+            )
         else:
             if optname == "cachedir":
                 optval = optval + "/$basearch/$releasever"
-            yumconfigtext, repls = re.subn("^ *%s *=.*$" % (optname,), "%s=%s" % (optname, optval), yumconfigtext, flags=re.M)
+            yumconfigtext, repls = re.subn(
+                "^ *%s *=.*$" % (optname,),
+                "%s=%s" % (optname, optval),
+                yumconfigtext,
+                flags=re.M,
+            )
             if not repls:
-                yumconfigtext, repls = re.subn("\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext)
-                assert repls, "Could not substitute yum.conf main config section with the %s stanza.  Text: %s" % (optname, yumconfigtext)
+                yumconfigtext, repls = re.subn(
+                    "\\[main]", "[main]\n%s=%s" % (optname, optval), yumconfigtext
+                )
+                assert repls, (
+                    "Could not substitute yum.conf main config section with the %s stanza.  Text: %s"
+                    % (optname, yumconfigtext)
+                )
     tempyumconfig.write(yumconfigtext.encode("utf-8"))
     tempyumconfig.write(fedora_repos_template.encode("utf-8"))
     tempyumconfig.flush()
@@ -123,7 +156,6 @@ def make_temp_yum_config(source, directory, **kwargs):
 
 
 class dummylock(object):
-
     def __enter__(self):
         return self
 
@@ -144,15 +176,33 @@ class BasePackageManager(object):
     @staticmethod
     def get_my_releasever():
         try:
-            return int(check_output(["grep", "-oP", "(?<=VERSION_ID=)[^ ]*", "/usr/lib/os-release"]))
+            return int(
+                check_output(
+                    ["grep", "-oP", "(?<=VERSION_ID=)[^ ]*", "/usr/lib/os-release"]
+                )
+            )
         except subprocess.CalledProcessError:
-            return int(check_output(["rpm", "-q", "fedora-release", "--queryformat=%{version}"]))
-        except subprocess.CalledProcessError:
-            return int(check_output(["rpm", "-q", "fedora-release-cloud", "--queryformat=%{version}"]))
+            for suffix in ["", "-common", "-cloud"]:
+                try:
+                    return int(
+                        check_output(
+                            [
+                                "rpm",
+                                "-q",
+                                f"{RELEASEVERPKG}{suffix}",
+                                "--queryformat=%{version}",
+                            ]
+                        ).splitlines()[0]
+                    )
+                except subprocess.CalledProcessError:
+                    pass
+        assert 0, "Release package not found"
 
     def grab_pm(self, method):
         if self.cachemounts or self.pkgmgr_config:
-            assert 0, "programming error, invalid state, cannot enter without exiting first"
+            assert (
+                0
+            ), "programming error, invalid state, cannot enter without exiting first"
 
         if method == "in_chroot":
             dirforconfig = self.chroot
@@ -163,7 +213,9 @@ class BasePackageManager(object):
                 sourceconf = j(self.chroot, "etc", "yum.conf")
                 pkgmgr = "yum"
             else:
-                raise Exception("Cannot use in_chroot method without a working yum or DNF inside the chroot")
+                raise Exception(
+                    "Cannot use in_chroot method without a working yum or DNF inside the chroot"
+                )
             ver = self.releasever
         elif method == "out_of_chroot":
             dirforconfig = os.getenv("TMPDIR") or "/tmp"
@@ -174,7 +226,9 @@ class BasePackageManager(object):
                 sourceconf = "/etc/yum.conf"
                 pkgmgr = "yum"
             else:
-                raise Exception("Cannot use out_of_chroot method without a working yum or DNF installed on your system")
+                raise Exception(
+                    "Cannot use out_of_chroot method without a working yum or DNF installed on your system"
+                )
             ver = self.myreleasever
         else:
             assert 0, "method unknown: %r" % method
@@ -195,14 +249,16 @@ class BasePackageManager(object):
             with lockfile(j(self.cachedir, "ifz-lockfile")):
                 # /yumcache/(dnf|yum)/(ver)/(lib|cache)
                 persistdir = j(self.cachedir, pkgmgr, str(ver), "lib")
-                cachedir   = j(self.cachedir, pkgmgr, str(ver), "cache")
+                cachedir = j(self.cachedir, pkgmgr, str(ver), "cache")
                 makedirs([persistdir, cachedir])
                 # /yumcache/(dnf|yum)/(ver)/lock
                 # /chroot/var/(lib|cache)/(dnf|yum)
-                persistin, cachein = makedirs([
-                    j(self.chroot, "tmp-%s-%s" % (pkgmgr, x))
-                    for x in ["lib", "cache"]
-                ])
+                persistin, cachein = makedirs(
+                    [
+                        j(self.chroot, "tmp-%s-%s" % (pkgmgr, x))
+                        for x in ["lib", "cache"]
+                    ]
+                )
                 maybemounted = [persistin, cachein]
                 while maybemounted:
                     while ismount(maybemounted[-1]):
@@ -213,8 +269,8 @@ class BasePackageManager(object):
                     logger.debug("Mounting %s to %s", x, y)
                     self.cachemounts.append(bindmount(x, y))
             # /var/(lib|cache)/(dnf|yum)
-            parms["persistdir"] = persistin[len(self.chroot):]
-            parms["cachedir"] = cachein[len(self.chroot):]
+            parms["persistdir"] = persistin[len(self.chroot) :]
+            parms["cachedir"] = cachein[len(self.chroot) :]
             lock = lockfile(j(self.cachedir, pkgmgr, str(ver), "lock"))
         else:
             lock = dummylock()
@@ -261,18 +317,35 @@ class ChrootPackageManager(BasePackageManager):
             except subprocess.CalledProcessError:
                 pass
             for option in options_:
-                logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
+                logger.info(
+                    "Installing packages %s %s: %s", option, method, ", ".join(packages)
+                )
                 cmd = (
                     ([pkgmgr] if method == "out_of_chroot" else in_chroot([pkgmgr]))
                     + ["install", "-y", "--disableplugin=*qubes*"]
-                    + (["-c", config.name if method == "out_of_chroot" else config.name[len(self.chroot):]])
+                    + (
+                        [
+                            "-c",
+                            config.name
+                            if method == "out_of_chroot"
+                            else config.name[len(self.chroot) :],
+                        ]
+                    )
                     + option
-                    + (['--installroot=%s' % self.chroot,
-                        '--releasever=%d' % self.releasever] if method == "out_of_chroot" else [])
-                    + (['--'] if pkgmgr == "yum" else [])
+                    + (
+                        [
+                            "--installroot=%s" % self.chroot,
+                            "--releasever=%d" % self.releasever,
+                        ]
+                        if method == "out_of_chroot"
+                        else []
+                    )
+                    + (["--"] if pkgmgr == "yum" else [])
                     + packages
                 )
-                out, ret = run_and_repair_with_retries(cmd, method, self.chroot, in_chroot, lock)
+                out, ret = run_and_repair_with_retries(
+                    cmd, method, self.chroot, in_chroot, lock
+                )
             return out, ret
         finally:
             self.ungrab_pm()
@@ -281,7 +354,7 @@ class ChrootPackageManager(BasePackageManager):
         def in_chroot(lst):
             return ["chroot", self.chroot] + lst
 
-        packages = [ os.path.abspath(p) for p in packages ]
+        packages = [os.path.abspath(p) for p in packages]
         for package in packages:
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
@@ -296,21 +369,22 @@ class ChrootPackageManager(BasePackageManager):
                 logger.info("Installing packages %s: %s", option, ", ".join(packages))
                 cmd = in_chroot(
                     [pkgmgr]
-                    + (['localinstall'] if pkgmgr == "yum" else ['install'])
-                    + ['--releasever=%d' % self.releasever]
-                    + ['-y']
+                    + (["localinstall"] if pkgmgr == "yum" else ["install"])
+                    + ["--releasever=%d" % self.releasever]
+                    + ["-y"]
                     + option
-                    + ['-c', config.name[len(self.chroot):]]
-                    + (['--'] if pkgmgr == "yum" else [])
-                ) + [ p[len(self.chroot):] for p in packages ]
-                out, ret = run_and_repair_with_retries(cmd, "in_chroot", self.chroot, in_chroot, lock)
+                    + ["-c", config.name[len(self.chroot) :]]
+                    + (["--"] if pkgmgr == "yum" else [])
+                ) + [p[len(self.chroot) :] for p in packages]
+                out, ret = run_and_repair_with_retries(
+                    cmd, "in_chroot", self.chroot, in_chroot, lock
+                )
             return out, ret
         finally:
             self.ungrab_pm()
 
 
 class SystemPackageManager(BasePackageManager):
-
     def __init__(self):
         BasePackageManager.__init__(self)
         if os.path.exists("/etc/dnf/dnf.conf"):
@@ -327,22 +401,26 @@ class SystemPackageManager(BasePackageManager):
         except subprocess.CalledProcessError:
             pass
         for option in options_:
-            logger.info("Installing packages %s %s: %s", option, method, ", ".join(packages))
+            logger.info(
+                "Installing packages %s %s: %s", option, method, ", ".join(packages)
+            )
             cmd = (
-                [self.strategy, 'install', '-y']
+                [self.strategy, "install", "-y"]
                 + option
-                + (['--'] if self.strategy == "yum" else [])
+                + (["--"] if self.strategy == "yum" else [])
                 + packages
             )
             unused_pkgmgr, unused_config, lock = self.grab_pm("out_of_chroot")
             try:
-                out, ret = run_and_repair_with_retries(cmd, "out_of_chroot", None, None, lock)
+                out, ret = run_and_repair_with_retries(
+                    cmd, "out_of_chroot", None, None, lock
+                )
             finally:
                 self.ungrab_pm()
         return out, ret
 
     def install_local_packages(self, packages):
-        packages = [ os.path.abspath(p) for p in packages ]
+        packages = [os.path.abspath(p) for p in packages]
         for package in packages:
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
@@ -351,42 +429,58 @@ class SystemPackageManager(BasePackageManager):
             logger.info("Installing packages %s: %s", option, ", ".join(packages))
             cmd = (
                 [self.strategy]
-                + (['localinstall'] if self.strategy == "yum" else ['install'])
-                + ['-y']
-                + (['--'] if self.strategy == "yum" else [])
+                + (["localinstall"] if self.strategy == "yum" else ["install"])
+                + ["-y"]
+                + (["--"] if self.strategy == "yum" else [])
                 + packages
             )
             unused_pkgmgr, unused_config, lock = self.grab_pm("out_of_chroot")
             try:
-                out, ret = run_and_repair_with_retries(cmd, "out_of_chroot", None, None, lock)
+                out, ret = run_and_repair_with_retries(
+                    cmd, "out_of_chroot", None, None, lock
+                )
             finally:
                 self.ungrab_pm()
         return out, ret
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(
-        description="Install RPM packages in a chroot"
+    parser = argparse.ArgumentParser(description="Install RPM packages in a chroot")
+    parser.add_argument(
+        "--cachedir",
+        dest="cachedir",
+        action="store",
+        default=None,
+        help="directory to use for a yum cache that persists across executions",
     )
     parser.add_argument(
-        "--cachedir", dest="cachedir",
-        action="store", default=None, help="directory to use for a yum cache that persists across executions"
+        "--method",
+        dest="method",
+        action="store",
+        default="out_of_chroot",
+        help="which method to use (in_chroot or out_of_chroot)",
     )
     parser.add_argument(
-        "--method", dest="method",
-        action="store", default="out_of_chroot", help="which method to use (in_chroot or out_of_chroot)"
+        "--releasever",
+        dest="releasever",
+        metavar="VER",
+        type=int,
+        action="store",
+        default=None,
+        help="Fedora release version (default the same as the computer you are installing on)",
     )
     parser.add_argument(
-        "--releasever", dest="releasever", metavar="VER", type=int,
-        action="store", default=None, help="Fedora release version (default the same as the computer you are installing on)"
+        "chroot",
+        metavar="CHROOT",
+        action="store",
+        help="where to install the packages",
     )
     parser.add_argument(
-        "chroot", metavar="CHROOT",
-        action="store", help="where to install the packages",
-    )
-    parser.add_argument(
-        "packages", metavar="PACKAGES",
-        action="store", help="which packages to install", nargs='+',
+        "packages",
+        metavar="PACKAGES",
+        action="store",
+        help="which packages to install",
+        nargs="+",
     )
     return parser
 
@@ -398,6 +492,8 @@ def deploypackagesinchroot():
     if args.method not in ["in_chroot", "out_of_chroot"]:
         print >> sys.stderr, "error: method must be one of in-chroot or out-of-chroot."
         return os.EX_USAGE
-    releasever = args.releasever if args.releasever else ChrootPackageManager.get_my_releasever()
+    releasever = (
+        args.releasever if args.releasever else ChrootPackageManager.get_my_releasever()
+    )
     pkgmgr = ChrootPackageManager(args.chroot, releasever, args.cachedir)
     pkgmgr.ensure_packages_installed(args.packages, args.method)
