@@ -36,7 +36,7 @@ BASE_PACKAGES = (
     "cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted "
     "libseccomp util-linux sed pciutils kmod"
 ).split()
-BASE_PACKAGES_GTE_F36 = "sssd-client,"
+BASE_PACKAGES_GTE_F36 = ["sssd-client"]
 
 BASIC_FORMAT = "%(asctime)8s  %(levelname)2s  %(message)s"
 TRACE_FORMAT = (
