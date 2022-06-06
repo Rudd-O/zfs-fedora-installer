@@ -189,7 +189,7 @@ class BasePackageManager(object):
                             [
                                 "rpm",
                                 "-q",
-                                f"{RELEASEVERPKG}{suffix}",
+                                "%s%s" % (RELEASEVERPKG, suffix),
                                 "--queryformat=%{version}",
                             ]
                         ).splitlines()[0]
