@@ -126,7 +126,7 @@ pipeline {
 					}
 				}
 				script {
-					funcs.announceBeginning()
+					announceBeginning()
 				}
 				script {
 					env.GIT_HASH = sh (
@@ -325,7 +325,7 @@ pipeline {
 		always {
 			node('master') {
 				script {
-					funcs.announceEnd(currentBuild.currentResult)
+					announceEnd(currentBuild.currentResult)
 				}
 			}
 		}
