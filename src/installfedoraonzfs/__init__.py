@@ -1762,6 +1762,7 @@ def deploy_zfs_in_machine(
                     "python3-cffi",
                     "libaio-devel",
                     "rpm-build",
+                    "ncompress",
                 ],
                 (
                     "cd /usr/src/%s && "
