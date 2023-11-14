@@ -118,7 +118,7 @@ def get_parser():
         metavar="BOOTSIZE",
         type=int,
         action="store",
-        default=512,
+        default=1024,
         help="boot partition size in MiB, or boot volume size in MiB, when --separate-boot is specified (default 256)",
     )
     parser.add_argument(
