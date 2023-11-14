@@ -13,11 +13,19 @@ import glob
 import platform
 import tempfile
 import logging
-import signal as _
+import signal  # noqa: F401
 import shlex
 import multiprocessing
 
-from installfedoraonzfs.cmd import check_call, check_output, check_call_silent_stdout, check_call_silent, readtext, readlines, writetext
+from installfedoraonzfs.cmd import (
+    check_call,
+    check_output,
+    check_call_silent_stdout,
+    check_call_silent,
+    readtext,
+    readlines,
+    writetext,
+)
 from installfedoraonzfs.cmd import Popen, mount, bindmount, umount, ismount
 from installfedoraonzfs.cmd import get_associated_lodev
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
@@ -653,7 +661,6 @@ def filesystem_context(
     luksoptions,
     create,
 ):
-
     undoer = Undoer()
     logging.info("Entering filesystem context.  Create=%s.", create)
     bootpartuuid, efipartuuid = setup_boot_filesystems(
@@ -713,7 +720,7 @@ def filesystem_context(
         try:
             logging.info("Trying to import pool %s.", poolname)
             func(poolname, rootmountpoint)
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             if not create:
                 raise Exception(
                     "Wanted to create ZFS pool %s on %s but create=False"
@@ -762,7 +769,7 @@ def filesystem_context(
         )
         if not os.path.ismount(rootmountpoint):
             check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         if not create:
             raise Exception(
                 "Wanted to create ZFS file system ROOT/os on %s but create=False"
@@ -776,7 +783,7 @@ def filesystem_context(
         check_call_silent_stdout(
             ["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
         )
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         if not create:
             raise Exception(
                 "Wanted to create ZFS file system swap on %s but create=False"
@@ -808,8 +815,11 @@ def filesystem_context(
             )
         check_call(["mkswap", "-f", swappart])
 
-    p = lambda withinchroot: j(rootmountpoint, withinchroot.lstrip(os.path.sep))
-    q = lambda outsidechroot: outsidechroot[len(rootmountpoint) :]
+    def p(withinchroot):
+        return j(rootmountpoint, withinchroot.lstrip(os.path.sep))
+
+    def q(outsidechroot):
+        return outsidechroot[len(rootmountpoint) :]
 
     logging.info("Mounting virtual and physical file systems.")
     # mount virtual file systems, creating their mount points as necessary
@@ -829,14 +839,14 @@ def filesystem_context(
         mount(efipart, p("boot/efi"))
     undoer.to_unmount.append(p("boot/efi"))
 
-    for srcmount, bindmount in [
+    for srcmount, bindmounted in [
         ("/proc", p("proc")),
         ("/sys", p("sys")),
         ("/sys/fs/selinux", p("sys/fs/selinux")),
     ]:
-        if not os.path.ismount(bindmount) and os.path.ismount(srcmount):
-            mount(srcmount, bindmount, "--bind")
-        undoer.to_unmount.append(bindmount)
+        if not os.path.ismount(bindmounted) and os.path.ismount(srcmount):
+            mount(srcmount, bindmounted, "--bind")
+        undoer.to_unmount.append(bindmounted)
 
     # create needed directories to succeed in chrooting as per #22
     for m in "etc var var/lib var/lib/dbus var/log var/log/audit".split():
@@ -850,7 +860,16 @@ def filesystem_context(
 
     logging.info("Filesystem context complete.")
     try:
-        yield rootmountpoint, p, q, in_chroot, rootuuid, luksuuid, bootpartuuid, efipartuuid
+        yield (
+            rootmountpoint,
+            p,
+            q,
+            in_chroot,
+            rootuuid,
+            luksuuid,
+            bootpartuuid,
+            efipartuuid,
+        )
     finally:
         undoer.undo()
 
@@ -971,7 +990,6 @@ def install_fedora(
     branch="master",
     workdir="/var/lib/zfs-fedora-installer",
 ):
-
     if lukspassword and not BootDriver.is_typeable(lukspassword):
         raise ImpossiblePassphrase(
             "LUKS passphrase %r cannot be typed during boot" % lukspassword
@@ -1128,11 +1146,12 @@ UUID=%s /boot/efi vfat noatime 0 1
                     check_call(
                         in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"])
                     )
-                    writetext(p("usr/bin/dracut"), 
+                    writetext(
+                        p("usr/bin/dracut"),
                         """#!/bin/bash
 
 echo This is a fake dracut.
-"""
+""",
                     )
                     os.chmod(p("usr/bin/dracut"), 0o755)
 
@@ -1153,9 +1172,7 @@ GRUB_GFXPAYLOAD_LINUX="keep"
 GRUB_TERMINAL_OUTPUT="vga_text"
 GRUB_DISABLE_LINUX_UUID=true
 GRUB_PRELOAD_MODULES='part_msdos ext2'
-""" % (
-                    luksstuff,
-                )
+""" % (luksstuff,)
                 writetext(p(j("etc", "default", "grub")), grubconfig)
 
                 # write kernel command line
@@ -1176,9 +1193,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 pwfile = readlines(p(j("etc", "shadow")))
                 pwnotset = bool(
                     [
-                        l
-                        for l in pwfile
-                        if l.startswith("root:*:") or l.startswith("root::")
+                        line
+                        for line in pwfile
+                        if line.startswith("root:*:") or line.startswith("root::")
                     ]
                 )
                 if pwnotset:
@@ -1192,8 +1209,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         moduleconf = check_output(
                             in_chroot(["bash", "-c", "grep '.*' /etc/pam.d/*"])
                         )
-                        for l in moduleconf.splitlines():
-                            logging.error("%s", l)
+                        for line in moduleconf.splitlines():
+                            logging.error("%s", line)
                         raise subprocess.CalledProcessError(retcode, cmd)
                 else:
                     logging.info(
@@ -1262,8 +1279,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # At this point, we regenerate the initrd, if it does not have zfs.ko.
                 if "zfs.ko" not in mayhapszfsko:
                     check_call(in_chroot(["dracut", "-Nf", q(initrd), kver]))
-                    for l in check_output(["lsinitrd", initrd]).splitlines(False):
-                        logging.debug("initramfs: %s", l)
+                    for line in check_output(["lsinitrd", initrd]).splitlines(False):
+                        logging.debug("initramfs: %s", line)
                 mayhapszfsko = check_output(["lsinitrd", initrd])
                 if "zfs.ko" not in mayhapszfsko:
                     assert 0, (
@@ -1297,7 +1314,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                             j(poolname, "ROOT", "os@initial"),
                         ]
                     )
-                except subprocess.CalledProcessError as e:
+                except subprocess.CalledProcessError:
                     check_call(["sync"])
                     check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
 
@@ -1503,7 +1520,7 @@ echo cannot power off VM.  Please kill qemu.
         raise
 
     # end operating with the devices
-    except BaseException as e:
+    except BaseException:
         logging.exception("Unexpected error")
         raise
 
@@ -1557,9 +1574,7 @@ def test_yum():
     pkgmgrs = {"yum": True, "dnf": True}
     for pkgmgr in pkgmgrs:
         try:
-            check_call_silent_stdout(
-                [pkgmgr]
-            )
+            check_call_silent_stdout([pkgmgr])
         except subprocess.CalledProcessError as e:
             if e.returncode != 1:
                 pkgmgrs[pkgmgr] = False
@@ -1575,28 +1590,42 @@ def install_fedora_on_zfs():
     args = get_parser().parse_args()
     log_config(args.trace_file)
     if not test_rsync():
-        logging.error("error: rsync is not available. Please use your package manager to install rsync.")
+        logging.error(
+            "error: rsync is not available. Please use your package manager to install rsync."
+        )
         return 5
     if not test_zfs():
-        logging.error("error: ZFS is not installed properly. Please install ZFS with `deploy-zfs` and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install.")
+        logging.error(
+            "error: ZFS is not installed properly. Please install ZFS with `deploy-zfs` and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        )
         return 5
     if not test_mkfs_ext4():
-        logging.error("error: mkfs.ext4 is not installed properly. Please install e2fsprogs.")
+        logging.error(
+            "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
+        )
         return 5
     if not test_mkfs_vfat():
-        logging.error("error: mkfs.vfat is not installed properly. Please install dosfstools.")
+        logging.error(
+            "error: mkfs.vfat is not installed properly. Please install dosfstools."
+        )
         return 5
     if not test_cryptsetup():
-        logging.error("error: cryptsetup is not installed properly. Please install cryptsetup.")
+        logging.error(
+            "error: cryptsetup is not installed properly. Please install cryptsetup."
+        )
         return 5
     if not test_gdisk():
         logging.error("error: gdisk is not installed properly. Please install gdisk.")
         return 5
     if not test_yum():
-        logging.error("error: could not find either yum or DNF. Please use your package manager to install yum or DNF.")
+        logging.error(
+            "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
+        )
         return 5
     if not args.break_before and not test_qemu():
-        logging.error("error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present).")
+        logging.error(
+            "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present)."
+        )
         return 5
     try:
         install_fedora(
@@ -1843,10 +1872,16 @@ def deploy_zfs():
     args = get_deploy_parser().parse_args()
     log_config(args.trace_file)
     if not test_yum():
-        logging.error("error: could not find either yum or DNF. Please use your package manager to install yum or DNF.")
+        logging.error(
+            "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
+        )
         return 5
-    p = lambda withinchroot: j("/", withinchroot.lstrip(os.path.sep))
-    in_chroot = lambda x: x
+
+    def p(withinchroot):
+        return j("/", withinchroot.lstrip(os.path.sep))
+
+    def in_chroot(x):
+        return x
 
     pkgmgr = SystemPackageManager()
 

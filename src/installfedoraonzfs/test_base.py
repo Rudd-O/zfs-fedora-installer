@@ -1,8 +1,8 @@
-'''
+"""
 Created on Dec 19, 2018
 
 @author: user
-'''
+"""
 import unittest
 
 import contextlib
@@ -33,15 +33,20 @@ def lodevs():
 
 
 class TestBlockdevContext(unittest.TestCase):
-
     @unittest.skipIf(os.getuid() != 0, "not root")
     def testSeparateBoot(self):
         firstlo = lodevs()
         with preprootboot() as (_, root, boot, undoer):
-            with installfedoraonzfs.blockdev_context(root, boot, undoer, 32, 8, None, None, True) as (rootpart, bootpart, efipart):
+            with installfedoraonzfs.blockdev_context(
+                root, boot, undoer, 32, 8, None, None, True
+            ) as (rootpart, bootpart, efipart):
                 assert bootpart.endswith("p3"), (rootpart, bootpart, efipart)
                 assert efipart.endswith("p2"), (rootpart, bootpart, efipart)
-                assert re.match("^/dev/loop[0-9]+$", rootpart), (rootpart, bootpart, efipart)
+                assert re.match("^/dev/loop[0-9]+$", rootpart), (
+                    rootpart,
+                    bootpart,
+                    efipart,
+                )
         nowlo = lodevs()
         self.assertListEqual(firstlo, nowlo)
 
@@ -49,14 +54,22 @@ class TestBlockdevContext(unittest.TestCase):
     def testSeparateBootTwice(self):
         firstlo = lodevs()
         with preprootboot() as (_, root, boot, undoer):
-            with installfedoraonzfs.blockdev_context(root, boot, undoer, 32, 8, None, None, True) as (rootpart, bootpart, efipart):
+            with installfedoraonzfs.blockdev_context(
+                root, boot, undoer, 32, 8, None, None, True
+            ) as (rootpart, bootpart, efipart):
                 assert bootpart.endswith("p3"), (rootpart, bootpart, efipart)
                 assert efipart.endswith("p2"), (rootpart, bootpart, efipart)
-                assert re.match("^/dev/loop[0-9]+$", rootpart), (rootpart, bootpart, efipart)
+                assert re.match("^/dev/loop[0-9]+$", rootpart), (
+                    rootpart,
+                    bootpart,
+                    efipart,
+                )
             undoer.undo()
             nowlo = lodevs()
             self.assertListEqual(firstlo, nowlo)
-            with installfedoraonzfs.blockdev_context(root, boot, undoer, 32, 8, None, None, False) as (rootpart2, bootpart2, efipart2):
+            with installfedoraonzfs.blockdev_context(
+                root, boot, undoer, 32, 8, None, None, False
+            ) as (rootpart2, bootpart2, efipart2):
                 assert rootpart == rootpart2, (rootpart, rootpart2)
                 assert bootpart == bootpart2, (bootpart, bootpart2)
                 assert efipart == efipart2, (efipart, efipart2)
@@ -65,7 +78,6 @@ class TestBlockdevContext(unittest.TestCase):
 
 
 class TestSetupFilesystems(unittest.TestCase):
-
     @unittest.skipIf(os.getuid() != 0, "not root")
     def testBasic(self):
         firstlo = lodevs()
@@ -75,8 +87,7 @@ class TestSetupFilesystems(unittest.TestCase):
                 root, boot, undoer, 256, 128, None, None, True
             ) as (_, bootpart, efipart):
                 bootuuid, efiuuid = installfedoraonzfs.setup_boot_filesystems(
-                    bootpart, efipart,
-                    "postfix", True
+                    bootpart, efipart, "postfix", True
                 )
                 assert bootuuid
                 assert efiuuid
@@ -107,5 +118,5 @@ class TestSetupFilesystems(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    #import sys;sys.argv = ['', 'Test.testName']
+    # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

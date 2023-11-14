@@ -4,7 +4,8 @@ import logging
 import time
 
 
-class Retryable(BaseException): pass
+class Retryable(BaseException):
+    pass
 
 
 class retry(object):
@@ -19,7 +20,6 @@ class retry(object):
         self.retryable_exception = retryable_exception
 
     def __call__(self, kallable):
-
         def retryer(*a, **kw):
             logger = logging.getLogger("retry")
             while True:
@@ -31,7 +31,7 @@ class retry(object):
                             "Received retryable error %s running %s, trying %s more times",
                             e,
                             kallable,
-                            self.N
+                            self.N,
                         )
                         time.sleep(self.timeout)
                     else:

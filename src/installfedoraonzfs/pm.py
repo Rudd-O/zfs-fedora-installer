@@ -161,7 +161,6 @@ class dummylock(object):
 
 
 class BasePackageManager(object):
-
     cachemounts = None
     pkgmgr_config = None
 
@@ -290,7 +289,6 @@ class BasePackageManager(object):
 
 
 class ChrootPackageManager(BasePackageManager):
-
     chroot = None
 
     def __init__(self, chroot, releasever, cachedir=None):

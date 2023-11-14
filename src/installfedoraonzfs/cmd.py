@@ -268,8 +268,8 @@ def check_for_open_files(prefix):
                 results[d] = []
             results[d].append((pid, cmd))
     with open("/proc/self/mounts") as mounts:
-        for l in mounts.readlines():
-            fields = l[:-1].split(" ")
+        for line in mounts.readlines():
+            fields = line[:-1].split(" ")
             dev = mpdecode(fields[0])
             mp = mpdecode(fields[1])
             if mp.startswith(prefix + os.path.sep):
