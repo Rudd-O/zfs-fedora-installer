@@ -1092,7 +1092,7 @@ UUID=%s /boot/efi vfat noatime 0 1
                 if not os.path.exists(p(j("etc", "hostname"))):
                     writetext(p(j("etc", "hostname")), hostname)
                 if not os.path.exists(p(j("etc", "hostid"))):
-                    with open("/dev/urandom", "wb") as rnd:
+                    with open("/dev/urandom", "rb") as rnd:
                         randomness = rnd.read(4)
                         with open(p(j("etc", "hostid")), "wb") as hostid:
                             hostid.write(randomness)
