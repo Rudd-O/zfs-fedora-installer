@@ -1858,16 +1858,6 @@ def deploy_zfs_in_machine(
                 logging.info("Installing built RPMs: %s", files_to_install)
                 pkgmgr.install_local_packages(files_to_install)
 
-            in_chroot(
-                [
-                    "bash",
-                    "-xc",
-                    "for kver in $(rpm -q kernel-devel --queryformat='%{version}-%{release} ')"
-                    " ; do dkms install -k $kver || exit $? ; "
-                    "done",
-                ]
-            )
-
         # Check we have a patched grub2-mkconfig.
         mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
         mkconfig_text = readtext(mkconfig_file)
@@ -1876,6 +1866,17 @@ def deploy_zfs_in_machine(
                 "expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?"
                 % mkconfig_file
             )
+
+        # Build ZFS for all kernels that have a kernel-devel.
+        in_chroot(
+            [
+                "bash",
+                "-xc",
+                "for kver in $(rpm -q kernel-devel --queryformat='%{version}-%{release} ')"
+                " ; do dkms install -k $kver || exit $? ; "
+                "done",
+            ]
+        )
 
         # Check we have a ZFS.ko for at least one kernel.
         modules_dir = p(j("usr", "lib", "modules", "*", "*", "zfs.ko*"))
