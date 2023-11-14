@@ -411,6 +411,11 @@ def partition_boot(bootdev, bootsize, rootvol):
     cmd = ["gdisk", bootdev]
     pr = Popen(cmd, stdin=subprocess.PIPE)
     if rootvol:
+        logging.info(
+            "Creating 2M BIOS boot, %sM EFI system, %sM boot, rest root partition",
+            int(bootsize / 2),
+            int(bootsize / 2),
+        )
         pr.communicate(
             """o
 y
@@ -447,9 +452,13 @@ p
 w
 y
 """
-            % (bootsize / 2, bootsize / 2)
+            % (int(bootsize / 2), int(bootsize / 2))
         )
     else:
+        logging.info(
+            "Creating 2M BIOS boot, %sM EFI system, the rest boot partition",
+            int(bootsize / 2),
+        )
         pr.communicate(
             """o
 y
@@ -477,7 +486,7 @@ p
 w
 y
 """
-            % (bootsize / 2)
+            % (int(bootsize / 2),)
         )
     retcode = pr.wait()
     if retcode != 0:
