@@ -1195,7 +1195,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 writetext(p(j("etc", "kernel", "cmdline")), kernelcmd)
 
                 # install kernel packages
-                packages = "kernel kernel-devel dkms".split()
+                packages = "kernel kernel-headers kernel-devel dkms".split()
                 pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
 
                 # set password
