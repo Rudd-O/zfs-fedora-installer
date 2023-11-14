@@ -182,7 +182,9 @@ pipeline {
 			agent { label 'master' }
 			when { allOf { not { equals expected: 'NOT_BUILT', actual: currentBuild.result }; equals expected: "", actual: params.SHORT_CIRCUIT } }
 			steps {
-				sh "rm -rf out"
+				dir("out") {
+					deleteDir()
+				}
 				script {
 					if (params.UPSTREAM_PROJECT_BUILD_NUMBER == '') {
 						copyArtifacts(
@@ -203,7 +205,7 @@ pipeline {
 					fingerprintArtifacts: true,
 					selector: upstream(fallbackToLastSuccessful: true)
 				)
-				sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | grep -v python | xargs sha256sum | tee /dev/stderr > rpmsums'
+				sh '{ set +x ; } >/dev/null 2>&1 ; find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | grep -v python | xargs sha256sum > rpmsums'
 				stash includes: 'out/*/*.rpm', name: 'rpms', excludes: '**/*debuginfo*,**/*debugsource*,**/*python*'
 				stash includes: 'rpmsums', name: 'rpmsums'
 				stash includes: 'src/**', name: 'zfs-fedora-installer'
@@ -221,126 +223,126 @@ pipeline {
 			}
 		}
 		stage('Serialize') {
-			agent { label 'master' }
+			agent { label 'fedorazfs' }
+			options { skipDefaultCheckout() }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			failFast true
 			steps {
 				script {
-					def axisList = [
-						env.RELEASE.split(' '),
-						env.BUILD_FROM.split(' '),
-						params.LUKS.split(' '),
-						params.SEPARATE_BOOT.split(' '),
-					]
-					def task = {
-						def myRelease = it[0]
-						def myBuildFrom = it[1]
-						def myLuks = it[2]
-						def mySeparateBoot = it[3]
-						def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-						def mySourceBranch = ""
-						if (env.SOURCE_BRANCH != "") {
-							mySourceBranch = env.SOURCE_BRANCH
+					stage("Unstash RPMs") {
+						when (params.SHORT_CIRCUIT == "") {
+							timeout(time: 10, unit: 'MINUTES') {
+								sh '{ set +x ; } >/dev/null 2>&1 ; find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | grep -v python | xargs sha256sum > local-rpmsums'
+								unstash "rpmsums"
+								def needsunstash = sh (
+									script: '''
+									set +e ; set -x
+									output=$(diff -Naur local-rpmsums rpmsums 2>&1)
+									if [ "$?" = "0" ]
+									then
+										echo MATCH
+									else
+										echo "$output" >&2
+									fi
+									''',
+									returnStdout: true
+								).trim()
+								if (needsunstash != "MATCH") {
+									println "Need to unstash RPMs from master"
+									dir("out") {
+										deleteDir()
+									}
+									unstash "rpms"
+								}
+							}
 						}
-						return node('fedorazfs') {
-								stage("Unstash RPMs ${it.join(' ')}") {
-									when (params.SHORT_CIRCUIT == "") {
-									timeout(time: 10, unit: 'MINUTES') {
-										sh 'find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | grep -v python | xargs sha256sum | tee /dev/stderr > local-rpmsums'
-										unstash "rpmsums"
-										def needsunstash = sh (
-											script: '''
-											set +e ; set -x
-											output=$(diff -Naur local-rpmsums rpmsums 2>&1)
-											if [ "$?" = "0" ]
-											then
-												echo MATCH
-											else
-												echo "$output" >&2
-											fi
-											''',
-											returnStdout: true
-										).trim()
-										if (needsunstash != "MATCH") {
-											println "Need to unstash RPMs from master"
-											sh 'rm -rf -- out/'
-											unstash "rpms"
+					}
+					stage("Unstash zfs-fedora-installer") {
+						when (params.SHORT_CIRCUIT == "") {
+							unstash "zfs-fedora-installer"
+						}
+					}
+					stage("Activate ZFS") {
+						when (params.SHORT_CIRCUIT == "") {
+							script {
+								lock("activatezfs") {
+									if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
+										timeout(time: 10, unit: 'MINUTES') {
+											sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
+											def program = '''
+												deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
+												rpm -q \$deps || sudo dnf install -qy \$deps
+											'''.stripIndent().trim()
+											sh program
+											sh '''
+												eval $(cat /etc/os-release)
+												if test -d out/$VERSION_ID/ ; then
+													sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
+												else
+													sudo src/deploy-zfs
+												fi
+												sudo modprobe zfs
+											'''
 										}
 									}
-                                                                        }
 								}
-								stage("Unstash ${it.join(' ')}") {
-									when (params.SHORT_CIRCUIT == "") {
-										unstash "zfs-fedora-installer"
-									}
-								}
-								lock("activatezfs") {
-									stage("Activate ZFS ${it.join(' ')}") {
-										when (params.SHORT_CIRCUIT == "") {
-											script {
-												if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
-													timeout(time: 10, unit: 'MINUTES') {
-														def program = '''
-															deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
-															rpm -q \$deps || sudo dnf install -qy \$deps
-														'''.stripIndent().trim()
-														sh program
-														sh '''
-															eval $(cat /etc/os-release)
-															if test -d out/$VERSION_ID/ ; then
-																sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
-															else
-																sudo src/deploy-zfs
-															fi
-															sudo modprobe zfs
-														'''
-														sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
-													}
-												}
+							}
+						}
+					}
+					stage("Test") {
+						script {
+							def axisList = [
+								env.RELEASE.split(' '),
+								env.BUILD_FROM.split(' '),
+								params.LUKS.split(' '),
+								params.SEPARATE_BOOT.split(' '),
+							]
+							def parallelized = funcs.combo(
+								{
+									return {
+										def myRelease = it[0]
+										def myBuildFrom = it[1]
+										def myLuks = it[2]
+										def mySeparateBoot = it[3]
+										def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+										def mySourceBranch = ""
+										if (env.SOURCE_BRANCH != "") {
+											mySourceBranch = env.SOURCE_BRANCH
+										}
+										script {
+											timeout(60) {
+												runStage("beginning",
+													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+											}
+											timeout(15) {
+												runStage("reload_chroot",
+													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+											}
+											timeout(30) {
+												runStage("bootloader_install",
+													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+											}
+											timeout(30) {
+												runStage("boot_to_test_non_hostonly",
+													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+											}
+											timeout(30) {
+												runStage("boot_to_test_hostonly",
+													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
 											}
 										}
 									}
-                                                                }
-								stage("Remove old image ${it.join(' ')}") {
-									when (params.SHORT_CIRCUIT == "") {
-										sh "rm -rf root-${pname}.img boot-${pname}.img ${pname}.log"
-									}
-								}
-								timeout(60) {
-								runStage("beginning",
-									 ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-                                                                }
-								timeout(15) {
-								runStage("reload_chroot",
-                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-									 params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-                                                                }
-								timeout(30) {
-								runStage("bootloader_install",
-                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-                                                                }
-								timeout(30) {
-								runStage("boot_to_test_non_hostonly",
-                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-                                                                }
-								timeout(30) {
-								runStage("boot_to_test_hostonly",
-                                                                         ["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-                                                                         params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-                                                                }
+								},
+								axisList
+							)
+							parallel parallelized
 						}
 					}
-					def tasks = funcs.combo(task, axisList)
-					tasks.each {
-                                            stage(it.key) {
-                                                script {
-                                                    it.value
-                                                }
-                                            }
-                                        }
 				}
 			}
 		}
