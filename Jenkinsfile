@@ -340,6 +340,7 @@ pipeline {
 								},
 								axisList
 							)
+							parallelized.failFast = true
 							parallel parallelized
 						}
 					}
