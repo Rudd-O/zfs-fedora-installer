@@ -886,7 +886,7 @@ def get_file_size(filename):
 def create_file(filename, sizebytes, owner=None, group=None):
     with open(filename, "wb") as f:
         f.seek(sizebytes - 1)
-        f.write("\0")
+        f.write(b"\0")
     if owner:
         check_call(["chown", owner, "--", filename])
     if group:
