@@ -299,49 +299,58 @@ pipeline {
 							]
 							def parallelized = funcs.combo(
 								{
-									return {
-										def myRelease = it[0]
-										def myBuildFrom = it[1]
-										def myLuks = it[2]
-										def mySeparateBoot = it[3]
-										def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-										def mySourceBranch = ""
-										if (env.SOURCE_BRANCH != "") {
-											mySourceBranch = env.SOURCE_BRANCH
+									def myRelease = it[0]
+									def myBuildFrom = it[1]
+									def myLuks = it[2]
+									def mySeparateBoot = it[3]
+									def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+									def mySourceBranch = ""
+									if (env.SOURCE_BRANCH != "") {
+										mySourceBranch = env.SOURCE_BRANCH
+									}
+									script {
+										timeout(60) {
+											runStage("beginning",
+												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
 										}
-										script {
-											timeout(60) {
-												runStage("beginning",
-													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-											}
-											timeout(15) {
-												runStage("reload_chroot",
-													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-											}
-											timeout(30) {
-												runStage("bootloader_install",
-													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-											}
-											timeout(30) {
-												runStage("boot_to_test_non_hostonly",
-													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-											}
-											timeout(30) {
-												runStage("boot_to_test_hostonly",
-													["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-													params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-											}
+										timeout(15) {
+											runStage("reload_chroot",
+												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+										}
+										timeout(30) {
+											runStage("bootloader_install",
+												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+										}
+										timeout(30) {
+											runStage("boot_to_test_non_hostonly",
+												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+										}
+										timeout(30) {
+											runStage("boot_to_test_hostonly",
+												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
+												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
 										}
 									}
 								},
 								axisList
 							)
-							parallelized.failFast = true
-							parallel parallelized
+							// parallelized.failFast = true
+							// parallel parallelized
+							// VVVVVV serialized instead VVVVVV
+							// when parallel, the body of parallelized
+							// is meant to be enclosed within extra
+							// braces.
+							parallelized.each {
+								stage(it.key) {
+									script {
+										it.value
+									}
+								}
+							}
 						}
 					}
 				}
