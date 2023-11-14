@@ -36,7 +36,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 		ret=0
 		ls -l
 		sudo \\
-			python2 -u "\$cmd" \\
+			python3 -u "\$cmd" \\
 			${myBuildFrom} \\
 			${myShortCircuit} \\
 			${myBreakBefore} \\
@@ -267,11 +267,18 @@ pipeline {
 										when (params.SHORT_CIRCUIT == "") {
 											timeout(time: 10, unit: 'MINUTES') {
 												def program = '''
-													deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python2"
+													deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
 													rpm -q \$deps || sudo dnf install -qy \$deps
 												'''.stripIndent().trim()
 												sh program
-												sh 'sudo src/activate-zfs-in-qubes-vm out/'
+												sh '''
+													eval $(cat /etc/os-release)
+													if test -d out/$VERSION_ID/ ; then
+														sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
+													else
+														sudo src/deploy-zfs
+													fi
+												'''
 												sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
 											}
                                                                         	}
