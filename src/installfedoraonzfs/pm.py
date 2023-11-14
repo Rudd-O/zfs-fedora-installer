@@ -126,7 +126,7 @@ def make_temp_yum_config(source, directory, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
     with open(source, "r") as f:
         yumconfigtext = f.read()
-    for optname, optval in kwargs.items():
+    for optname, optval in list(kwargs.items()):
         if optval is None:
             yumconfigtext, repls = re.subn(
                 "^ *%s *=.*$" % (optname,), "", yumconfigtext, flags=re.M
@@ -490,7 +490,7 @@ def deploypackagesinchroot():
     logging.getLogger("shell").setLevel(logging.INFO)
     args = get_parser().parse_args()
     if args.method not in ["in_chroot", "out_of_chroot"]:
-        print >> sys.stderr, "error: method must be one of in-chroot or out-of-chroot."
+        logging.error("error: method must be one of in-chroot or out-of-chroot.")
         return os.EX_USAGE
     releasever = (
         args.releasever if args.releasever else ChrootPackageManager.get_my_releasever()

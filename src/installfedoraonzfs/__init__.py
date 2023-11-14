@@ -274,7 +274,7 @@ def get_parser():
             "".join(
                 "\n* %s:%s%s"
                 % (k, " " * (max(len(x) for x in break_stages) - len(k) + 1), v)
-                for k, v in break_stages.items()
+                for k, v in list(break_stages.items())
             ),
         )
     )
@@ -1506,8 +1506,8 @@ echo cannot power off VM.  Please kill qemu.
 
     # tell the user we broke
     except BreakingBefore as e:
-        print >> sys.stderr, "------------------------------------------------"
-        print >> sys.stderr, "Breaking before %s" % break_stages[e.args[0]]
+        logging.info("------------------------------------------------")
+        logging.info("Breaking before %s" % break_stages[e.args[0]])
         raise
 
     # end operating with the devices
@@ -1579,31 +1579,31 @@ def test_yum():
 
 def install_fedora_on_zfs():
     args = get_parser().parse_args()
+    log_config(args.trace_file)
     if not test_rsync():
-        print >> sys.stderr, "error: rsync is not available. Please use your package manager to install rsync."
+        logging.error("error: rsync is not available. Please use your package manager to install rsync.")
         return 5
     if not test_zfs():
-        print >> sys.stderr, "error: ZFS is not installed properly. Please install ZFS with `deploy-zfs` and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        logging.error("error: ZFS is not installed properly. Please install ZFS with `deploy-zfs` and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install.")
         return 5
     if not test_mkfs_ext4():
-        print >> sys.stderr, "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
+        logging.error("error: mkfs.ext4 is not installed properly. Please install e2fsprogs.")
         return 5
     if not test_mkfs_vfat():
-        print >> sys.stderr, "error: mkfs.vfat is not installed properly. Please install dosfstools."
+        logging.error("error: mkfs.vfat is not installed properly. Please install dosfstools.")
         return 5
     if not test_cryptsetup():
-        print >> sys.stderr, "error: cryptsetup is not installed properly. Please install cryptsetup."
+        logging.error("error: cryptsetup is not installed properly. Please install cryptsetup.")
         return 5
     if not test_gdisk():
-        print >> sys.stderr, "error: gdisk is not installed properly. Please install gdisk."
+        logging.error("error: gdisk is not installed properly. Please install gdisk.")
         return 5
     if not test_yum():
-        print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
+        logging.error("error: could not find either yum or DNF. Please use your package manager to install yum or DNF.")
         return 5
     if not args.break_before and not test_qemu():
-        print >> sys.stderr, "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present)."
+        logging.error("error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present).")
         return 5
-    log_config(args.trace_file)
     try:
         install_fedora(
             args.voldev[0],
@@ -1629,10 +1629,10 @@ def install_fedora_on_zfs():
             workdir=args.workdir,
         )
     except ImpossiblePassphrase as e:
-        print >> sys.stderr, "error:", e
+        logging.error("error:", e, file=sys.stderr)
         return os.EX_USAGE
     except (ZFSMalfunction, ZFSBuildFailure) as e:
-        print >> sys.stderr, "error:", e
+        logging.error("error:", e, file=sys.stderr)
         return 9
     except BreakingBefore:
         return 120
@@ -1851,7 +1851,7 @@ def deploy_zfs():
     args = get_deploy_parser().parse_args()
     log_config(args.trace_file)
     if not test_yum():
-        print >> sys.stderr, "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
+        logging.error("error: could not find either yum or DNF. Please use your package manager to install yum or DNF.")
         return 5
     p = lambda withinchroot: j("/", withinchroot.lstrip(os.path.sep))
     in_chroot = lambda x: x
