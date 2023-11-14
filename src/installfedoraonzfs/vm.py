@@ -238,7 +238,7 @@ def boot_image_in_qemu(
         vmiomaster, vmioslave = pty.openpty()
         vmiomaster, vmioslave = (
             os.fdopen(vmiomaster, "ab"),
-            os.fdopen(vmioslave, "rwb"),
+            os.fdopen(vmioslave, "r+b"),
         )
         stdin, stdout, stderr = vmioslave, vmioslave, vmioslave
         logger.info(
