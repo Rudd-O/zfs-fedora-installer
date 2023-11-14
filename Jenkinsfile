@@ -297,8 +297,9 @@ pipeline {
 								params.LUKS.split(' '),
 								params.SEPARATE_BOOT.split(' '),
 							]
-							def parallelized = funcs.combo(
+							def sequential = funcs.combo(
 								{
+								  // return { // use me for parallelism variant
 									def myRelease = it[0]
 									def myBuildFrom = it[1]
 									def myLuks = it[2]
@@ -335,16 +336,21 @@ pipeline {
 												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
 										}
 									}
+								  // } // use me for parallelism variant
 								},
 								axisList
 							)
+
+							// When parallel, the body of parallelized is
+							// meant to be enclosed within extra braces,
+							// else CPS closure error or some shit.
 							// parallelized.failFast = true
 							// parallel parallelized
-							// VVVVVV serialized instead VVVVVV
-							// when parallel, the body of parallelized
-							// is meant to be enclosed within extra
-							// braces.
-							parallelized.each {
+
+							// we use the serialized version instead, as
+							// the kernel does not correctly clean up
+							// when running this in parallel too many times.
+							sequential.each {
 								stage(it.key) {
 									script {
 										it.value
