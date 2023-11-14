@@ -1,16 +1,14 @@
 #!/usr/bin/env python
 
 import argparse
-import contextlib
-import fcntl
 import os
 from os.path import join as j
 import pipes
 import re
 import tempfile
 import logging
-import sys
 import subprocess
+from installfedoraonzfs.cmd import readtext
 
 from installfedoraonzfs.cmd import (
     check_output,
@@ -124,8 +122,7 @@ skip_if_unavailable=False
 
 def make_temp_yum_config(source, directory, **kwargs):
     tempyumconfig = tempfile.NamedTemporaryFile(dir=directory)
-    with open(source, "r") as f:
-        yumconfigtext = f.read()
+    yumconfigtext = readtext(source)
     for optname, optval in list(kwargs.items()):
         if optval is None:
             yumconfigtext, repls = re.subn(
@@ -311,7 +308,7 @@ class ChrootPackageManager(BasePackageManager):
         try:
             try:
                 with lock:
-                    cmdmod.check_call_no_output(in_chroot(["rpm", "-q"] + packages))
+                    cmdmod.check_call_silent(in_chroot(["rpm", "-q"] + packages))
                 logger.info("All required packages are available")
                 return
             except subprocess.CalledProcessError:
@@ -395,7 +392,7 @@ class SystemPackageManager(BasePackageManager):
     def ensure_packages_installed(self, packages, method="out_of_chroot"):
         logger.info("Checking packages are available: %s", packages)
         try:
-            cmdmod.check_call_no_output(["rpm", "-q"] + packages)
+            cmdmod.check_call_silent(["rpm", "-q"] + packages)
             logger.info("All required packages are available")
             return
         except subprocess.CalledProcessError:

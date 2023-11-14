@@ -11,7 +11,7 @@ import unittest
 from installfedoraonzfs import pm, cmd
 
 
-def mock_check_call_no_output(actions):
+def mock_check_call_silent(actions):
     cmds = []
     def fun(cmd, *unused_args, **unused_kwargs):
         cmds.append(cmd)
@@ -100,7 +100,7 @@ class TestEnsurePackagesInstalled(unittest.TestCase):
             ('', 0),
             ('', 0),
         ]
-        results, fun = mock_check_call_no_output(behaviors)
+        results, fun = mock_check_call_silent(behaviors)
         with tmpdir() as tmpd:
             with mock.patch.object(cmd, 'check_call', fun):
                 with mock.patch.object(cmd, 'get_output_exitcode', fun):
@@ -121,9 +121,9 @@ class TestEnsurePackagesInstalled(unittest.TestCase):
             self.assertListEqual(exp, res)
 
     def _do_a_tst(self, release, method, pkgmgrconf, packages, behaviors, expected):
-        results, fun = mock_check_call_no_output(behaviors)
+        results, fun = mock_check_call_silent(behaviors)
         with tmpdir() as tmpd:
-            with mock.patch.object(cmd, 'check_call_no_output', fun):
+            with mock.patch.object(cmd, 'check_call_silent', fun):
                 with mock.patch.object(cmd, 'get_output_exitcode', fun):
                     os_path_exists = os.path.exists
                     def exists(f):

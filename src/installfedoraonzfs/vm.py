@@ -10,8 +10,7 @@ import subprocess
 import threading
 import time
 
-from installfedoraonzfs.breakingbefore import BreakingBefore
-from installfedoraonzfs.cmd import Popen, get_associated_lodev
+from installfedoraonzfs.cmd import Popen, get_associated_lodev, check_call_silent
 from installfedoraonzfs.retry import Retryable
 
 
@@ -52,7 +51,7 @@ class Babysitter(threading.Thread):
         popenobject = self.popenobject
         timeout = self.timeout
         stopped = False
-        for x in xrange(timeout):
+        for x in range(timeout):
             if stopped:
                 return
             if popenobject.returncode is not None:
@@ -72,7 +71,9 @@ class Babysitter(threading.Thread):
         self._stopped_cond.notify()
         self._stopped_cond.release()
 
-def cpuinfo(): return file("/proc/cpuinfo").read()
+
+def cpuinfo():
+    return open("/proc/cpuinfo").read()
 
 
 def detect_qemu(force_kvm=None):
@@ -91,7 +92,7 @@ def detect_qemu(force_kvm=None):
 
 
 def test_qemu():
-    try: subprocess.check_call([detect_qemu()[0], "--help"], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w"))
+    try: check_call_silent([detect_qemu()[0], "--help"])
     except subprocess.CalledProcessError as e:
         if e.returncode == 0: return True
         raise

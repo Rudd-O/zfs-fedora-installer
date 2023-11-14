@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import contextlib
+import errno
 import fcntl
 import glob
 import logging
@@ -17,6 +17,21 @@ import time
 logger = logging.getLogger("cmd")
 
 
+def readtext(fn):
+    with open(fn) as f:
+        return f.read()
+
+
+def writetext(fn, text):
+    with open(fn, "w") as f:
+        return f.write(text)
+
+
+def readlines(fn):
+    with open(fn) as f:
+        return f.readlines()
+
+
 def format_cmdline(lst):
     return " ".join(pipes.quote(x) for x in lst)
 
@@ -29,6 +44,16 @@ def check_call(*args, **kwargs):
     cmd = args[0]
     logger.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.check_call(*args, **kwargs)
+
+
+def check_call_silent_stdout(cmd):
+    with open(os.devnull, "w") as devnull:
+        return check_call(cmd, stdout=devnull)
+
+
+def check_call_silent(cmd):
+    with open(os.devnull, "w") as devnull:
+        return check_call(cmd, stdout=devnull, stderr=devnull)
 
 
 def check_output(*args, **kwargs):
@@ -52,10 +77,6 @@ def check_output(*args, **kwargs):
     return output
 
 
-def check_call_no_output(cmd):
-    check_call(cmd, stdout=file(os.devnull, "w"), stderr=subprocess.STDOUT)
-
-
 def get_associated_lodev(path):
     output = ":".join(check_output(["losetup", "-j", path]).rstrip().split(":")[:-2])
     if output:
@@ -72,11 +93,11 @@ class Tee(threading.Thread):
 
     def run(self):
         pollables = dict((f[0], f[1:]) for f in self.filesets)
-        for inf in pollables.keys():
+        for inf in list(pollables.keys()):
             flag = fcntl.fcntl(inf.fileno(), fcntl.F_GETFL)
             fcntl.fcntl(inf.fileno(), fcntl.F_SETFL, flag | os.O_NONBLOCK)
         while pollables:
-            readables, _, _ = select.select(pollables.keys(), [], [])
+            readables, _, _ = select.select(list(pollables.keys()), [], [])
             data = readables[0].read()
             try:
                 if not data:
@@ -164,16 +185,15 @@ def _unlockf(f):
 
 
 def isbindmount(target):
-    f = file("/etc/mtab")
-    _lockf(f)
-    try:
-        mountpoints = [
-            x.strip().split()[1].decode("string_escape") for x in f.readlines()
-        ]
-        return target in mountpoints
-    finally:
-        _unlockf(f)
-        f.close()
+    with open("/etc/mtab") as f:
+        _lockf(f)
+        try:
+            mountpoints = [
+                x.strip().split()[1].decode("string_escape") for x in f.readlines()
+            ]
+            return target in mountpoints
+        finally:
+            _unlockf(f)
 
 
 def ismount(target):
@@ -238,7 +258,8 @@ def check_for_open_files(prefix):
                 continue
             c = os.path.join("/", *(f.split(os.path.sep)[1:3] + ["cmdline"]))
             try:
-                cmd = format_cmdline(file(c).read().split("\0"))
+                with open(c) as ff:
+                    cmd = format_cmdline(ff.read().split("\0"))
             except Exception:
                 continue
             if len(cmd) > 60:
@@ -246,14 +267,15 @@ def check_for_open_files(prefix):
             if d not in results:
                 results[d] = []
             results[d].append((pid, cmd))
-    for l in file("/proc/self/mounts").readlines():
-        fields = l[:-1].split(" ")
-        dev = mpdecode(fields[0])
-        mp = mpdecode(fields[1])
-        if mp.startswith(prefix + os.path.sep):
-            if mp not in results:
-                results[mp] = []
-            results[mp].append(("<mount>", dev))
+    with open("/proc/self/mounts") as mounts:
+        for l in mounts.readlines():
+            fields = l[:-1].split(" ")
+            dev = mpdecode(fields[0])
+            mp = mpdecode(fields[1])
+            if mp.startswith(prefix + os.path.sep):
+                if mp not in results:
+                    results[mp] = []
+                results[mp].append(("<mount>", dev))
     return results
 
 
@@ -268,7 +290,7 @@ def umount(mountpoint, tries=5):
         openfiles = check_for_open_files(mountpoint)
         if openfiles:
             logger.warn("There are open files in %r:", mountpoint)
-            for of, procs in openfiles.items():
+            for of, procs in list(openfiles.items()):
                 logger.warn("%r:", of)
                 for pid, cmd in procs:
                     logger.warn("  %7s  %s", pid, cmd)

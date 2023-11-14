@@ -13,17 +13,13 @@ import glob
 import platform
 import tempfile
 import logging
-import re
-import signal
+import signal as _
 import shlex
 import multiprocessing
-import pipes
-import errno
 
-from installfedoraonzfs.cmd import check_call, format_cmdline, check_output
+from installfedoraonzfs.cmd import check_call, check_output, check_call_silent_stdout, check_call_silent, readtext, readlines, writetext
 from installfedoraonzfs.cmd import Popen, mount, bindmount, umount, ismount
-from installfedoraonzfs.cmd import get_associated_lodev, get_output_exitcode
-from installfedoraonzfs.cmd import check_call_no_output
+from installfedoraonzfs.cmd import get_associated_lodev
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
 from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
 import installfedoraonzfs.retry as retrymod
@@ -749,11 +745,10 @@ def filesystem_context(
 
     logging.info("Checking / creating datasets.")
     try:
-        check_call(
+        check_call_silent_stdout(
             ["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
-            stdout=file(os.devnull, "w"),
         )
-    except subprocess.CalledProcessError as e:
+    except subprocess.CalledProcessError:
         if not create:
             raise Exception(
                 "Wanted to create ZFS file system ROOT on %s but create=False"
@@ -762,9 +757,8 @@ def filesystem_context(
         check_call(["zfs", "create", j(poolname, "ROOT")])
 
     try:
-        check_call(
+        check_call_silent_stdout(
             ["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT", "os")],
-            stdout=file(os.devnull, "w"),
         )
         if not os.path.ismount(rootmountpoint):
             check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
@@ -779,9 +773,8 @@ def filesystem_context(
 
     logging.info("Checking / creating swap zvol.")
     try:
-        check_call(
+        check_call_silent_stdout(
             ["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
-            stdout=file(os.devnull, "w"),
         )
     except subprocess.CalledProcessError as e:
         if not create:
@@ -872,10 +865,9 @@ def get_file_size(filename):
 
 
 def create_file(filename, sizebytes, owner=None, group=None):
-    f = file(filename, "wb")
-    f.seek(sizebytes - 1)
-    f.write("\0")
-    f.close()
+    with open(filename, "wb") as f:
+        f.seek(sizebytes - 1)
+        f.write("\0")
     if owner:
         check_call(["chown", owner, "--", filename])
     if group:
@@ -1053,12 +1045,12 @@ def install_fedora(
                 # make up a nice locale.conf file. neutral. international
                 localeconf = """LANG="en_US.UTF-8"
 """
-                file(p(j("etc", "locale.conf")), "w").write(localeconf)
+                writetext(p(j("etc", "locale.conf")), localeconf)
 
                 # make up a nice vconsole.conf file. neutral. international
                 vconsoleconf = """KEYMAP="us"
 """
-                file(p(j("etc", "vconsole.conf")), "w").write(vconsoleconf)
+                writetext(p(j("etc", "vconsole.conf")), vconsoleconf)
 
                 # make up a nice fstab file
                 fstab = """%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
@@ -1071,22 +1063,25 @@ UUID=%s /boot/efi vfat noatime 0 1
                     efipartuuid,
                     poolname,
                 )
-                file(p(j("etc", "fstab")), "w").write(fstab)
+                writetext(p(j("etc", "fstab")), fstab)
 
                 # create a number of important files
                 if not os.path.exists(p(j("etc", "mtab"))):
                     os.symlink("../proc/self/mounts", p(j("etc", "mtab")))
                 resolvconf = p(j("etc", "resolv.conf"))
                 if not os.path.isfile(resolvconf) and not os.path.islink(resolvconf):
-                    file(resolvconf, "w").write(file(j("/etc", "resolv.conf")).read())
+                    writetext(resolvconf, readtext(j("/etc", "resolv.conf")))
                 if not os.path.exists(p(j("etc", "hostname"))):
-                    file(p(j("etc", "hostname")), "w").write(hostname)
+                    writetext(p(j("etc", "hostname")), hostname)
                 if not os.path.exists(p(j("etc", "hostid"))):
-                    randomness = file("/dev/urandom").read(4)
-                    file(p(j("etc", "hostid")), "w").write(randomness)
+                    with open("/dev/urandom", "wb") as rnd:
+                        randomness = rnd.read(4)
+                        with open(p(j("etc", "hostid")), "wb") as hostid:
+                            hostid.write(randomness)
                 if not os.path.exists(p(j("etc", "locale.conf"))):
-                    file(p(j("etc", "locale.conf")), "w").write("LANG=en_US.UTF-8\n")
-                hostid = file(p(j("etc", "hostid"))).read().encode("hex")
+                    writetext(p(j("etc", "locale.conf")), "LANG=en_US.UTF-8\n")
+                with open(p(j("etc", "hostid")), "rb") as hostidfile:
+                    hostid = hostidfile.read().hex()
                 hostid = "%s%s%s%s" % (
                     hostid[6:8],
                     hostid[4:6],
@@ -1100,7 +1095,7 @@ UUID=%s /boot/efi vfat noatime 0 1
                         luksuuid,
                         rootuuid,
                     )
-                    file(p(j("etc", "crypttab")), "w").write(crypttab)
+                    writetext(p(j("etc", "crypttab")), crypttab)
                     os.chmod(p(j("etc", "crypttab")), 0o600)
 
                 pkgmgr = ChrootPackageManager(
@@ -1133,7 +1128,7 @@ UUID=%s /boot/efi vfat noatime 0 1
                     check_call(
                         in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"])
                     )
-                    file(p("usr/bin/dracut"), "w").write(
+                    writetext(p("usr/bin/dracut"), 
                         """#!/bin/bash
 
 echo This is a fake dracut.
@@ -1161,24 +1156,24 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 """ % (
                     luksstuff,
                 )
-                file(p(j("etc", "default", "grub")), "w").write(grubconfig)
+                writetext(p(j("etc", "default", "grub")), grubconfig)
 
                 # write kernel command line
                 if not os.path.isdir(p(j("etc", "kernel"))):
                     os.mkdir(p(j("etc", "kernel")))
-                grubconfig = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
+                kernelcmd = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
 """ % (
                     poolname,
                     luksstuff,
                 )
-                file(p(j("etc", "kernel", "cmdline")), "w").write(grubconfig)
+                writetext(p(j("etc", "kernel", "cmdline")), kernelcmd)
 
                 # install kernel packages
                 packages = "kernel kernel-devel".split()
                 pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
 
                 # set password
-                pwfile = file(p(j("etc", "shadow"))).readlines()
+                pwfile = readlines(p(j("etc", "shadow")))
                 pwnotset = bool(
                     [
                         l
@@ -1235,7 +1230,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
             hostonly = p(j("boot", "initramfs-hostonly-%s.img" % kver))
             return kernel, initrd, hostonly, kver
         except Exception:
-            check_call(in_chroot(["ls", "-lRa", "/boot"]))
+            check_call((["ls", "-lRa", p("boot")]))
             raise
 
     def reload_chroot():
@@ -1290,7 +1285,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
 
                 # Snapshot the system as it is, now that it is fully done.
                 try:
-                    check_call(
+                    check_call_silent_stdout(
                         [
                             "zfs",
                             "list",
@@ -1300,8 +1295,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                             "-o",
                             "name",
                             j(poolname, "ROOT", "os@initial"),
-                        ],
-                        stdout=file(os.devnull, "w"),
+                        ]
                     )
                 except subprocess.CalledProcessError as e:
                     check_call(["sync"])
@@ -1471,9 +1465,7 @@ echo cannot power off VM.  Please kill qemu.
                     }
                 )
                 bootloaderpath = p("installbootloader")
-                bootloader = file(bootloaderpath, "w")
-                bootloader.write(bootloadertext)
-                bootloader.close()
+                writetext(bootloaderpath, bootloadertext)
                 os.chmod(bootloaderpath, 0o755)
 
         logging.info("Entering sub-phase preparation of bootloader in VM.")
@@ -1518,12 +1510,14 @@ echo cannot power off VM.  Please kill qemu.
 
 def test_cmd(cmdname, expected_ret):
     try:
-        subprocess.check_call(
-            [cmdname],
-            stdin=file(os.devnull, "r"),
-            stdout=file(os.devnull, "w"),
-            stderr=file(os.devnull, "w"),
-        )
+        with open(os.devnull, "r") as devnull_r:
+            with open(os.devnull, "w") as devnull_w:
+                subprocess.check_call(
+                    [cmdname],
+                    stdin=devnull_r,
+                    stdout=devnull_w,
+                    stderr=devnull_w,
+                )
     except subprocess.CalledProcessError as e:
         if e.returncode == expected_ret:
             return True
@@ -1563,8 +1557,8 @@ def test_yum():
     pkgmgrs = {"yum": True, "dnf": True}
     for pkgmgr in pkgmgrs:
         try:
-            subprocess.check_call(
-                [pkgmgr], stdout=file(os.devnull, "w"), stderr=file(os.devnull, "w")
+            check_call_silent_stdout(
+                [pkgmgr]
             )
         except subprocess.CalledProcessError as e:
             if e.returncode != 1:
@@ -1783,10 +1777,8 @@ def deploy_zfs_in_machine(
                     "Checking if keystone packages %s are installed",
                     ", ".join(keystonepkgs),
                 )
-                check_call(
+                check_call_silent(
                     in_chroot(["rpm", "-q"] + list(keystonepkgs)),
-                    stdout=file(os.devnull, "w"),
-                    stderr=subprocess.STDOUT,
                 )
             except subprocess.CalledProcessError:
                 logging.info("Packages %s are not installed, building", keystonepkgs)
@@ -1830,7 +1822,7 @@ def deploy_zfs_in_machine(
 
         # Check we have a patched grub2-mkconfig.
         mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
-        mkconfig_text = file(mkconfig_file).read()
+        mkconfig_text = readtext(mkconfig_file)
         if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
             raise ZFSBuildFailure(
                 "expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?"
