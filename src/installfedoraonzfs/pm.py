@@ -90,7 +90,7 @@ def run_and_repair_with_retries(cmd, method, chroot, in_chroot, lock):
     return r(lambda: run_and_repair(cmd, method, chroot, in_chroot, lock))()
 
 
-DOWNLOAD_THEN_INSTALL: tuple[list[str], list[str]] = (["--downloadonly"], [])
+DOWNLOAD_THEN_INSTALL: tuple[list[str], list[str]] = (["--downloadonly", "-q"], [])
 
 
 logger = logging.getLogger("PM")
