@@ -636,13 +636,18 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
             raise Exception(
                 "Wanted to create boot file system on %s but create=False" % bootpart
             )
+        # Conservative set of features so older distributions can be
+        # tested when built in in newer distributions.
+        ext4_opts = (
+            "none,has_journal,ext_attr,resize_inode,dir_index,filetype"
+            ",extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink"
+        )
         check_call(
             [
                 "mkfs.ext4",
-                "-O",
-                # Disable features so older distributions can be tested
-                # when built in in newer distributions.
-                "^metadata_csum_seed,^metadata_csum,^orphan_file",
+            ]
+            + ["-O", ext4_opts]
+            + [
                 "-L",
                 "boot_" + label_postfix,
                 bootpart,
@@ -1023,10 +1028,9 @@ def install_fedora(
     original_voldev = voldev
     original_bootdev = bootdev
 
-    undoer = Undoer()
-
+    host_releasever = ChrootPackageManager.get_my_releasever()
     if not releasever:
-        releasever = ChrootPackageManager.get_my_releasever()
+        releasever = host_releasever
 
     def beginning():
         logging.info("Program has begun.")
