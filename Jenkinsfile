@@ -100,6 +100,7 @@ pipeline {
 
 	parameters {
 		string defaultValue: "zfs/${currentBuild.projectName}", description: '', name: 'UPSTREAM_PROJECT', trim: true
+		string defaultValue: "", description: 'Use a specific ZFS build number for this test run', name: 'UPSTREAM_PROJECT_BUILD_NUMBER', trim: true
 		string defaultValue: 'master', description: '', name: 'SOURCE_BRANCH', trim: true
 		string defaultValue: "grub-zfs-fixer/master", description: '', name: 'GRUB_UPSTREAM_PROJECT', trim: true
 		string defaultValue: 'no', description: '', name: 'BUILD_FROM_SOURCE', trim: true
@@ -182,11 +183,21 @@ pipeline {
 			when { allOf { not { equals expected: 'NOT_BUILT', actual: currentBuild.result }; equals expected: "", actual: params.SHORT_CIRCUIT } }
 			steps {
 				sh "rm -rf out"
-				copyArtifacts(
-					projectName: env.UPSTREAM_PROJECT,
-					fingerprintArtifacts: true,
-					selector: upstream(fallbackToLastSuccessful: true)
-				)
+				script {
+					if (params.UPSTREAM_PROJECT_BUILD_NUMBER == '') {
+						copyArtifacts(
+							projectName: env.UPSTREAM_PROJECT,
+							fingerprintArtifacts: true,
+							selector: upstream(fallbackToLastSuccessful: true)
+						)
+					} else {
+						copyArtifacts(
+							projectName: env.UPSTREAM_PROJECT,
+							fingerprintArtifacts: true,
+							selector: specific(params.UPSTREAM_PROJECT_BUILD_NUMBER)
+						)
+					}
+				}
 				copyArtifacts(
 					projectName: env.GRUB_UPSTREAM_PROJECT,
 					fingerprintArtifacts: true,
