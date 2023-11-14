@@ -278,7 +278,7 @@ pipeline {
 									stage("Activate ZFS ${it.join(' ')}") {
 										when (params.SHORT_CIRCUIT == "") {
 											script {
-												if (!sh("lsmod", returnStdout: true).contains("zfs")) {
+												if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
 													timeout(time: 10, unit: 'MINUTES') {
 														def program = '''
 															deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
