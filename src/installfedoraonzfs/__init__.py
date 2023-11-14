@@ -1661,10 +1661,10 @@ def install_fedora_on_zfs():
             workdir=args.workdir,
         )
     except ImpossiblePassphrase as e:
-        logging.error("error:", e, file=sys.stderr)
+        logging.error("error: %s", e)
         return os.EX_USAGE
     except (ZFSMalfunction, ZFSBuildFailure) as e:
-        logging.error("error:", e, file=sys.stderr)
+        logging.error("error: %s", e)
         return 9
     except BreakingBefore:
         return 120
