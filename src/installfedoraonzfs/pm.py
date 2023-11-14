@@ -90,7 +90,7 @@ def run_and_repair_with_retries(cmd, method, chroot, in_chroot, lock):
     return r(lambda: run_and_repair(cmd, method, chroot, in_chroot, lock))()
 
 
-options_ = (["--downloadonly"], [])
+DOWNLOAD_THEN_INSTALL: tuple[list[str], list[str]] = (["--downloadonly"], [])
 
 
 logger = logging.getLogger("PM")
@@ -311,7 +311,7 @@ class ChrootPackageManager(BasePackageManager):
                 return
             except subprocess.CalledProcessError:
                 pass
-            for option in options_:
+            for option in DOWNLOAD_THEN_INSTALL:
                 logger.info(
                     "Installing packages %s %s: %s", option, method, ", ".join(packages)
                 )
@@ -360,7 +360,7 @@ class ChrootPackageManager(BasePackageManager):
         try:
             # always happens in chroot
             # packages must be a list of paths to RPMs valid within the chroot
-            for option in options_:
+            for option in DOWNLOAD_THEN_INSTALL:
                 logger.info("Installing packages %s: %s", option, ", ".join(packages))
                 cmd = in_chroot(
                     [pkgmgr]
@@ -395,7 +395,7 @@ class SystemPackageManager(BasePackageManager):
             return
         except subprocess.CalledProcessError:
             pass
-        for option in options_:
+        for option in DOWNLOAD_THEN_INSTALL:
             logger.info(
                 "Installing packages %s %s: %s", option, method, ", ".join(packages)
             )
@@ -420,7 +420,7 @@ class SystemPackageManager(BasePackageManager):
             if not os.path.isfile(package):
                 raise Exception("package file %r does not exist" % package)
 
-        for option in options_:
+        for option in DOWNLOAD_THEN_INSTALL:
             logger.info("Installing packages %s: %s", option, ", ".join(packages))
             cmd = (
                 [self.strategy]

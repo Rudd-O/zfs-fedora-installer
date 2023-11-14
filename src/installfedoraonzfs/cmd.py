@@ -185,11 +185,11 @@ def _unlockf(f):
 
 
 def isbindmount(target):
-    with open("/etc/mtab") as f:
+    with open("/etc/mtab", "rb") as f:
         _lockf(f)
         try:
             mountpoints = [
-                x.strip().split()[1].decode("string_escape") for x in f.readlines()
+                x.split()[1].decode("unicode-escape") for x in f.read().splitlines()
             ]
             return target in mountpoints
         finally:
@@ -200,52 +200,14 @@ def ismount(target):
     return os.path.ismount(target) or isbindmount(target)
 
 
-def mpdecode(encoded_mountpoint):
-    chars = []
-    pos = 0
-    while pos < len(encoded_mountpoint):
-        c = encoded_mountpoint[pos]
-        if c == "\\":
-            try:
-                if encoded_mountpoint[pos + 1] == "\\":
-                    chars.append("\\")
-                    pos = pos + 1
-                elif (
-                    encoded_mountpoint[pos + 1] in "0123456789"
-                    and encoded_mountpoint[pos + 2] in "0123456789"
-                    and encoded_mountpoint[pos + 3] in "0123456789"
-                ):
-                    chunk = (
-                        encoded_mountpoint[pos + 1]
-                        + encoded_mountpoint[pos + 2]
-                        + encoded_mountpoint[pos + 3]
-                    )
-                    chars.append(chr(int(chunk, 8)))
-                    pos = pos + 3
-                else:
-                    raise ValueError(
-                        "Unparsable mount point %r at pos %s"
-                        % (encoded_mountpoint, pos)
-                    )
-            except IndexError as e:
-                raise ValueError(
-                    "Unparsable mount point %r at pos %s: %s"
-                    % (encoded_mountpoint, pos, e)
-                )
-        else:
-            chars.append(c)
-        pos = pos + 1
-    return "".join(chars)
-
-
-def check_for_open_files(prefix):
+def check_for_open_files(prefix: str) -> dict[str, list[tuple[str, str]]]:
     """Check that there are open files or mounted file systems within the prefix.
 
     Returns a  dictionary where the keys are the files, and the values are lists
     that contain tuples (pid, command line) representing the processes that are
     keeping those files open, or tuples ("<mount>", description) representing
     the file systems mounted there."""
-    results = dict()
+    results: dict[str, list[tuple[str, str]]] = dict()
     files = glob.glob("/proc/*/fd/*") + glob.glob("/proc/*/cwd")
     for f in files:
         try:
@@ -267,11 +229,11 @@ def check_for_open_files(prefix):
             if d not in results:
                 results[d] = []
             results[d].append((pid, cmd))
-    with open("/proc/self/mounts") as mounts:
-        for line in mounts.readlines():
-            fields = line[:-1].split(" ")
-            dev = mpdecode(fields[0])
-            mp = mpdecode(fields[1])
+    with open("/proc/self/mounts", "rb") as mounts:
+        for line in mounts.read().splitlines():
+            fields = line.split()
+            dev = fields[0].decode("unicode-escape")
+            mp = fields[1].decode("unicode-escape")
             if mp.startswith(prefix + os.path.sep):
                 if mp not in results:
                     results[mp] = []
@@ -279,7 +241,7 @@ def check_for_open_files(prefix):
     return results
 
 
-def umount(mountpoint, tries=5):
+def umount(mountpoint: str, tries=5):
     if not ismount(mountpoint):
         return
     try:
@@ -301,19 +263,15 @@ def umount(mountpoint, tries=5):
     return mountpoint
 
 
-def makedirs(ds):
+def makedirs(ds: list[str]) -> list[str]:
     for subdir in ds:
         while not os.path.isdir(subdir):
-            try:
-                os.makedirs(subdir)
-            except OSError as e:
-                if e.errno != errno.EEXIST:
-                    raise
+            os.makedirs(subdir, exist_ok=True)
     return ds
 
 
 class lockfile(object):
-    def __init__(self, path):
+    def __init__(self, path: str):
         self.path = path
         self.f = None
 
