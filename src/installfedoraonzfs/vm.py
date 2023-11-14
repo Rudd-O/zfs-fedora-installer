@@ -42,6 +42,10 @@ class BadPW(Exception):
     pass
 
 
+class Emergency(Exception):
+    pass
+
+
 class Babysitter(threading.Thread):
     def __init__(self, popenobject, timeout):
         threading.Thread.__init__(self)
@@ -356,6 +360,7 @@ class BootDriver(threading.Thread):
         oom = False
         panicked = False
         badpw = False
+        emergency = False
 
         while True:
             try:
@@ -381,6 +386,8 @@ class BootDriver(threading.Thread):
                         raise Panicked("kernel has panicked.")
                     if badpw:
                         raise BadPW("authentication failed")
+                    if emergency:
+                        raise Emergency("system entered emergency mode")
                 elif c == b"\r":
                     pass
                 else:
@@ -452,6 +459,9 @@ class BootDriver(threading.Thread):
                 if b"end Kernel panic" in s:
                     # OOM.  Raise non-retryable kernel panic.
                     panicked = True
+                if b"root password for maintenance" in s:
+                    # System did not boot.
+                    emergency = True
             except Exception as e:
                 self.error = e
                 break
