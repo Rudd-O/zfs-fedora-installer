@@ -262,6 +262,7 @@ pipeline {
 											returnStdout: true
 										).trim()
 										if (needsunstash != "MATCH") {
+											println "Need to unstash RPMs from master"
 											sh 'rm -rf -- out/'
 											unstash "rpms"
 										}
@@ -289,6 +290,7 @@ pipeline {
 													else
 														sudo src/deploy-zfs
 													fi
+													sudo modprobe zfs
 												'''
 												sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
 											}
