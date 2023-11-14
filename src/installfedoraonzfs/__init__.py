@@ -636,7 +636,18 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
             raise Exception(
                 "Wanted to create boot file system on %s but create=False" % bootpart
             )
-        check_call(["mkfs.ext4", "-L", "boot_" + label_postfix, bootpart])
+        check_call(
+            [
+                "mkfs.ext4",
+                "-O",
+                # Disable features so older distributions can be tested
+                # when built in in newer distributions.
+                "^metadata_csum_seed,^metadata_csum,^orphan_file",
+                "-L",
+                "boot_" + label_postfix,
+                bootpart,
+            ]
+        )
     bootpartuuid = check_output(
         ["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]
     ).strip()

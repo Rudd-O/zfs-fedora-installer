@@ -237,8 +237,8 @@ def boot_image_in_qemu(
     else:
         vmiomaster, vmioslave = pty.openpty()
         vmiomaster, vmioslave = (
-            os.fdopen(vmiomaster, "ab"),
-            os.fdopen(vmioslave, "r+b"),
+            os.fdopen(vmiomaster, "a+b", buffering=0),
+            os.fdopen(vmioslave, "a+b", buffering=0),
         )
         stdin, stdout, stderr = vmioslave, vmioslave, vmioslave
         logger.info(
@@ -363,15 +363,15 @@ class BootDriver(threading.Thread):
                     c = self.pty.read(1)
                 except IOError as e:
                     if e.errno == errno.EIO:
-                        c = ""
+                        c = b""
                     else:
                         raise
-                if c == "":
+                if c == b"":
                     logger.info("QEMU slave PTY gone")
                     break
                 self.output.append(c)
-                if c == "\n":
-                    consolelogger.debug("".join(lastline))
+                if c == b"\n":
+                    consolelogger.debug(b"".join(lastline).decode("utf-8"))
                     lastline = []
                     if segfaulted:
                         raise SystemdSegfault("systemd appears to have segfaulted.")
@@ -381,22 +381,22 @@ class BootDriver(threading.Thread):
                         raise Panicked("kernel has panicked.")
                     if badpw:
                         raise BadPW("authentication failed")
-                elif c == "\r":
+                elif c == b"\r":
                     pass
                 else:
                     lastline.append(c)
-                s = "".join(lastline)
+                s = b"".join(lastline)
 
                 if self.luks_passphrase:
                     if luks_passphrase_prompt_state == unseen:
-                        if "nter passphrase for" in s:
+                        if b"nter passphrase for" in s:
                             # Please enter passphrase for disk QEMU...
                             # Enter passphrase for /dev/...
                             # LUKS passphrase prompt appeared.  Enter it later.
                             logger.info("Passphrase prompt begun appearing.")
                             luks_passphrase_prompt_state = waiting_for_escape_sequence
                     if luks_passphrase_prompt_state == waiting_for_escape_sequence:
-                        if "[0m" in s or ")!" in s:
+                        if b"[0m" in s or b")!" in s:
                             logger.info("Passphrase prompt done appearing.")
                             luks_passphrase_prompt_state = pending_write
                     if luks_passphrase_prompt_state == pending_write:
@@ -406,7 +406,7 @@ class BootDriver(threading.Thread):
 
                 if self.login and self.password:
                     if login_prompt_state == unseen:
-                        if " login: " in s:
+                        if b" login: " in s:
                             # Please enter passphrase for disk QEMU...
                             # Enter passphrase for /dev/...
                             # LUKS passphrase prompt appeared.  Enter it later.
@@ -417,7 +417,7 @@ class BootDriver(threading.Thread):
                         self.write_login()
                         login_prompt_state = login_written
                     if login_prompt_state == login_written:
-                        if "Password: " in s:
+                        if b"Password: " in s:
                             logger.info("Password prompt begun appearing.")
                             login_prompt_state = password_prompt_seen
                     if login_prompt_state == password_prompt_seen:
@@ -425,7 +425,7 @@ class BootDriver(threading.Thread):
                         self.write_password()
                         login_prompt_state = password_written
                     if login_prompt_state == password_written:
-                        if " ~]# " in s:
+                        if b" ~]# " in s:
                             logger.info("Shell prompt begun appearing.")
                             login_prompt_state = shell_prompt_seen
                     if login_prompt_state == shell_prompt_seen:
@@ -434,36 +434,36 @@ class BootDriver(threading.Thread):
                         login_prompt_state = poweroff_written
 
                 if (
-                    "traps: systemd[1] general protection" in s
-                    or "memory corruption" in s
-                    or "Freezing execution." in s
+                    b"traps: systemd[1] general protection" in s
+                    or b"memory corruption" in s
+                    or b"Freezing execution." in s
                 ):
                     # systemd or udevd exploded.  Raise retryable SystemdSegfault later.
                     segfaulted = True
-                if " Not enough available memory to open a keyslot." in s:
+                if b" Not enough available memory to open a keyslot." in s:
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
-                if " authentication failure." in s:
+                if b" authentication failure." in s:
                     # OOM.  Raise non-retryable OOMed.
                     badpw = True
-                if " Killed" in s:
+                if b" Killed" in s:
                     # OOM.  Raise non-retryable OOMed.
                     oom = True
-                if "end Kernel panic" in s:
+                if b"end Kernel panic" in s:
                     # OOM.  Raise non-retryable kernel panic.
                     panicked = True
             except Exception as e:
                 self.error = e
                 break
         if lastline:
-            consolelogger.debug("".join(lastline))
+            consolelogger.debug(b"".join(lastline).decode("utf-8"))
         logger.info("Boot driver ended")
         if not self.error:
-            if "reboot: Power down" not in self.get_output():
+            if b"reboot: Power down" not in self.get_output():
                 self.error = MachineNeverShutoff("The bootable image never shut off.")
 
     def get_output(self):
-        return "".join(self.output)
+        return b"".join(self.output)
 
     def join(self):
         threading.Thread.join(self)
@@ -473,9 +473,9 @@ class BootDriver(threading.Thread):
     def _write_stuff(self, stuff):
         time.sleep(0.25)
         for char in stuff:
-            self.pty.write(char)
+            self.pty.write(char.encode("utf-8"))
             self.pty.flush()
-        self.pty.write("\n")
+        self.pty.write(b"\n")
         self.pty.flush()
 
     def write_luks_passphrase(self):
