@@ -1859,6 +1859,7 @@ def deploy_zfs_in_machine(
                 pkgmgr.install_local_packages(files_to_install)
 
         # Check we have a patched grub2-mkconfig.
+        logging.info("Checking if grub2-mkconfig has been patched")
         mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
         mkconfig_text = readtext(mkconfig_file)
         if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
@@ -1868,6 +1869,7 @@ def deploy_zfs_in_machine(
             )
 
         # Build ZFS for all kernels that have a kernel-devel.
+        logging.info("Running DKMS install for all kernel-devel packages")
         in_chroot(
             [
                 "bash",
