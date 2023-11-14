@@ -277,24 +277,28 @@ pipeline {
 								lock("activatezfs") {
 									stage("Activate ZFS ${it.join(' ')}") {
 										when (params.SHORT_CIRCUIT == "") {
-											timeout(time: 10, unit: 'MINUTES') {
-												def program = '''
-													deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
-													rpm -q \$deps || sudo dnf install -qy \$deps
-												'''.stripIndent().trim()
-												sh program
-												sh '''
-													eval $(cat /etc/os-release)
-													if test -d out/$VERSION_ID/ ; then
-														sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
-													else
-														sudo src/deploy-zfs
-													fi
-													sudo modprobe zfs
-												'''
-												sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
+											script {
+												if (!sh("lsmod", returnStdout: true).contains("zfs")) {
+													timeout(time: 10, unit: 'MINUTES') {
+														def program = '''
+															deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
+															rpm -q \$deps || sudo dnf install -qy \$deps
+														'''.stripIndent().trim()
+														sh program
+														sh '''
+															eval $(cat /etc/os-release)
+															if test -d out/$VERSION_ID/ ; then
+																sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
+															else
+																sudo src/deploy-zfs
+															fi
+															sudo modprobe zfs
+														'''
+														sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
+													}
+												}
 											}
-                                                                        	}
+										}
 									}
                                                                 }
 								stage("Remove old image ${it.join(' ')}") {
