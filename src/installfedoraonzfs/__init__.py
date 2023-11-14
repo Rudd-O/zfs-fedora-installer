@@ -1875,7 +1875,7 @@ def deploy_zfs_in_machine(
                 [
                     "bash",
                     "-xc",
-                    "for kver in $(rpm -q kernel-devel --queryformat='%{version}-%{release} ')"
+                    "for kver in $(rpm -q kernel-devel --queryformat='%{version}-%{release}.%{arch} ')"
                     " ; do dkms install -k $kver || exit $? ; "
                     "done",
                 ]
