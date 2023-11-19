@@ -1842,9 +1842,23 @@ def deploy_zfs_in_machine(
                 files_to_install = getrpms(patterns, project_dir)
                 if not files_to_install:
                     if os.path.isdir(project_dir):
-                        cmd = ["git", "checkout", branch]
-                        check_call(cmd, cwd=project_dir)
-                        check_call("git pull".split(), cwd=project_dir)
+                        if project == "zfs":
+                            qbranch = shlex.quote(branch)
+                            check_call("git fetch".split(), cwd=project_dir)
+                            check_call(
+                                [
+                                    "bash",
+                                    "-c",
+                                    f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
+                                ],
+                                cwd=project_dir,
+                            )
+                        else:
+                            check_call("git fetch".split(), cwd=project_dir)
+                            check_call(
+                                "git reset --hard origin/master".split(),
+                                cwd=project_dir,
+                            )
                     else:
                         repo = (
                             zfs_repo
