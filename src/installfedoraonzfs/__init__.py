@@ -897,6 +897,33 @@ def get_file_size(filename):
         os.close(fd)
 
 
+def checkout_repo_at(repo, project_dir, branch):
+    qbranch = shlex.quote(branch)
+    if os.path.isdir(project_dir):
+        logging.info("Updating and checking out git repository: %s", repo)
+        check_call("git fetch".split(), cwd=project_dir)
+        check_call(
+            [
+                "bash",
+                "-c",
+                f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
+            ],
+            cwd=project_dir,
+        )
+    else:
+        logging.info("Cloning git repository: %s", repo)
+        check_call(["git", "clone", repo, project_dir])
+        check_call(
+            [
+                "bash",
+                "-c",
+                f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
+            ],
+            cwd=project_dir,
+        )
+    check_call(["git", "--no-pager", "show"], cwd=project_dir)
+
+
 def create_file(filename, sizebytes, owner=None, group=None):
     with open(filename, "wb") as f:
         f.seek(sizebytes - 1)
@@ -1841,37 +1868,14 @@ def deploy_zfs_in_machine(
 
                 files_to_install = getrpms(patterns, project_dir)
                 if not files_to_install:
-                    if os.path.isdir(project_dir):
-                        if project == "zfs":
-                            qbranch = shlex.quote(branch)
-                            check_call("git fetch".split(), cwd=project_dir)
-                            check_call(
-                                [
-                                    "bash",
-                                    "-c",
-                                    f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
-                                ],
-                                cwd=project_dir,
-                            )
-                        else:
-                            check_call("git fetch".split(), cwd=project_dir)
-                            check_call(
-                                "git reset --hard origin/master".split(),
-                                cwd=project_dir,
-                            )
-                    else:
-                        repo = (
-                            zfs_repo
-                            if project == "zfs"
-                            else ("https://github.com/Rudd-O/%s" % project)
-                        )
-                        logging.info("Cloning git repository: %s", repo)
-                        cmd = ["git", "clone", repo, project_dir]
-                        check_call(cmd)
-                        cmd = ["git", "checkout", branch]
-                        check_call(cmd, cwd=project_dir)
-                        cmd = ["git", "--no-pager", "show"]
-                        check_call(cmd, cwd=project_dir)
+                    repo = (
+                        zfs_repo
+                        if project == "zfs"
+                        else ("https://github.com/Rudd-O/%s" % project)
+                    )
+                    repo_branch = branch if project == "zfs" else "master"
+
+                    checkout_repo_at(repo, project_dir, repo_branch)
 
                     if mindeps:
                         pkgmgr.ensure_packages_installed(mindeps)
