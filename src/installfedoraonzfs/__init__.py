@@ -167,15 +167,6 @@ def get_parser():
         help="Fedora release version (default the same as the computer you are installing on)",
     )
     parser.add_argument(
-        "--use-prebuilt-rpms",
-        dest="prebuiltrpms",
-        metavar="DIR",
-        type=str,
-        action="store",
-        default=None,
-        help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build ZFS and GRUB RPMs, within the chroot)",
-    )
-    parser.add_argument(
         "--luks-password",
         dest="lukspassword",
         metavar="LUKSPASSWORD",
@@ -229,13 +220,7 @@ def get_parser():
         default=None,
         help="change the group of the image files upon creation to this group",
     )
-    parser.add_argument(
-        "--use-branch",
-        dest="branch",
-        action="store",
-        default="master",
-        help="when building ZFS from source, check out this branch instead of master",
-    )
+    add_common_arguments(parser)
     parser.add_argument(
         "--break-before",
         dest="break_before",
@@ -265,13 +250,6 @@ def get_parser():
         default="/var/lib/zfs-fedora-installer",
         help="use this directory as a working (scratch) space for the mount points of the created pool",
     )
-    parser.add_argument(
-        "--trace-file",
-        dest="trace_file",
-        action="store",
-        default=None,
-        help="file name for a detailed trace file of program activity (default no trace file)",
-    )
     parser.epilog = (
         "Stages for the --break-before and --short-circuit arguments:\n%s"
         % (
@@ -285,8 +263,7 @@ def get_parser():
     return parser
 
 
-def get_deploy_parser():
-    parser = argparse.ArgumentParser(description="Install ZFS on a running system")
+def add_common_arguments(parser):
     parser.add_argument(
         "--use-prebuilt-rpms",
         dest="prebuiltrpms",
@@ -297,11 +274,18 @@ def get_deploy_parser():
         help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build ZFS and GRUB RPMs, within the system)",
     )
     parser.add_argument(
+        "--zfs-repo",
+        dest="zfs_repo",
+        action="store",
+        default="https://github.com/Rudd-O/zfs",
+        help="when building ZFS from source, use this repository instead of master",
+    )
+    parser.add_argument(
         "--use-branch",
         dest="branch",
         action="store",
         default="master",
-        help="when building ZFS from source, check out this branch instead of master",
+        help="when building ZFS from source, check out this commit, tag or branch from the repository instead of master",
     )
     parser.add_argument(
         "--trace-file",
@@ -310,6 +294,11 @@ def get_deploy_parser():
         default=None,
         help="file name for a detailed trace file of program activity (default no trace file)",
     )
+
+
+def get_deploy_parser():
+    parser = argparse.ArgumentParser(description="Install ZFS on a running system")
+    add_common_arguments(parser)
     return parser
 
 
@@ -995,6 +984,7 @@ class Undoer:
 def install_fedora(
     voldev,
     volsize,
+    zfs_repo,
     bootdev=None,
     bootsize=256,
     poolname="tank",
@@ -1247,6 +1237,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                     in_chroot=in_chroot,
                     pkgmgr=pkgmgr,
                     prebuilt_rpms_path=prebuilt_rpms_path,
+                    zfs_repo=zfs_repo,
                     branch=branch,
                     break_before=break_before,
                     install_current_kernel_devel=False,
@@ -1655,6 +1646,7 @@ def install_fedora_on_zfs():
         install_fedora(
             args.voldev[0],
             args.volsize,
+            args.zfs_repo,
             args.bootdev,
             args.bootsize,
             args.poolname,
@@ -1690,6 +1682,7 @@ def deploy_zfs_in_machine(
     p,
     in_chroot,
     pkgmgr,
+    zfs_repo,
     branch,
     prebuilt_rpms_path,
     break_before,
@@ -1853,7 +1846,11 @@ def deploy_zfs_in_machine(
                         check_call(cmd, cwd=project_dir)
                         check_call("git pull".split(), cwd=project_dir)
                     else:
-                        repo = "https://github.com/Rudd-O/%s" % project
+                        repo = (
+                            zfs_repo
+                            if project == "zfs"
+                            else ("https://github.com/Rudd-O/%s" % project)
+                        )
                         logging.info("Cloning git repository: %s", repo)
                         cmd = ["git", "clone", repo, project_dir]
                         check_call(cmd)
@@ -1930,6 +1927,7 @@ def deploy_zfs():
             in_chroot=in_chroot,
             pkgmgr=pkgmgr,
             prebuilt_rpms_path=args.prebuiltrpms,
+            zfs_repo=args.zfs_repo,
             branch=args.branch,
             break_before=None,
             install_current_kernel_devel=True,
