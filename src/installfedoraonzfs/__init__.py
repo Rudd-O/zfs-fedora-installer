@@ -1085,6 +1085,11 @@ def install_fedora(
             ):
                 logging.info("Adding basic files.")
                 # sync device files
+                # FIXME: this could be racy when building multiple images
+                # in parallel.
+                # We really should only synchronize the absolute minimum of
+                # device files (in/out/err/null, and the disks that belong
+                # to this build MAYBE.)
                 check_call(
                     [
                         "rsync",

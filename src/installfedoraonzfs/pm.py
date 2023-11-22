@@ -342,7 +342,9 @@ class ChrootPackageManager(BasePackageManager):
                             "--releasever=%d" % self.releasever,
                         ]
                         if method == "out_of_chroot"
-                        else []
+                        else [
+                            "--releasever=%d" % self.releasever,
+                        ]
                     )
                     + (["--"] if pkgmgr == "yum" else [])
                     + packages
