@@ -300,7 +300,9 @@ class ChrootPackageManager(BasePackageManager):
         self.cachemounts = []
         self.cachedir = None if cachedir is None else os.path.abspath(cachedir)
 
-    def ensure_packages_installed(self, packages, method="in_chroot"):
+    def ensure_packages_installed(self, packages, method="in_chroot", extra_args=None):
+        more_args = extra_args if extra_args else []
+
         def in_chroot(lst):
             return ["chroot", self.chroot] + lst
 
@@ -315,11 +317,16 @@ class ChrootPackageManager(BasePackageManager):
                 pass
             for option in DOWNLOAD_THEN_INSTALL:
                 logger.info(
-                    "Installing packages %s %s: %s", option, method, ", ".join(packages)
+                    "Installing packages %s %s (extra args: %s): %s",
+                    option,
+                    method,
+                    extra_args,
+                    ", ".join(packages),
                 )
                 cmd = (
                     ([pkgmgr] if method == "out_of_chroot" else in_chroot([pkgmgr]))
                     + ["install", "-y", "--disableplugin=*qubes*"]
+                    + more_args
                     + (
                         [
                             "-c",
