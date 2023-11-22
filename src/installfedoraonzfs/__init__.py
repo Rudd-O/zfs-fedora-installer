@@ -107,7 +107,7 @@ def get_parser():
         type=int,
         action="store",
         default=11000,
-        help="volume size in MiB (default 11000)",
+        help="volume size in MiB (default 11000), or bytes if postfixed with a B",
     )
     parser.add_argument(
         "--separate-boot",
@@ -493,6 +493,8 @@ def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
     """Takes a volume device path, and possible a boot device path,
     and yields a properly partitioned set of volumes which can
     then be used to format and create pools on.
+
+    volsize is in bytes.  bootsize is in mebibytes.
     """
     undoer = Undoer()
     logging.info("Entering blockdev context.  Create=%s.", create)
@@ -501,7 +503,7 @@ def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
     if (
         voltype == "doesntexist"
     ):  # FIXME use truncate directly with python.  no need to dick around.
-        create_file(voldev, volsize * 1024 * 1024, owner=chown, group=chgrp)
+        create_file(voldev, volsize, owner=chown, group=chgrp)
         voltype = "file"
 
     if voltype == "file":
@@ -1688,10 +1690,25 @@ def install_fedora_on_zfs():
             "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present)."
         )
         return 5
+
+    if not args.volsize:
+        logging.error("error: --vol-size must be a number.")
+        return os.EX_USAGE
+    try:
+        if args.volsize[-1] == "B":
+            volsize = int(args.volsize[:-1])
+        else:
+            volsize = int(args.volsize) * 1024 * 1024
+    except Exception:
+        logging.error(
+            "error: --vol-size must be a valid number of megabytes, or bytes with a B postfix."
+        )
+        return os.EX_USAGE
+
     try:
         install_fedora(
             args.voldev[0],
-            args.volsize,
+            volsize,
             args.zfs_repo,
             args.bootdev,
             args.bootsize,
