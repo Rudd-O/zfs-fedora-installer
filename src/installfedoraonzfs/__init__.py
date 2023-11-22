@@ -35,12 +35,18 @@ from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
 
 
 BASE_PACKAGES = (
-    "filesystem basesystem rootfiles bash nano binutils rsync "
-    "NetworkManager rpm vim-minimal e2fsprogs passwd pam net-tools "
-    "cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted "
-    "libseccomp util-linux sed pciutils kmod"
+    "filesystem basesystem setup rootfiles bash " "rpm passwd pam util-linux rpm"
 ).split()
-BASE_PACKAGES_GTE_F36 = ["sssd-client"]
+
+IN_CHROOT_PACKAGES = (
+    "e2fsprogs nano binutils rsync coreutils "
+    "vim-minimal net-tools "
+    "cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted "
+    "libseccomp sed pciutils kmod dracut"
+).split()
+IN_CHROOT_PACKAGES_GTE_F36 = ["sssd-client"]
+IN_CHROOT_PACKAGES_LT_F37 = ["NetworkManager"]
+IN_CHROOT_PACKAGES_GTE_F38 = ["systemd-networkd"]
 
 BASIC_FORMAT = "%(asctime)8s  %(levelname)2s  %(message)s"
 TRACE_FORMAT = (
@@ -57,7 +63,7 @@ def log_config(trace_file=None):
     logging.addLevelName(logging.CRITICAL, "XX")
 
     class TimeFormatter(logging.Formatter):
-        def __init__(self, *a, **kw):
+        def __init__(self, *a, **kw) -> None:
             logging.Formatter.__init__(self, *a, **kw)
             self.start = time.time()
 
@@ -1161,26 +1167,39 @@ UUID=%s /boot/efi vfat noatime 0 1
                     rootmountpoint, releasever, yum_cachedir_path
                 )
 
-                logging.info("Installing basic packages.")
+                logging.info("Installing basic packages into root directory.")
                 # install base packages
                 packages = list(BASE_PACKAGES)
                 if releasever >= 21:
                     packages.append("dnf")
                 else:
                     packages.append("yum")
+                pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
+
+                logging.info("Installing basic packages within chroot.")
+                chroot_packages = list(IN_CHROOT_PACKAGES)
+                if releasever < 37:
+                    chroot_packages.extend(list(IN_CHROOT_PACKAGES_LT_F37))
+                else:
+                    chroot_packages.extend(list(IN_CHROOT_PACKAGES_GTE_F38))
+                # Install packages needed after F36.
+                if releasever >= 36:
+                    packages.extend(list(IN_CHROOT_PACKAGES_GTE_F36))
                 # install initial boot packages
-                packages = packages + "grub2 grub2-tools grubby efibootmgr".split()
+                chroot_packages = (
+                    chroot_packages + "grub2 grub2-tools grubby efibootmgr".split()
+                )
                 if releasever >= 27:
-                    packages = (
-                        packages
+                    chroot_packages = (
+                        chroot_packages
                         + "shim-x64 grub2-efi-x64 grub2-efi-x64-modules".split()
                     )
                 else:
-                    packages = packages + "shim grub2-efi grub2-efi-modules".split()
-                # Install packages needed after F36.
-                if releasever >= 36:
-                    packages.extend(list(BASE_PACKAGES_GTE_F36))
-                pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
+                    chroot_packages = (
+                        chroot_packages + "shim grub2-efi grub2-efi-modules".split()
+                    )
+
+                pkgmgr.ensure_packages_installed(IN_CHROOT_PACKAGES, method="in_chroot")
 
                 # omit zfs modules when dracutting
                 if not os.path.exists(p("usr/bin/dracut.real")):
@@ -1830,6 +1849,7 @@ def deploy_zfs_in_machine(
                     "libaio-devel",
                     "rpm-build",
                     "ncompress",
+                    "python3-setuptools",
                 ],
                 (
                     "cd /usr/src/%s && "

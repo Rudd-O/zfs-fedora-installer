@@ -238,6 +238,8 @@ class BasePackageManager(object):
             include=None,
             keepcache=1 if pkgmgr == "yum" else True,
         )
+        if ver >= 37:
+            parms["install_weak_deps"] = False
 
         # /yumcache
         if self.cachedir:
