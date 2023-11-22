@@ -4,15 +4,13 @@ import collections
 
 
 class BreakingBefore(Exception):
+    """Utility exception used to break at a particular stage."""
+
     pass
 
 
 break_stages = collections.OrderedDict()
 break_stages["beginning"] = "doing anything"
-break_stages[
-    "install_prebuilt_rpms"
-] = "installing prebuilt RPMs specified on the command line"
-break_stages["install_grub_zfs_fixer"] = "installing GRUB2 fixer RPM"
 break_stages["deploy_zfs"] = "deploying ZFS"
 break_stages["reload_chroot"] = "reloading the final chroot"
 break_stages["bootloader_install"] = "installation of the bootloader"
@@ -31,5 +29,7 @@ shell_stages[
 shell_stages[
     "install_kernel"
 ] = "installing kernel, DKMS, and GRUB packages in the chroot"
+shell_stages["install_prebuilt_rpms"] = "deploying ZFS to the chroot"
+shell_stages["deploy_grub_zfs_fixer"] = "deploying ZFS to the chroot"
 shell_stages["deploy_zfs"] = "deploying ZFS to the chroot"
 shell_stages["reload_chroot"] = "preparing the chroot to boot"

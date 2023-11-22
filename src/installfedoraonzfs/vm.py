@@ -1,91 +1,77 @@
-#!/usr/bin/env python
+"""Virtual machine tech used to set up a bootable system."""
 
 import errno
 import logging
 import os
+from pathlib import Path
 import pipes
 import pty
-import uuid
 import subprocess
 import threading
 import time
+from typing import BinaryIO
+import uuid
 
-from installfedoraonzfs.cmd import Popen, get_associated_lodev, check_call_silent
+from installfedoraonzfs.cmd import (
+    Popen,
+    check_call_silent,
+    cpuinfo,
+    format_cmdline,
+    get_associated_lodev,
+)
 from installfedoraonzfs.retry import Retryable
-
 
 logger = logging.getLogger("VM")
 qemu_full_emulation_factor = 5
 
 
-class BootloaderWedged(Exception):
+class VMSetupException(Exception):
+    """Base class for VM exceptions."""
+
     pass
 
 
-class OOMed(Exception):
+class OOMed(VMSetupException):
+    """Out of memory."""
+
     pass
 
 
-class Panicked(Exception):
+class Panicked(VMSetupException):
+    """Kernel panic."""
+
     pass
 
 
-class SystemdSegfault(Retryable, Exception):
+class SystemdSegfault(Retryable, VMSetupException):
+    """Segfault in systemd."""
+
     pass
 
 
-class MachineNeverShutoff(Exception):
+class MachineNeverShutoff(VMSetupException):
+    """Machine timed out waiting to shut off."""
+
     pass
 
 
-class BadPW(Exception):
+class BadPW(VMSetupException):
+    """Bad password."""
+
     pass
 
 
-class Emergency(Exception):
+class Emergency(VMSetupException):
+    """System dropped into emergency."""
+
     pass
 
 
-class Babysitter(threading.Thread):
-    def __init__(self, popenobject, timeout):
-        threading.Thread.__init__(self)
-        self.setDaemon(True)
-        self.popenobject = popenobject
-        self.timeout = timeout
-        self._stopped_cond = threading.Condition()
-        self._stopped_val = False
-
-    def run(self):
-        logger = logging.getLogger("VM.babysitter")
-        popenobject = self.popenobject
-        timeout = self.timeout
-        stopped = False
-        for x in range(timeout):
-            if stopped:
-                return
-            if popenobject.returncode is not None:
-                return
-            if x and (x % 60 == 0):
-                logger.info("%s minutes elapsed", x / 60)
-            self._stopped_cond.acquire()
-            self._stopped_cond.wait(1.0)
-            stopped = self._stopped_val
-            self._stopped_cond.release()
-        logger.error("Killing lame duck emulator after %s seconds", timeout)
-        popenobject.kill()
-
-    def stop(self):
-        self._stopped_cond.acquire()
-        self._stopped_val = True
-        self._stopped_cond.notify()
-        self._stopped_cond.release()
+QemuOpts = tuple[str, list[str]]
 
 
-def cpuinfo():
-    return open("/proc/cpuinfo").read()
-
-
-def detect_qemu(force_kvm=None):
+def detect_qemu(force_kvm: bool | None = None) -> QemuOpts:
+    """Detect QEMU and what options to use."""
     emucmd = "qemu-system-x86_64"
     emuopts = []
     if force_kvm is False:
@@ -93,14 +79,14 @@ def detect_qemu(force_kvm=None):
     elif force_kvm is True:
         emucmd = "qemu-kvm"
         emuopts = ["-enable-kvm"]
-    else:
-        if "vmx" in cpuinfo() or "svm" in cpuinfo():
-            emucmd = "qemu-kvm"
-            emuopts = ["-enable-kvm"]
+    elif "vmx" in cpuinfo() or "svm" in cpuinfo():
+        emucmd = "qemu-kvm"
+        emuopts = ["-enable-kvm"]
     return emucmd, emuopts
 
 
-def test_qemu():
+def test_qemu() -> bool:
+    """Test for the presence of QEMU."""
     try:
         check_call_silent([detect_qemu()[0], "--help"])
     except subprocess.CalledProcessError as e:
@@ -108,38 +94,35 @@ def test_qemu():
             return True
         raise
     except OSError as e:
-        if e.errno == 2:
+        if e.errno == errno.ENOENT:
             return False
         raise
     return True
 
 
 def boot_image_in_qemu(
-    hostname,
-    initparm,
-    poolname,
-    voldev,
-    bootdev,
-    kernelfile,
-    initrdfile,
-    force_kvm,
-    interactive_qemu,
-    lukspassword,
-    rootpassword,
-    rootuuid,
-    luksuuid,
-    qemu_timeout,
-):
+    hostname: str,
+    initparm: str,
+    poolname: str,
+    voldev: Path,
+    bootdev: Path | None,
+    kernelfile: Path,
+    initrdfile: Path,
+    force_kvm: bool | None,
+    interactive_qemu: bool,
+    lukspassword: str | None,
+    rootpassword: str,
+    rootuuid: str | None,
+    luksuuid: str | None,
+    qemu_timeout: int,
+) -> None:
+    """Fully boot the Linux image inside QEMU."""
     if voldev:
-        assert not get_associated_lodev(voldev), (
-            "%s still has a loopback device: %s"
-            % (voldev, get_associated_lodev(voldev))
-        )
+        lodev = get_associated_lodev(voldev)
+        assert not lodev, f"{voldev} still has a loopback device: {lodev}"
     if bootdev:
-        assert not get_associated_lodev(bootdev), (
-            "%s still has a loopback device: %s"
-            % (bootdev, get_associated_lodev(bootdev))
-        )
+        lodev = get_associated_lodev(bootdev)
+        assert not lodev, f"{bootdev} still has a loopback device: {lodev}"
 
     vmuuid = str(uuid.uuid1())
     emucmd, emuopts = detect_qemu(force_kvm)
@@ -150,11 +133,6 @@ def boot_image_in_qemu(
         logger.warning(
             "No hardware (KVM) emulation available.  The next step is going to take a while."
         )
-    dracut_cmdline = (
-        "rd.info rd.shell systemd.show_status=1 "
-        "systemd.journald.forward_to_console=1 systemd.log_level=info "
-        "systemd.log_target=console"
-    )
     screenmode = [
         "-nographic",
         "-monitor",
@@ -163,86 +141,64 @@ def boot_image_in_qemu(
         "stdio,id=char0",
         "-serial",
         "chardev:char0",
-    ]
-    if not interactive_qemu:
-        screenmode += [
+    ] + (
+        []
+        if interactive_qemu
+        else [
             "-chardev",
             "file,id=char1,path=/dev/stderr",
             "-mon",
             "char1,mode=control",
         ]
-    if luksuuid:
-        luks_cmdline = "rd.luks.uuid=%s " % (rootuuid,)
-    else:
-        luks_cmdline = ""
-    cmdline = (
-        "%s %s console=ttyS0 root=ZFS=%s/ROOT/os ro %s enforcing=0 systemd.log_color=0"
-        % (
-            dracut_cmdline,
-            luks_cmdline,
-            poolname,
-            initparm,
-        )
     )
-    cmd = (
+    dracut_cmdline = (
+        "rd.info rd.shell systemd.show_status=1 "
+        "systemd.journald.forward_to_console=1 systemd.log_level=info "
+        "systemd.log_target=console"
+    )
+    luks_cmdline = f"rd.luks.uuid={rootuuid} " if luksuuid else ""
+    cmdline = (
+        f"{dracut_cmdline} {luks_cmdline} console=ttyS0"
+        f" root=ZFS={poolname}/ROOT/os ro"
+        f" {initparm} enforcing=0 systemd.log_color=0"
+    )
+    cmd: list[str] = (
         [
             emucmd,
         ]
         + screenmode
-        + [
-            "-name",
-            hostname,
-            "-M",
-            "pc",
-            "-no-reboot",
-            "-m",
-            "1536",
-            "-uuid",
-            vmuuid,
-            "-kernel",
-            kernelfile,
-            "-initrd",
-            initrdfile,
-            "-append",
-            cmdline,
-            "-net",
-            "none",
-        ]
-    )
-    cmd = cmd + emuopts
-    if bootdev:
-        cmd.extend(
+        + ["-name", hostname, "-M", "pc", "-no-reboot", "-m", "1536"]
+        + ["-uuid", vmuuid, "-kernel", str(kernelfile), "-initrd", str(initrdfile)]
+        + ["-append", cmdline, "-net", "none"]
+        + emuopts
+        + (
             [
                 "-drive",
-                "file=%s,if=none,id=drive-ide0-0-0,format=raw" % bootdev,
+                f"file={bootdev},if=none,id=drive-ide0-0-0,format=raw",
                 "-device",
                 "ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1",
             ]
+            if bootdev
+            else []
         )
-    cmd.extend(
-        [
+        + [
             "-drive",
-            "file=%s,if=none,id=drive-ide0-0-1,format=raw" % voldev,
+            f"file={voldev},if=none,id=drive-ide0-0-1,format=raw",
             "-device",
             "ide-hd,bus=ide.0,unit=1,drive=drive-ide0-0-1,id=ide0-0-1,bootindex=2",
         ]
     )
 
-    # check for stage stop
-    logger.info(
-        "qemu process to execute now: %s" % " ".join([pipes.quote(s) for s in cmd])
-    )
+    logger.info("QEMU command: %s", format_cmdline(cmd))
 
-    babysitter = None
     if interactive_qemu:
         vmiomaster, vmioslave = None, None
         stdin, stdout, stderr = None, None, None
-        driver = None
     else:
-        vmiomaster, vmioslave = pty.openpty()
+        vmiomaster_i, vmioslave_i = pty.openpty()
         vmiomaster, vmioslave = (
-            os.fdopen(vmiomaster, "a+b", buffering=0),
-            os.fdopen(vmioslave, "a+b", buffering=0),
+            os.fdopen(vmiomaster_i, "a+b", buffering=0),
+            os.fdopen(vmioslave_i, "a+b", buffering=0),
         )
         stdin, stdout, stderr = vmioslave, vmioslave, vmioslave
         logger.info(
@@ -259,49 +215,33 @@ def boot_image_in_qemu(
         if vmioslave:
             vmioslave.close()
         if driver:
-            babysitter = Babysitter(qemu_process, proper_timeout)
-            babysitter.start()
             driver.start()
-            e = None
-            try:
-                logger.info("Waiting to join BootDriver")
-                driver.join()
-            except MachineNeverShutoff:
-                # The driver got an EOF or something, before
-                # it had a chance to read the normal shutdown
-                # text from the VM.
-                # If this was because qemu was killed by the
-                # babysitter, we must decide about it later.
-                pass
-            except BaseException:
-                # Something else went wrong, so we kill the
-                # qemu process and raise the exception.
-                logger.exception(
-                    "boot_image_in_qemu experienced exception, killing QEMU process"
-                )
-                qemu_process.kill()
-                qemu_process.wait()
-                raise
-            retcode = qemu_process.wait()
-            if retcode == -9:
-                # If qemu got SIGKILL, that means the babysitter did it.
-                # We assume the bootloader got wedged, thus killed.
-                raise BootloaderWedged("The bootloader appears wedged.")
-            elif retcode != 0:
-                # Abnormal return code from qemu, we must raise it.
-                raise subprocess.CalledProcessError(retcode, cmd)
-            elif e:
-                # qemu returned normally, but the machine does not.
-                # appear to have shut off cleanly, so we raise it.
-                raise e
-        else:
-            retcode = qemu_process.wait()
-            if retcode != 0:
-                raise subprocess.CalledProcessError(retcode, cmd)
+            logger.info("Waiting for QEMU to finish or be killed.")
+            while proper_timeout > 0:
+                t = min([proper_timeout, 5])
+                proper_timeout -= t
+                try:
+                    retcode = qemu_process.wait(t)
+                except subprocess.TimeoutExpired:
+                    if proper_timeout > 0:
+                        if driver.error:
+                            break
+                        if proper_timeout % 60 == 0:
+                            logger.info(
+                                "Waiting for QEMU.  %s more seconds to go.",
+                                proper_timeout,
+                            )
+                    else:
+                        logger.error(
+                            "QEMU did not exit within the timeout.  Killing it."
+                        )
+                        qemu_process.kill()
+                        retcode = qemu_process.wait()
+            driver.join()
+        retcode = qemu_process.wait()
+        if retcode != 0:
+            raise subprocess.CalledProcessError(retcode, cmd)
     finally:
-        if babysitter:
-            babysitter.stop()
-            babysitter.join()
         if vmioslave:
             vmioslave.close()
         if vmiomaster:
@@ -309,14 +249,25 @@ def boot_image_in_qemu(
 
 
 class BootDriver(threading.Thread):
+    """Boot driver that runs Linux inside a QEMU process."""
+
     @staticmethod
-    def is_typeable(passphrase):
-        for p in passphrase:
-            if ord(p) < 32:
+    def is_typeable(string: str) -> bool:
+        """Can a string be typed to the console."""
+        ASCII_SPACE = 32
+        for p in string:
+            if ord(p) < ASCII_SPACE:
                 return False
         return True
 
-    def __init__(self, login, password, luks_passphrase, pty):
+    def __init__(
+        self,
+        login: str,
+        password: str,
+        luks_passphrase: str,
+        pty: BinaryIO,
+    ) -> None:
+        """Initialize the boot driver."""
         threading.Thread.__init__(self)
         self.setDaemon(True)
         assert self.is_typeable(luks_passphrase), (
@@ -331,15 +282,16 @@ class BootDriver(threading.Thread):
         self.login = login
         self.password = password
         self.pty = pty
-        self.output = []
-        self.error = None
+        self.output: list[bytes] = []
+        self.error: Exception | None = None
 
-    def run(self):
+    def run(self) -> None:
+        """Thread of execution of the boot driver."""
         logger.info("Boot driver started")
         consolelogger = logging.getLogger("VM.console")
         if self.luks_passphrase:
             logger.info("Expecting LUKS passphrase prompt")
-        lastline = []
+        lastline: list[bytes] = []
 
         unseen = "unseen"
         waiting_for_escape_sequence = "waiting_for_escape_sequence"
@@ -356,17 +308,11 @@ class BootDriver(threading.Thread):
         luks_passphrase_prompt_state = unseen
         login_prompt_state = unseen
 
-        segfaulted = False
-        oom = False
-        panicked = False
-        badpw = False
-        emergency = False
-
-        while True:
-            try:
+        try:
+            while True:
                 try:
                     c = self.pty.read(1)
-                except IOError as e:
+                except OSError as e:
                     if e.errno == errno.EIO:
                         c = b""
                     else:
@@ -376,18 +322,34 @@ class BootDriver(threading.Thread):
                     break
                 self.output.append(c)
                 if c == b"\n":
-                    consolelogger.debug(b"".join(lastline).decode("utf-8"))
+                    s = b"".join(lastline)
+                    consolelogger.debug(s.decode("utf-8"))
+
+                    if (
+                        b"traps: systemd[1] general protection" in s
+                        or b"memory corruption" in s
+                        or b"Freezing execution." in s
+                    ):
+                        # systemd or udevd exploded.  Raise retryable SystemdSegfault.
+                        self.error = SystemdSegfault(
+                            "systemd appears to have segfaulted."
+                        )
+                    elif b" authentication failure." in s:
+                        self.error = BadPW("authentication failed")
+                    elif b" Not enough available memory to open a keyslot." in s:
+                        # OOM.  Raise non-retryable OOMed.
+                        self.error = OOMed("a process appears to have been OOMed.")
+                    elif b" Killed" in s:
+                        # OOM.  Raise non-retryable OOMed.
+                        self.error = OOMed("a process appears to have been OOMed.")
+                    elif b"end Kernel panic" in s:
+                        # OOM.  Raise non-retryable kernel panic.
+                        self.error = Panicked("kernel has panicked.")
+                    elif b"root password for maintenance" in s:
+                        # System did not boot.
+                        self.error = Emergency("system entered emergency mode")
+
                     lastline = []
-                    if segfaulted:
-                        raise SystemdSegfault("systemd appears to have segfaulted.")
-                    if oom:
-                        raise OOMed("a process appears to have been OOMed.")
-                    if panicked:
-                        raise Panicked("kernel has panicked.")
-                    if badpw:
-                        raise BadPW("authentication failed")
-                    if emergency:
-                        raise Emergency("system entered emergency mode")
                 elif c == b"\r":
                     pass
                 else:
@@ -440,47 +402,28 @@ class BootDriver(threading.Thread):
                         self.write_poweroff()
                         login_prompt_state = poweroff_written
 
-                if (
-                    b"traps: systemd[1] general protection" in s
-                    or b"memory corruption" in s
-                    or b"Freezing execution." in s
-                ):
-                    # systemd or udevd exploded.  Raise retryable SystemdSegfault later.
-                    segfaulted = True
-                if b" Not enough available memory to open a keyslot." in s:
-                    # OOM.  Raise non-retryable OOMed.
-                    oom = True
-                if b" authentication failure." in s:
-                    # OOM.  Raise non-retryable OOMed.
-                    badpw = True
-                if b" Killed" in s:
-                    # OOM.  Raise non-retryable OOMed.
-                    oom = True
-                if b"end Kernel panic" in s:
-                    # OOM.  Raise non-retryable kernel panic.
-                    panicked = True
-                if b"root password for maintenance" in s:
-                    # System did not boot.
-                    emergency = True
-            except Exception as e:
-                self.error = e
-                break
-        if lastline:
-            consolelogger.debug(b"".join(lastline).decode("utf-8"))
-        logger.info("Boot driver ended")
-        if not self.error:
-            if b"reboot: Power down" not in self.get_output():
-                self.error = MachineNeverShutoff("The bootable image never shut off.")
+            logger.info("Boot driver ended")
+            if not self.error:
+                if b"reboot: Power down" not in self.get_output():
+                    self.error = MachineNeverShutoff(
+                        "The bootable image never shut off."
+                    )
 
-    def get_output(self):
+        except Exception as exc:
+            self.error = exc
+
+    def get_output(self) -> bytes:
+        """Get the total sum of output from the Linux console."""
         return b"".join(self.output)
 
-    def join(self):
-        threading.Thread.join(self)
+    def join(self, timeout: float | None = None) -> None:
+        """Join the VM execuion thread."""
+        threading.Thread.join(self, timeout)
         if self.error:
             raise self.error
 
-    def _write_stuff(self, stuff):
+    def _write_stuff(self, stuff: str) -> None:
+        """Write text followed by a newline to the console."""
         time.sleep(0.25)
         for char in stuff:
             self.pty.write(char.encode("utf-8"))
@@ -488,14 +431,18 @@ class BootDriver(threading.Thread):
         self.pty.write(b"\n")
         self.pty.flush()
 
-    def write_luks_passphrase(self):
+    def write_luks_passphrase(self) -> None:
+        """Write the LUKS passphrase to the console."""
         return self._write_stuff(self.luks_passphrase)
 
-    def write_login(self):
+    def write_login(self) -> None:
+        """Write the login username to the console."""
         return self._write_stuff(self.login)
 
-    def write_password(self):
+    def write_password(self) -> None:
+        """Write the login password to the console."""
         return self._write_stuff(self.password)
 
-    def write_poweroff(self):
+    def write_poweroff(self) -> None:
+        """Write `poweroff` to the console."""
         return self._write_stuff("poweroff")

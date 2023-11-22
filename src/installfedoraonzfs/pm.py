@@ -269,6 +269,7 @@ class BasePackageManager(object):
             # /var/(lib|cache)/(dnf|yum)
             parms["persistdir"] = persistin[len(self.chroot) :]
             parms["cachedir"] = cachein[len(self.chroot) :]
+            parms["keepcache"] = "true"
             lock = lockfile(j(self.cachedir, pkgmgr, str(ver), "lock"))
         else:
             lock = dummylock()

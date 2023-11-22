@@ -1,7 +1,7 @@
 // https://github.com/Rudd-O/shared-jenkins-libraries
 @Library('shared-jenkins-libraries@master') _
 
-def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+def buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
 	if (mySeparateBoot == "yes") {
 		mySeparateBoot = "--separate-boot=boot-${pname}.img"
 	} else {
@@ -20,11 +20,7 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 	if (mySourceBranch != "") {
 		mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 	}
-	def myShortCircuit = "--short-circuit=${thisStage}"
-	def myBreakBefore = ""
-	if (nextStage != null) {
-		myBreakBefore = "--break-before=${nextStage}"
-	}
+
 	def program = """
 		yumcache="/jenkins/yumcache/${myRelease}"
 		mntdir="\$PWD/mnt/${pname}"
@@ -38,8 +34,6 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 		sudo \\
 			python3 -u "\$cmd" \\
 			${myBuildFrom} \\
-			${myShortCircuit} \\
-			${myBreakBefore} \\
 			${mySourceBranch} \\
 			${myLuks} \\
 			${mySeparateBoot} \\
@@ -56,38 +50,18 @@ def buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuk
 			--chgrp=`groups | cut -d " " -f 1` \\
 			root-${pname}.img >&2
 		ret="\$?"
-		#>&2 echo ==============Diagnostics==================
-		#>&2 sudo zpool list || true
-		#>&2 sudo blkid || true
-		#>&2 sudo lsblk || true
-		#>&2 sudo losetup -la || true
-		#>&2 sudo mount || true
-		#>&2 echo Return value of program: "\$ret"
-		#>&2 echo =========== End Diagnostics ===============
+		>&2 echo ==============Diagnostics==================
+		>&2 sudo zpool list || true
+		>&2 sudo blkid || true
+		>&2 sudo lsblk || true
+		>&2 sudo losetup -la || true
+		>&2 sudo mount || true
+		>&2 echo Return value of program: "\$ret"
+		>&2 echo =========== End Diagnostics ===============
 		if [ "\$ret" == "120" ] ; then ret=0 ; fi
 		exit "\$ret"
 	""".stripIndent().trim()
 	return program
-}
-
-def runStage(thisStage, allStages, paramShortCircuit, paramBreakBefore, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, theIt) {
-	def thisStageIdx = allStages.findIndexOf{ s -> s == thisStage }
-	def nextStage = allStages[thisStageIdx + 1]
-	def paramShortCircuitIdx = allStages.findIndexOf{ s -> s == paramShortCircuit }
-	def paramBreakBeforeIdx = allStages.findIndexOf{ s -> s == paramBreakBefore }
-	def whenCond = ((paramShortCircuit == "" || paramShortCircuitIdx <= thisStageIdx) && (paramBreakBefore == "" || paramBreakBeforeIdx > thisStageIdx))
-	def stageName = thisStage.toString().capitalize().replace('_', ' ')
-	stage("${stageName} ${theIt.join(' ')}") {
-		when (whenCond) {
-			def program = buildCmdline(thisStage, nextStage, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-			def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
-			println "${desc}\n\n" + "Program that will be executed:\n${program}"
-			sh(
-                            script: program,
-                            label: "${stageName} command run"
-                        )
-		}
-	}
 }
 
 pipeline {
@@ -110,8 +84,6 @@ pipeline {
 		string defaultValue: 'yes', description: '', name: 'SEPARATE_BOOT', trim: true
 		// Having trouble with LUKS being yes on Fedora 25.
 		string defaultValue: 'no', description: '', name: 'LUKS', trim: true
-		string defaultValue: '', description: 'Stop before this stage.', name: 'BREAK_BEFORE', trim: true
-		string defaultValue: '', description: 'Start with this stage.  If this variable is defined, the disk images from prior builds will not be cleaned up prior to short-circuiting to this stage.', name: 'SHORT_CIRCUIT', trim: true
 		string defaultValue: '', description: "Which Fedora releases to build for (empty means the job's default).", name: 'RELEASE', trim: true
 	}
 
@@ -180,7 +152,7 @@ pipeline {
 		}
 		stage('Copy from master') {
 			agent { label 'master' }
-			when { allOf { not { equals expected: 'NOT_BUILT', actual: currentBuild.result }; equals expected: "", actual: params.SHORT_CIRCUIT } }
+			when { allOf { not { equals expected: 'NOT_BUILT', actual: currentBuild.result }; equals expected: "", actual: "" } }
 			steps {
 				dir("out") {
 					deleteDir()
@@ -222,15 +194,14 @@ pipeline {
 				}
 			}
 		}
-		stage('Serialize') {
+		stage('Parallelize') {
 			agent { label 'fedorazfs' }
 			options { skipDefaultCheckout() }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
-			failFast true
 			steps {
 				script {
 					stage("Unstash RPMs") {
-						when (params.SHORT_CIRCUIT == "") {
+						script {
 							timeout(time: 10, unit: 'MINUTES') {
 								sh '{ set +x ; } >/dev/null 2>&1 ; find out/*/*.rpm -type f | sort | grep -v debuginfo | grep -v debugsource | grep -v python | xargs sha256sum > local-rpmsums'
 								unstash "rpmsums"
@@ -258,32 +229,28 @@ pipeline {
 						}
 					}
 					stage("Unstash zfs-fedora-installer") {
-						when (params.SHORT_CIRCUIT == "") {
-							unstash "zfs-fedora-installer"
-						}
+						unstash "zfs-fedora-installer"
 					}
 					stage("Activate ZFS") {
-						when (params.SHORT_CIRCUIT == "") {
-							script {
-								lock("activatezfs") {
-									if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
-										timeout(time: 10, unit: 'MINUTES') {
-											sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
-											def program = '''
-												deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
-												rpm -q \$deps || sudo dnf install -qy \$deps
-											'''.stripIndent().trim()
-											sh program
-											sh '''
-												eval $(cat /etc/os-release)
-												if test -d out/$VERSION_ID/ ; then
-													sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
-												else
-													sudo src/deploy-zfs
-												fi
-												sudo modprobe zfs
-											'''
-										}
+						script {
+							lock("activatezfs") {
+								if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
+									timeout(time: 10, unit: 'MINUTES') {
+										sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
+										def program = '''
+											deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
+											rpm -q \$deps || sudo dnf install -qy \$deps
+										'''.stripIndent().trim()
+										sh program
+										sh '''
+											eval $(cat /etc/os-release)
+											if test -d out/$VERSION_ID/ ; then
+												sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
+											else
+												sudo src/deploy-zfs
+											fi
+											sudo modprobe zfs
+										'''
 									}
 								}
 							}
@@ -292,71 +259,57 @@ pipeline {
 					stage("Test") {
 						script {
 							def axisList = [
-								env.RELEASE.split(' '),
-								env.BUILD_FROM.split(' '),
+								"32 37 38 39".split(' '),
+								"RPMs".split(' '),
 								params.LUKS.split(' '),
 								params.SEPARATE_BOOT.split(' '),
 							]
-							def sequential = funcs.combo(
+							def xes = funcs.combo(
 								{
-								  // return { // use me for parallelism variant
-									def myRelease = it[0]
-									def myBuildFrom = it[1]
-									def myLuks = it[2]
-									def mySeparateBoot = it[3]
-									def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-									def mySourceBranch = ""
-									if (env.SOURCE_BRANCH != "") {
-										mySourceBranch = env.SOURCE_BRANCH
-									}
-									script {
-										timeout(60) {
-											runStage("beginning",
-												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-										}
-										timeout(15) {
-											runStage("reload_chroot",
-												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-										}
-										timeout(30) {
-											runStage("bootloader_install",
-												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-										}
-										timeout(30) {
-											runStage("boot_to_test_non_hostonly",
-												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
-										}
-										timeout(30) {
-											runStage("boot_to_test_hostonly",
-												["beginning", "reload_chroot", "bootloader_install", "boot_to_test_non_hostonly", "boot_to_test_hostonly"],
-												params.SHORT_CIRCUIT, params.BREAK_BEFORE, pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease, it)
+									return {
+										stage("${it[0]} ${it[1]} ${it[2]} ${it[3]}") {
+											script {
+												println "Stage ${it[0]} ${it[1]} ${it[2]} ${it[3]}"
+												def myRelease = it[0]
+												def myBuildFrom = it[1]
+												def myLuks = it[2]
+												def mySeparateBoot = it[3]
+												def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+												def mySourceBranch = ""
+												if (env.SOURCE_BRANCH != "") {
+													mySourceBranch = env.SOURCE_BRANCH
+												}
+												script {
+													timeout(60) {
+														def program = buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+														def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
+														println "${desc}\n\n" + "Program that will be executed:\n${program}"
+														sh(
+															script: program,
+															label: "Command run"
+														)
+													}
+												}
+											}
 										}
 									}
-								  // } // use me for parallelism variant
 								},
 								axisList
 							)
 
-							// When parallel, the body of parallelized is
-							// meant to be enclosed within extra braces,
-							// else CPS closure error or some shit.
-							// parallelized.failFast = true
-							// parallel parallelized
+							println "Iterating over the map"
+							xes = xes.each{ k, v -> v }
+							println "Done iterating over the map"
+							parallel xes
 
-							// we use the serialized version instead, as
-							// the kernel does not correctly clean up
-							// when running this in parallel too many times.
-							sequential.each {
-								stage(it.key) {
-									script {
-										it.value
-									}
-								}
-							}
+							// the serialized version.
+							// xes.each {
+							//	 stage(it.key) {
+							//		script {
+							//			it.value
+							//		}
+							//	 }
+							// }
 						}
 					}
 				}

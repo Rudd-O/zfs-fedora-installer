@@ -1,103 +1,106 @@
 #!/usr/bin/env python
 
-import contextlib
-import os
 import argparse
-import subprocess
-import stat
-import time
-from os.path import join as j
-import shutil
+import contextlib
 import glob
-import platform
-import tempfile
 import logging
-import signal  # noqa: F401
-import shlex
-import sys
 import multiprocessing
+import os
+from os.path import join as j
+from pathlib import Path
+import platform
+import shlex
+import shutil
+import signal  # noqa: F401
+import subprocess
+import tempfile
+import time
+from typing import Any, Callable, Generator, Sequence
 
+from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages, shell_stages
 from installfedoraonzfs.cmd import (
+    Popen,
+    bindmount,
     check_call,
-    check_output,
-    check_call_silent_stdout,
     check_call_silent,
-    readtext,
+    check_call_silent_stdout,
+    check_output,
+    checkout_repo_at,
+    create_file,
+    delete_contents,
+    filetype,
+    get_associated_lodev,
+    get_output_exitcode,
+    ismount,
+    losetup,
+    mount,
     readlines,
+    readtext,
+    umount,
     writetext,
 )
-from installfedoraonzfs.cmd import Popen, mount, bindmount, umount, ismount
-from installfedoraonzfs.cmd import get_associated_lodev
-from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
-from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
-import installfedoraonzfs.retry as retrymod
-from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages, shell_stages
-
-
-BASE_PACKAGES = (
-    "filesystem basesystem setup rootfiles bash " "rpm passwd pam util-linux rpm"
-).split()
-
-IN_CHROOT_PACKAGES = (
-    "e2fsprogs nano binutils rsync coreutils "
-    "vim-minimal net-tools "
-    "cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted "
-    "libseccomp sed pciutils kmod dracut"
-).split()
-IN_CHROOT_PACKAGES_GTE_F36 = ["sssd-client"]
-IN_CHROOT_PACKAGES_LT_F37 = ["NetworkManager"]
-IN_CHROOT_PACKAGES_GTE_F38 = ["systemd-networkd"]
-
-BASIC_FORMAT = "%(asctime)8s  %(levelname)2s  %(message)s"
-TRACE_FORMAT = (
-    "%(asctime)8s  %(levelname)2s:%(name)16s:%(funcName)32s@%(lineno)4d\t%(message)s"
+from installfedoraonzfs.log import log_config
+from installfedoraonzfs.pm import (
+    BasePackageManager,
+    ChrootPackageManager,
+    SystemPackageManager,
 )
+import installfedoraonzfs.retry as retrymod
+from installfedoraonzfs.vm import BootDriver, boot_image_in_qemu, test_qemu
+
+_LOGGER = logging.getLogger()
+
+
+def get_base_packages(releasever: int) -> list[str]:
+    """Get packages to be installed from outside the chroot."""
+    packages = (
+        "filesystem basesystem setup rootfiles bash rpm passwd pam util-linux rpm"
+    ).split()
+    if releasever >= 21:  # noqa:PLR2004
+        packages.append("dnf")
+    else:
+        packages.append("yum")
+    return packages
+
+
+def get_in_chroot_packages(releasever: int) -> list[str]:
+    """Get packages to be installed in the chroot phase."""
+    pkgs = (
+        "e2fsprogs nano binutils rsync coreutils"
+        " vim-minimal net-tools"
+        " cryptsetup kbd-misc kbd policycoreutils selinux-policy-targeted"
+        " libseccomp sed pciutils kmod dracut"
+        " grub2 grub2-tools grubby efibootmgr"
+    ).split()
+    e = pkgs.extend
+
+    if releasever >= 27:  # noqa:PLR2004
+        e("shim-x64 grub2-efi-x64 grub2-efi-x64-modules".split())
+    else:
+        e("shim grub2-efi grub2-efi-modules".split())
+    if releasever >= 36:  # noqa:PLR2004
+        e(["sssd-client"])
+    if releasever < 37:  # noqa:PLR2004
+        e(["NetworkManager"])
+    else:
+        e(["systemd-networkd"])
+
+    return pkgs
+
+
 qemu_timeout = 360
 
 
-def log_config(trace_file=None):
-    logging.addLevelName(logging.DEBUG, "TT")
-    logging.addLevelName(logging.INFO, "II")
-    logging.addLevelName(logging.WARNING, "WW")
-    logging.addLevelName(logging.ERROR, "EE")
-    logging.addLevelName(logging.CRITICAL, "XX")
-
-    class TimeFormatter(logging.Formatter):
-        def __init__(self, *a, **kw) -> None:
-            logging.Formatter.__init__(self, *a, **kw)
-            self.start = time.time()
-
-        def formatTime(self, record, datefmt):
-            t = time.time() - self.start
-            m = int(t / 60)
-            s = t % 60
-            return "%dm%.2f" % (m, s)
-
-    rl = logging.getLogger()
-    rl.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    cfm = TimeFormatter(BASIC_FORMAT)
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(cfm)
-    rl.addHandler(ch)
-    if trace_file:
-        th = logging.FileHandler(trace_file, mode="w")
-        tfm = TimeFormatter(TRACE_FORMAT)
-        th.setLevel(logging.DEBUG)
-        th.setFormatter(tfm)
-        rl.addHandler(th)
-
-
-def get_parser():
+def get_install_fedora_on_zfs_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Install a minimal Fedora system inside a ZFS pool within a disk image or device",
+        description="Install a minimal Fedora system inside a ZFS pool within"
+        " a disk image or device",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "voldev",
         metavar="VOLDEV",
         type=str,
-        nargs=1,
         help="path to volume (device to use or regular file to create)",
     )
     parser.add_argument(
@@ -125,7 +128,8 @@ def get_parser():
         type=int,
         action="store",
         default=1024,
-        help="boot partition size in MiB, or boot volume size in MiB, when --separate-boot is specified (default 256)",
+        help="boot partition size in MiB, or boot volume size in MiB, when"
+        " --separate-boot is specified (default 1024)",
     )
     parser.add_argument(
         "--pool-name",
@@ -170,7 +174,8 @@ def get_parser():
         type=int,
         action="store",
         default=None,
-        help="Fedora release version (default the same as the computer you are installing on)",
+        help="Fedora release version (default the same as the computer"
+        " you are installing on)",
     )
     parser.add_argument(
         "--luks-password",
@@ -179,7 +184,8 @@ def get_parser():
         type=str,
         action="store",
         default=None,
-        help="LUKS password to encrypt the ZFS volume with (default no encryption); unprintable glyphs whose ASCII value lies below 32 (the space character) will be rejected",
+        help="LUKS password to encrypt the ZFS volume with (default no encryption);"
+        " unprintable glyphs whose ASCII value lies below 32 (the space character) will be rejected",
     )
     parser.add_argument(
         "--luks-options",
@@ -188,15 +194,20 @@ def get_parser():
         type=str,
         action="store",
         default=None,
-        help="space-separated list of options to pass to cryptsetup luksFormat (default no options)",
+        help="space-separated list of options to pass to cryptsetup luksFormat (default"
+        " no options)",
     )
     parser.add_argument(
         "--interactive-qemu",
         dest="interactive_qemu",
         action="store_true",
         default=False,
-        help="QEMU will run interactively, with the console of your Linux system connected to your terminal; the normal timeout of %s seconds will not apply, and Ctrl+C will interrupt the emulation; this is useful to manually debug problems installing the bootloader; in this mode you are responsible for typing the password to any LUKS devices you have requested to be created"
-        % qemu_timeout,
+        help="QEMU will run interactively, with the console of your Linux system"
+        " connected to your terminal; the normal timeout of %s seconds will not"
+        " apply, and Ctrl+C will interrupt the emulation; this is useful to"
+        " manually debug problems installing the bootloader; in this mode you are"
+        " responsible for typing the password to any LUKS devices you have requested"
+        " to be created" % qemu_timeout,
     )
     parser.add_argument(
         "--yum-cachedir",
@@ -261,7 +272,8 @@ def get_parser():
         dest="workdir",
         action="store",
         default="/var/lib/zfs-fedora-installer",
-        help="use this directory as a working (scratch) space for the mount points of the created pool",
+        help="use this directory as a working (scratch) space for the mount points of"
+        " the created pool",
     )
     parser.epilog = (
         "Stages for the --break-before and --short-circuit arguments:\n%s"
@@ -285,7 +297,8 @@ def get_parser():
     return parser
 
 
-def add_common_arguments(parser):
+def add_common_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add arguments common to all commands."""
     parser.add_argument(
         "--use-prebuilt-rpms",
         dest="prebuiltrpms",
@@ -293,7 +306,9 @@ def add_common_arguments(parser):
         type=str,
         action="store",
         default=None,
-        help="also install pre-built ZFS, GRUB and other RPMs in this directory, except for debuginfo packages within the directory (default: build ZFS and GRUB RPMs, within the system)",
+        help="also install pre-built ZFS, GRUB and other RPMs in this directory,"
+        " except for debuginfo packages within the directory (default: build ZFS and"
+        " GRUB RPMs, within the system)",
     )
     parser.add_argument(
         "--zfs-repo",
@@ -307,33 +322,35 @@ def add_common_arguments(parser):
         dest="branch",
         action="store",
         default="master",
-        help="when building ZFS from source, check out this commit, tag or branch from the repository instead of master",
+        help="when building ZFS from source, check out this commit, tag or branch from"
+        " the repository instead of master",
     )
     parser.add_argument(
         "--trace-file",
         dest="trace_file",
         action="store",
         default=None,
-        help="file name for a detailed trace file of program activity (default no trace file)",
+        help="file name for a detailed trace file of program activity (default no"
+        " trace file)",
     )
 
 
-def get_deploy_parser():
+def get_deploy_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Install ZFS on a running system")
     add_common_arguments(parser)
     return parser
 
 
-def get_run_command_parser():
+def get_run_command_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run a command in a Fedora system inside a ZFS pool within a disk image or device",
+        description="Run a command in a Fedora system inside a ZFS pool within a disk"
+        " image or device",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "voldev",
         metavar="VOLDEV",
         type=str,
-        nargs=1,
         help="path to volume (device to use or regular file to create)",
     )
     parser.add_argument(
@@ -359,46 +376,29 @@ def get_run_command_parser():
         dest="workdir",
         action="store",
         default="/run/zfs-fedora-installer",
-        help="use this directory as a working (scratch) space for the mount points of the created pool",
+        help="use this directory as a working (scratch) space for the mount points of"
+        " the created pool",
     )
     parser.add_argument(
         "--trace-file",
         dest="trace_file",
         action="store",
         default=None,
-        help="file name for a detailed trace file of program activity (default no trace file)",
+        help="file name for a detailed trace file of program activity (default no"
+        " trace file)",
     )
     parser.add_argument("args", nargs=argparse.REMAINDER)
     return parser
 
 
-def filetype(dev):
-    """returns 'file' or 'blockdev' or 'doesntexist' for dev"""
-    try:
-        s = os.stat(dev)
-    except OSError as e:
-        if e.errno == 2:
-            return "doesntexist"
-        raise
-    if stat.S_ISBLK(s.st_mode):
-        return "blockdev"
-    if stat.S_ISREG(s.st_mode):
-        return "file"
-    assert 0, "specified path %r is not a block device or a file"
-
-
-def losetup(path):
-    dev = check_output(["losetup", "-P", "--find", "--show", path])[:-1]
-    check_output(["blockdev", "--rereadpt", dev])
-    return dev
-
-
-def import_pool(poolname, rootmountpoint):
+def import_pool(poolname: str, rootmountpoint: Path) -> None:
+    """Import a pool by name, and mount it to an alt mount point."""
     check_call(["zpool", "import"])
-    return check_call(["zpool", "import", "-f", "-R", rootmountpoint, poolname])
+    check_call(["zpool", "import", "-f", "-R", str(rootmountpoint), poolname])
 
 
-def list_pools():
+def list_pools() -> list[str]:
+    """List pools active in the system."""
     d = check_output(["zpool", "list", "-H", "-o", "name"], logall=True)
     return [x for x in d.splitlines() if x]
 
@@ -409,7 +409,7 @@ import_pool_retryable = retrymod.retry(
 )(import_pool)
 
 
-def partition_boot(bootdev, bootsize, rootvol):
+def partition_boot(bootdev: Path, bootsize: int, rootvol: bool) -> None:
     """Partitions device into four partitions.
 
     1. a 2MB biosboot partition
@@ -419,16 +419,16 @@ def partition_boot(bootdev, bootsize, rootvol):
 
     Caller is responsible for waiting until the devices appear.
     """
-    cmd = ["gdisk", bootdev]
+    cmd = ["gdisk", str(bootdev)]
     pr = Popen(cmd, stdin=subprocess.PIPE)
     if rootvol:
-        logging.info(
+        _LOGGER.info(
             "Creating 2M BIOS boot, %sM EFI system, %sM boot, rest root partition",
             int(bootsize / 2),
             int(bootsize / 2),
         )
         pr.communicate(
-            """o
+            f"""o
 y
 
 n
@@ -441,14 +441,14 @@ n
 n
 2
 
-+%sM
++{int(bootsize / 2)}M
 C12A7328-F81F-11D2-BA4B-00A0C93EC93B
 
 
 n
 3
 
-+%sM
++{int(bootsize / 2)}M
 
 
 
@@ -463,15 +463,14 @@ p
 w
 y
 """
-            % (int(bootsize / 2), int(bootsize / 2))
         )
     else:
-        logging.info(
+        _LOGGER.info(
             "Creating 2M BIOS boot, %sM EFI system, the rest boot partition",
             int(bootsize / 2),
         )
         pr.communicate(
-            """o
+            f"""o
 y
 
 n
@@ -484,7 +483,7 @@ n
 n
 2
 
-+%sM
++{int(bootsize / 2)}M
 C12A7328-F81F-11D2-BA4B-00A0C93EC93B
 
 
@@ -497,7 +496,6 @@ p
 w
 y
 """
-            % (int(bootsize / 2),)
         )
     retcode = pr.wait()
     if retcode != 0:
@@ -505,8 +503,18 @@ y
 
 
 @contextlib.contextmanager
-def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
-    """Takes a volume device path, and possible a boot device path,
+def blockdev_context(
+    voldev: Path,
+    bootdev: None | Path,
+    volsize: int,
+    bootsize: int,
+    chown: str | int | None,
+    chgrp: str | int | None,
+    create: bool,
+) -> Generator[tuple[Path, Path, Path], None, None]:
+    """Create a block device context.
+
+    Takes a volume device path, and possible a boot device path,
     and yields a properly partitioned set of volumes which can
     then be used to format and create pools on.
 
@@ -515,20 +523,59 @@ def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
     undoer = Undoer()
 
     with undoer:
-        logging.info("Entering blockdev context.  Create=%s.", create)
+        _LOGGER.info("Entering blockdev context.  Create=%s.", create)
+
+        def get_rootpart(rdev: Path) -> Path | None:
+            parts = (
+                [str(rdev) + "p4"]
+                if str(rdev).startswith("/dev/loop")
+                else [
+                    str(rdev) + "-part4",
+                    str(rdev) + "4",
+                ]
+            )
+            for rootpart in parts:
+                if os.path.exists(rootpart):
+                    return Path(rootpart)
+            return None
+
+        def get_efipart_bootpart(bdev: Path) -> tuple[Path, Path] | tuple[None, None]:
+            parts = (
+                [
+                    (str(bdev) + "p2", str(bdev) + "p3"),
+                ]
+                if str(bdev).startswith("/dev/loop")
+                else [
+                    (str(bdev) + "-part2", str(bdev) + "-part3"),
+                    (str(bdev) + "2", str(bdev) + "3"),
+                ]
+            )
+            for efipart, bootpart in parts:
+                _LOGGER.info(
+                    "About to check for the existence of %s and %s.", efipart, bootpart
+                )
+                if os.path.exists(efipart) and os.path.exists(bootpart):
+                    _LOGGER.info("Both %s and %s exist.", efipart, bootpart)
+                    return Path(efipart), Path(bootpart)
+            return None, None
+
         voltype = filetype(voldev)
 
         if (
             voltype == "doesntexist"
         ):  # FIXME use truncate directly with python.  no need to dick around.
+            if not create:
+                raise Exception(
+                    f"Wanted to create boot device {voldev} but create=False"
+                )
             create_file(voldev, volsize, owner=chown, group=chgrp)
             voltype = "file"
 
         if voltype == "file":
-            if get_associated_lodev(voldev):
-                new_voldev = get_associated_lodev(voldev)
-            else:
+            new_voldev = get_associated_lodev(voldev)
+            if not new_voldev:
                 new_voldev = losetup(voldev)
+
             assert new_voldev is not None, (new_voldev, voldev)
             undoer.to_un_losetup.append(new_voldev)
             voldev = new_voldev
@@ -538,91 +585,71 @@ def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
             boottype = filetype(bootdev)
 
             if boottype == "doesntexist":
+                if not create:
+                    raise Exception(
+                        f"Wanted to create boot device {bootdev} but create=False"
+                    )
                 create_file(bootdev, bootsize * 1024 * 1024, owner=chown, group=chgrp)
                 boottype = "file"
 
             if boottype == "file":
-                if get_associated_lodev(bootdev):
-                    new_bootdev = get_associated_lodev(bootdev)
-                else:
+                new_bootdev = get_associated_lodev(bootdev)
+                if not new_bootdev:
                     new_bootdev = losetup(bootdev)
+
                 assert new_bootdev is not None, (new_bootdev, bootdev)
                 undoer.to_un_losetup.append(new_bootdev)
                 bootdev = new_bootdev
                 boottype = "blockdev"
 
-        def get_rootpart(rdev):
-            parts = (
-                [rdev + "p4"]
-                if rdev.startswith("/dev/loop")
-                else [
-                    rdev + "-part4",
-                    rdev + "4",
-                ]
-            )
-            for rootpart in parts:
-                if os.path.exists(rootpart):
-                    return rootpart
-
-        def get_efipart_bootpart(bdev):
-            parts = (
-                [
-                    (bdev + "p2", bdev + "p3"),
-                ]
-                if bdev.startswith("/dev/loop")
-                else [
-                    (bdev + "-part2", bdev + "-part3"),
-                    (bdev + "2", bdev + "3"),
-                ]
-            )
-            for efipart, bootpart in parts:
-                logging.info(
-                    "About to check for the existence of %s and %s.", efipart, bootpart
-                )
-                if os.path.exists(efipart) and os.path.exists(bootpart):
-                    logging.info("Both %s and %s exist.", efipart, bootpart)
-                    return efipart, bootpart
-            return None, None
-
-        efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
+        efipart, bootpart = get_efipart_bootpart(bootdev if bootdev else voldev)
         if None in (bootpart, efipart):
             if not create:
-                assert 0, (efipart, bootpart)
                 raise Exception(
-                    "Wanted to partition boot device %s but create=False"
-                    % (bootdev or voldev)
+                    f"Wanted to partition boot device {bootdev or voldev} but"
+                    f" create=False ({(efipart, bootpart)})"
                 )
             partition_boot(bootdev or voldev, bootsize, not bootdev)
 
-        efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
+        efipart, bootpart = get_efipart_bootpart(bootdev if bootdev else voldev)
         if None in (efipart, bootpart):
             assert 0, "partitions 2 or 3 in device %r failed to be created" % (
                 bootdev or voldev
             )
 
         rootpart = voldev if bootdev else get_rootpart(voldev)
-        assert rootpart or voldev, (
-            "partition 4 in device %r failed to be created" % voldev
+
+        assert rootpart, "root partition in device %r failed to be created" % voldev
+        assert bootpart, "boot partition in device %r failed to be created" % (
+            bootdev or voldev
+        )
+        assert efipart, "EFI partition in device %r failed to be created" % (
+            bootdev or voldev
         )
 
-        logging.info("Blockdev context complete.")
+        _LOGGER.info("Blockdev context complete.")
 
         yield rootpart, bootpart, efipart
 
 
-def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
-    """Sets up boot and EFI file systems.
+def setup_boot_filesystems(
+    bootpart: Path,
+    efipart: Path,
+    label_postfix: str,
+    create: bool,
+) -> tuple[str, str]:
+    """Set up boot and EFI file systems.
 
     This function is a noop if file systems already exist.
     """
     try:
-        output = check_output(["blkid", "-c", "/dev/null", bootpart])
+        output = check_output(["blkid", "-c", "/dev/null", str(bootpart)])
     except subprocess.CalledProcessError:
         output = ""
     if 'TYPE="ext4"' not in output:
         if not create:
             raise Exception(
-                "Wanted to create boot file system on %s but create=False" % bootpart
+                f"Wanted to create boot file system on {bootpart} but create=False"
             )
         # Conservative set of features so older distributions can be
         # tested when built in in newer distributions.
@@ -635,28 +662,26 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
                 "mkfs.ext4",
             ]
             + ["-O", ext4_opts]
-            + [
-                "-L",
-                "boot_" + label_postfix,
-                bootpart,
-            ]
+            + ["-L", "boot_" + label_postfix, str(bootpart)]
         )
     bootpartuuid = check_output(
-        ["blkid", "-c", "/dev/null", bootpart, "-o", "value", "-s", "UUID"]
+        ["blkid", "-c", "/dev/null", str(bootpart), "-o", "value", "-s", "UUID"]
     ).strip()
 
     try:
-        output = check_output(["blkid", "-c", "/dev/null", efipart])
+        output = check_output(["blkid", "-c", "/dev/null", str(efipart)])
     except subprocess.CalledProcessError:
         output = ""
     if 'TYPE="vfat"' not in output:
         if not create:
             raise Exception(
-                "Wanted to create EFI file system on %s but create=False" % efipart
+                f"Wanted to create EFI file system on {efipart} but create=False"
             )
-        check_call(["mkfs.vfat", "-F", "32", "-n", "efi_" + label_postfix[:7], efipart])
+        check_call(
+            ["mkfs.vfat", "-F", "32", "-n", "efi_" + label_postfix[:7], str(efipart)]
+        )
     efipartuuid = check_output(
-        ["blkid", "-c", "/dev/null", efipart, "-o", "value", "-s", "UUID"]
+        ["blkid", "-c", "/dev/null", str(efipart), "-o", "value", "-s", "UUID"]
     ).strip()
 
     return bootpartuuid, efipartuuid
@@ -664,28 +689,42 @@ def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
 
 @contextlib.contextmanager
 def filesystem_context(
-    poolname,
-    rootpart,
-    bootpart,
-    efipart,
-    workdir,
-    swapsize,
-    lukspassword,
-    luksoptions,
-    create,
-):
+    poolname: str,
+    rootpart: Path,
+    bootpart: Path,
+    efipart: Path,
+    workdir: Path,
+    swapsize: int,
+    lukspassword: str | None,
+    luksoptions: str | None,
+    create: bool,
+) -> Generator[
+    tuple[
+        Path,
+        Callable[[str], str],
+        Callable[[str], str],
+        Callable[[list[str]], list[str]],
+        str | None,
+        str | None,
+        str,
+        str,
+    ],
+    None,
+    None,
+]:
+    """Provide a filesystem context to the installer."""
     undoer = Undoer()
-    logging.info("Entering filesystem context.  Create=%s.", create)
+    _LOGGER.info("Entering filesystem context.  Create=%s.", create)
     bootpartuuid, efipartuuid = setup_boot_filesystems(
         bootpart, efipart, poolname, create
     )
 
     if lukspassword:
-        logging.info("Setting up LUKS.")
+        _LOGGER.info("Setting up LUKS.")
         needsdoing = False
         try:
             rootuuid = check_output(
-                ["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]
+                ["blkid", "-c", "/dev/null", str(rootpart), "-o", "value", "-s", "UUID"]
             ).strip()
             if not rootuuid:
                 raise IndexError("no UUID for %s" % rootpart)
@@ -699,47 +738,50 @@ def filesystem_context(
         if needsdoing:
             if not create:
                 raise Exception(
-                    "Wanted to create LUKS volume on %s but create=False" % rootpart
+                    f"Wanted to create LUKS volume on {rootpart} but create=False"
                 )
             luksopts = shlex.split(luksoptions) if luksoptions else []
-            cmd = ["cryptsetup", "-y", "-v", "luksFormat"] + luksopts + [rootpart, "-"]
+            cmd = (
+                ["cryptsetup", "-y", "-v", "luksFormat"]
+                + luksopts
+                + [str(rootpart), "-"]
+            )
             proc = Popen(cmd, stdin=subprocess.PIPE)
             proc.communicate(lukspassword)
             retcode = proc.wait()
             if retcode != 0:
                 raise subprocess.CalledProcessError(retcode, cmd)
             rootuuid = check_output(
-                ["blkid", "-c", "/dev/null", rootpart, "-o", "value", "-s", "UUID"]
+                ["blkid", "-c", "/dev/null", str(rootpart), "-o", "value", "-s", "UUID"]
             ).strip()
             if not rootuuid:
                 raise IndexError("still no UUID for %s" % rootpart)
             luksuuid = "luks-" + rootuuid
         if not os.path.exists(j("/dev", "mapper", luksuuid)):
-            cmd = ["cryptsetup", "-y", "-v", "luksOpen", rootpart, luksuuid]
+            cmd = ["cryptsetup", "-y", "-v", "luksOpen", str(rootpart), luksuuid]
             proc = Popen(cmd, stdin=subprocess.PIPE)
             proc.communicate(lukspassword)
             retcode = proc.wait()
             if retcode != 0:
                 raise subprocess.CalledProcessError(retcode, cmd)
         undoer.to_luks_close.append(luksuuid)
-        rootpart = j("/dev", "mapper", luksuuid)
+        rootpart = Path(j("/dev", "mapper", luksuuid))
     else:
         rootuuid = None
         luksuuid = None
 
-    rootmountpoint = j(workdir, poolname)
+    rootmountpoint = Path(j(workdir, poolname))
     if poolname not in list_pools():
         func = import_pool if create else import_pool_retryable
         try:
-            logging.info("Trying to import pool %s.", poolname)
+            _LOGGER.info("Trying to import pool %s.", poolname)
             func(poolname, rootmountpoint)
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
             if not create:
                 raise Exception(
-                    "Wanted to create ZFS pool %s on %s but create=False"
-                    % (poolname, rootpart)
-                )
-            logging.info("Creating pool %s.", poolname)
+                    f"Wanted to create ZFS pool {poolname} on {rootpart} but create=False"
+                ) from exc
+            _LOGGER.info("Creating pool %s.", poolname)
             check_call(
                 [
                     "zpool",
@@ -755,25 +797,24 @@ def filesystem_context(
                     "-O",
                     "com.sun:auto-snapshot=false",
                     "-R",
-                    rootmountpoint,
+                    str(rootmountpoint),
                     poolname,
-                    rootpart,
+                    str(rootpart),
                 ]
             )
             check_call(["zfs", "set", "xattr=sa", poolname])
     undoer.to_export.append(poolname)
 
-    logging.info("Checking / creating datasets.")
+    _LOGGER.info("Checking / creating datasets.")
     try:
         check_call_silent_stdout(
             ["zfs", "list", "-H", "-o", "name", j(poolname, "ROOT")],
         )
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
         if not create:
             raise Exception(
-                "Wanted to create ZFS file system ROOT on %s but create=False"
-                % poolname
-            )
+                f"Wanted to create ZFS file system ROOT on {poolname} but create=False"
+            ) from exc
         check_call(["zfs", "create", j(poolname, "ROOT")])
 
     try:
@@ -782,26 +823,24 @@ def filesystem_context(
         )
         if not os.path.ismount(rootmountpoint):
             check_call(["zfs", "mount", j(poolname, "ROOT", "os")])
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
         if not create:
             raise Exception(
-                "Wanted to create ZFS file system ROOT/os on %s but create=False"
-                % poolname
-            )
+                f"Wanted to create ZFS file system ROOT/os on {poolname} but create=False"
+            ) from exc
         check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
     undoer.to_unmount.append(rootmountpoint)
 
-    logging.info("Checking / creating swap zvol.")
+    _LOGGER.info("Checking / creating swap zvol.")
     try:
         check_call_silent_stdout(
             ["zfs", "list", "-H", "-o", "name", j(poolname, "swap")],
         )
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
         if not create:
             raise Exception(
-                "Wanted to create ZFS file system swap on %s but create=False"
-                % poolname
-            )
+                f"Wanted to create ZFS file system swap on {poolname} but create=False"
+            ) from exc
         check_call(
             ["zfs", "create", "-V", "%dM" % swapsize, "-b", "4K", j(poolname, "swap")]
         )
@@ -814,7 +853,9 @@ def filesystem_context(
             time.sleep(5)
     if not os.path.exists(swappart):
         raise ZFSMalfunction(
-            "ZFS does not appear to create the device nodes for zvols.  If you installed ZFS from source, pay attention that the --with-udevdir= configure parameter is correct."
+            "ZFS does not appear to create the device nodes for zvols.  If you"
+            " installed ZFS from source recently, pay attention that the --with-udevdir="
+            " configure parameter is correct, and ensure udev has reloaded."
         )
 
     try:
@@ -824,24 +865,24 @@ def filesystem_context(
     if 'TYPE="swap"' not in output:
         if not create:
             raise Exception(
-                "Wanted to create swap volume on %s/swap but create=False" % poolname
+                f"Wanted to create swap volume on {poolname}/swap but create=False"
             )
         check_call(["mkswap", "-f", swappart])
 
-    def p(withinchroot):
-        return j(rootmountpoint, withinchroot.lstrip(os.path.sep))
+    def p(withinchroot: str) -> str:
+        return str(j(rootmountpoint, withinchroot.lstrip(os.path.sep)))
 
-    def q(outsidechroot):
-        return outsidechroot[len(rootmountpoint) :]
+    def q(outsidechroot: str) -> str:
+        return outsidechroot[len(str(rootmountpoint)) :]
 
-    logging.info("Mounting virtual and physical file systems.")
+    _LOGGER.info("Mounting virtual and physical file systems.")
     # mount virtual file systems, creating their mount points as necessary
     for m in "boot sys proc".split():
         if not os.path.isdir(p(m)):
             os.mkdir(p(m))
 
     if not os.path.ismount(p("boot")):
-        mount(bootpart, p("boot"))
+        mount(bootpart, Path(p("boot")))
     undoer.to_unmount.append(p("boot"))
 
     for m in "boot/efi".split():
@@ -849,16 +890,16 @@ def filesystem_context(
             os.mkdir(p(m))
 
     if not os.path.ismount(p("boot/efi")):
-        mount(efipart, p("boot/efi"))
+        mount(efipart, Path(p("boot/efi")))
     undoer.to_unmount.append(p("boot/efi"))
 
     for srcmount, bindmounted in [
         ("/proc", p("proc")),
         ("/sys", p("sys")),
-        ("/sys/fs/selinux", p("sys/fs/selinux")),
+        # ("/sys/fs/selinux", p("sys/fs/selinux")),
     ]:
         if not os.path.ismount(bindmounted) and os.path.ismount(srcmount):
-            mount(srcmount, bindmounted, "--bind")
+            bindmount(Path(srcmount), Path(bindmounted))
         undoer.to_unmount.append(bindmounted)
 
     # create needed directories to succeed in chrooting as per #22
@@ -868,10 +909,10 @@ def filesystem_context(
             if m == "var/log/audit":
                 os.chmod(p(m), 0o700)
 
-    def in_chroot(lst):
-        return ["chroot", rootmountpoint] + lst
+    def in_chroot(lst: list[str]) -> list[str]:
+        return ["chroot", str(rootmountpoint)] + lst
 
-    logging.info("Filesystem context complete.")
+    _LOGGER.info("Filesystem context complete.")
     try:
         yield (
             rootmountpoint,
@@ -887,60 +928,6 @@ def filesystem_context(
         undoer.undo()
 
 
-def get_file_size(filename):
-    "Get the file size by seeking at end"
-    fd = os.open(filename, os.O_RDONLY)
-    try:
-        return os.lseek(fd, 0, os.SEEK_END)
-    finally:
-        os.close(fd)
-
-
-def checkout_repo_at(repo, project_dir, branch):
-    qbranch = shlex.quote(branch)
-    if os.path.isdir(project_dir):
-        logging.info("Updating and checking out git repository: %s", repo)
-        check_call("git fetch".split(), cwd=project_dir)
-        check_call(
-            [
-                "bash",
-                "-c",
-                f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
-            ],
-            cwd=project_dir,
-        )
-    else:
-        logging.info("Cloning git repository: %s", repo)
-        check_call(["git", "clone", repo, project_dir])
-        check_call(
-            [
-                "bash",
-                "-c",
-                f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
-            ],
-            cwd=project_dir,
-        )
-    check_call(["git", "--no-pager", "show"], cwd=project_dir)
-
-
-def create_file(filename, sizebytes, owner=None, group=None):
-    with open(filename, "wb") as f:
-        f.seek(sizebytes - 1)
-        f.write(b"\0")
-    if owner:
-        check_call(["chown", owner, "--", filename])
-    if group:
-        check_call(["chgrp", group, "--", filename])
-
-
-def delete_contents(directory):
-    if not os.path.exists(directory):
-        return
-    ps = [j(directory, p) for p in os.listdir(directory)]
-    if ps:
-        check_call(["rm", "-rf"] + ps)
-
-
 class ZFSMalfunction(Exception):
     pass
 
@@ -954,18 +941,19 @@ class ImpossiblePassphrase(Exception):
 
 
 class Undoer:
-    def __init__(self):
-        self.actions = []
+    def __init__(self) -> None:
+        """Initialize an empty undoer."""
+        self.actions: list[Any] = []
 
         class Tracker:
-            def __init__(self, typ):
+            def __init__(self, typ: str) -> None:
                 self.typ = typ
 
-            def append(me, o):
+            def append(me: "Tracker", o: Any) -> None:  # noqa:N805
                 assert o is not None
                 self.actions.append([me.typ, o])
 
-            def remove(me, o):
+            def remove(me: "Tracker", o: Any) -> None:  # noqa:N805
                 for n, (typ, origo) in reversed(list(enumerate(self.actions[:]))):
                     if typ == me.typ and o == origo:
                         self.actions.pop(n)
@@ -978,14 +966,18 @@ class Undoer:
         self.to_unmount = Tracker("unmount")
         self.to_rmrf = Tracker("rmrf")
 
-    def __enter__(self):
+    def __enter__(self) -> None:
+        """Enter the undoer context."""
         pass
 
-    def __exit__(self, *unused_args):
+    def __exit__(self, *unused_args: Any) -> None:
+        """Exit the undoer context."""
         self.undo()
 
-    def undo(self):
-        logging.getLogger("Undoer").info("Rewinding stack of actions.")
+    def undo(self) -> None:
+        """Execute the undo action list LIFO style."""
+        logger = logging.getLogger("Undoer")
+        logger.info("Rewinding stack of actions.")
         for n, (typ, o) in reversed(list(enumerate(self.actions[:]))):
             if typ == "unmount":
                 umount(o)
@@ -998,53 +990,68 @@ class Undoer:
                 check_call(["zpool", "export", o])
             if typ == "luks_close":
                 check_call(["sync"])
-                check_call(["cryptsetup", "luksClose", o])
+                check_call(["cryptsetup", "luksClose", str(o)])
             if typ == "un_losetup":
                 check_call(["sync"])
-                check_call(["losetup", "-d", o])
+                cmd = ["losetup", "-d", str(o)]
+                env = dict(os.environ)
+                env["LANG"] = "C.UTF-8"
+                env["LC_ALL"] = "C.UTF-8"
+                output, exitcode = get_output_exitcode(cmd, env=env)
+                if exitcode != 0:
+                    if "No such device or address" in output:
+                        logger.warning("Ignorable failure while detaching %s", o)
+                    else:
+                        raise subprocess.CalledProcessError(
+                            exitcode, ["losetup", "-d", str(o)]
+                        )
                 time.sleep(1)
             self.actions.pop(n)
-        logging.getLogger("Undoer").info("Rewind complete.")
+        logger.info("Rewind complete.")
 
 
-def chroot_shell(in_chroot, current_phase, expected_phase):
-    if current_phase == expected_phase:
-        print(
+def chroot_shell(
+    in_chroot: Callable[[list[str]], list[str]],
+    phase_to_stop_at: str | None,
+    current_phase: str,
+) -> None:
+    """Drop user into a shell."""
+    if phase_to_stop_at == current_phase:
+        _LOGGER.info(
             "=== Dropping you into a shell before phase {current_phase}. ===",
-            file=sys.stderr,
         )
-        print(
+        _LOGGER.info(
             "=== Exit the shell to continue, or exit 1 to abort. ===",
-            file=sys.stderr,
         )
         subprocess.check_call(in_chroot(["/bin/bash"]))
 
 
 def install_fedora(
-    voldev,
-    volsize,
-    zfs_repo,
-    bootdev=None,
-    bootsize=256,
-    poolname="tank",
-    hostname="localhost.localdomain",
-    rootpassword="password",
-    swapsize=1024,
-    releasever=None,
-    lukspassword=None,
-    interactive_qemu=False,
-    luksoptions=None,
-    prebuilt_rpms_path=None,
-    yum_cachedir_path=None,
-    force_kvm=None,
-    chown=None,
-    chgrp=None,
-    break_before=None,
-    shell_before=None,
-    short_circuit=None,
-    branch="master",
-    workdir="/var/lib/zfs-fedora-installer",
-):
+    voldev: Path,
+    volsize: int,
+    zfs_repo: str,
+    bootdev: Path | None = None,
+    bootsize: int = 256,
+    poolname: str = "tank",
+    hostname: str = "localhost.localdomain",
+    rootpassword: str = "password",
+    swapsize: int = 1024,
+    releasever: int | None = None,
+    lukspassword: str | None = None,
+    interactive_qemu: bool = False,
+    luksoptions: Any = None,  # FIXME
+    prebuilt_rpms_path: Path | None = None,
+    yum_cachedir: Path | None = None,
+    force_kvm: bool | None = None,
+    chown: str | int | None = None,
+    chgrp: str | int | None = None,
+    break_before: str | None = None,
+    shell_before: str | None = None,
+    short_circuit: str | None = None,
+    branch: str = "master",
+    workdir: Path = Path("/var/lib/zfs-fedora-installer"),
+) -> None:
+    """Install a bootable Fedora in an image or disk backed by ZFS."""
     if lukspassword and not BootDriver.is_typeable(lukspassword):
         raise ImpossiblePassphrase(
             "LUKS passphrase %r cannot be typed during boot" % lukspassword
@@ -1061,285 +1068,360 @@ def install_fedora(
     host_releasever = ChrootPackageManager.get_my_releasever()
     if not releasever:
         releasever = host_releasever
+    assert releasever is not None
 
-    def beginning():
-        logging.info("Program has begun.")
+    # FIXME YUM cachedir must be a context manager otherwise this shit doesn't work.
+    def get_pkgmgr(rootmountpoint: Path) -> ChrootPackageManager:
+        return ChrootPackageManager(
+            str(rootmountpoint),
+            releasever,
+            str(yum_cachedir) if yum_cachedir else None,
+        )
+
+    def beginning() -> None:
+        _LOGGER.info("Program has begun.")
 
         with blockdev_context(
             voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
-        ) as (rootpart, bootpart, efipart):
-            with filesystem_context(
-                poolname,
-                rootpart,
-                bootpart,
-                efipart,
-                workdir,
-                swapsize,
-                lukspassword,
-                luksoptions,
-                create=True,
-            ) as (
-                rootmountpoint,
-                p,
-                _,
-                in_chroot,
-                rootuuid,
-                luksuuid,
-                bootpartuuid,
-                efipartuuid,
-            ):
-                logging.info("Adding basic files.")
-                # sync device files
-                # FIXME: this could be racy when building multiple images
-                # in parallel.
-                # We really should only synchronize the absolute minimum of
-                # device files (in/out/err/null, and the disks that belong
-                # to this build MAYBE.)
-                check_call(
-                    [
-                        "rsync",
-                        "-ax",
-                        "--numeric-ids",
-                        "--exclude=zvol",
-                        "--exclude=sd*",
-                        "--delete",
-                        "--delete-excluded",
-                        "/dev/",
-                        p("dev/"),
-                    ]
-                )
+        ) as (rootpart, bootpart, efipart), filesystem_context(
+            poolname,
+            rootpart,
+            bootpart,
+            efipart,
+            workdir,
+            swapsize,
+            lukspassword,
+            luksoptions,
+            create=True,
+        ) as (
+            rootmountpoint,
+            p,
+            _,
+            in_chroot,
+            rootuuid,
+            luksuuid,
+            bootpartuuid,
+            efipartuuid,
+        ):
+            _LOGGER.info("Adding basic files.")
+            # sync device files
+            # FIXME: this could be racy when building multiple images
+            # in parallel.
+            # We really should only synchronize the absolute minimum of
+            # device files (in/out/err/null, and the disks that belong
+            # to this build MAYBE.)
+            check_call(
+                [
+                    "rsync",
+                    "-ax",
+                    "--numeric-ids",
+                    "--exclude=zvol",
+                    "--exclude=sd*",
+                    "--delete",
+                    "--delete-excluded",
+                    "/dev/",
+                    p("dev/"),
+                ]
+            )
 
-                # sync RPM GPG keys
-                for m in "etc/pki etc/pki/rpm-gpg".split():
-                    if not os.path.isdir(p(m)):
-                        os.mkdir(p(m))
-                check_call(
-                    ["rsync", "-ax", "--numeric-ids"]
-                    + glob.glob("/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*")
-                    + [p("etc/pki/rpm-gpg/")]
-                )
+            # sync RPM GPG keys
+            for m in "etc/pki etc/pki/rpm-gpg".split():
+                if not os.path.isdir(p(m)):
+                    os.mkdir(p(m))
+            check_call(
+                ["rsync", "-ax", "--numeric-ids"]
+                + glob.glob("/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora*")
+                + [p("etc/pki/rpm-gpg/")]
+            )
 
-                # make up a nice locale.conf file. neutral. international
-                localeconf = """LANG="en_US.UTF-8"
+            # make up a nice locale.conf file. neutral. international
+            localeconf = """LANG="en_US.UTF-8"
 """
-                writetext(p(j("etc", "locale.conf")), localeconf)
+            writetext(Path(p(j("etc", "locale.conf"))), localeconf)
 
-                # make up a nice vconsole.conf file. neutral. international
-                vconsoleconf = """KEYMAP="us"
+            # make up a nice vconsole.conf file. neutral. international
+            vconsoleconf = """KEYMAP="us"
 """
-                writetext(p(j("etc", "vconsole.conf")), vconsoleconf)
+            writetext(Path(p(j("etc", "vconsole.conf"))), vconsoleconf)
 
-                # make up a nice fstab file
-                fstab = """%s/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
-UUID=%s /boot ext4 noatime 0 1
-UUID=%s /boot/efi vfat noatime 0 1
-/dev/zvol/%s/swap swap swap discard 0 0
-""" % (
-                    poolname,
-                    bootpartuuid,
-                    efipartuuid,
-                    poolname,
-                )
-                writetext(p(j("etc", "fstab")), fstab)
+            # make up a nice fstab file
+            fstab = f"""{poolname}/ROOT/os / zfs defaults,x-systemd-device-timeout=0 0 0
+UUID={bootpartuuid} /boot ext4 noatime 0 1
+UUID={efipartuuid} /boot/efi vfat noatime 0 1
+/dev/zvol/{poolname}/swap swap swap discard 0 0
+"""
+            writetext(Path(p(j("etc", "fstab"))), fstab)
 
-                # create a number of important files
-                if not os.path.exists(p(j("etc", "mtab"))):
-                    os.symlink("../proc/self/mounts", p(j("etc", "mtab")))
-                resolvconf = p(j("etc", "resolv.conf"))
-                if not os.path.isfile(resolvconf) and not os.path.islink(resolvconf):
-                    writetext(resolvconf, readtext(j("/etc", "resolv.conf")))
-                if not os.path.exists(p(j("etc", "hostname"))):
-                    writetext(p(j("etc", "hostname")), hostname)
-                if not os.path.exists(p(j("etc", "hostid"))):
-                    with open("/dev/urandom", "rb") as rnd:
-                        randomness = rnd.read(4)
-                        with open(p(j("etc", "hostid")), "wb") as hostid:
-                            hostid.write(randomness)
-                if not os.path.exists(p(j("etc", "locale.conf"))):
-                    writetext(p(j("etc", "locale.conf")), "LANG=en_US.UTF-8\n")
-                with open(p(j("etc", "hostid")), "rb") as hostidfile:
-                    hostid = hostidfile.read().hex()
-                hostid = "%s%s%s%s" % (
-                    hostid[6:8],
-                    hostid[4:6],
-                    hostid[2:4],
-                    hostid[0:2],
-                )
+            # create a number of important files
+            if not os.path.exists(p(j("etc", "mtab"))):
+                os.symlink("../proc/self/mounts", p(j("etc", "mtab")))
 
-                if luksuuid:
-                    crypttab = """%s UUID=%s none discard
-""" % (
-                        luksuuid,
-                        rootuuid,
-                    )
-                    writetext(p(j("etc", "crypttab")), crypttab)
-                    os.chmod(p(j("etc", "crypttab")), 0o600)
+            orig_resolv = p(j("etc", "resolv.conf.orig"))
+            final_resolv = p(j("etc", "resolv.conf"))
 
-                pkgmgr = ChrootPackageManager(
-                    rootmountpoint, releasever, yum_cachedir_path
-                )
+            if os.path.lexists(final_resolv):
+                if not os.path.lexists(orig_resolv):
+                    _LOGGER.info("Backing up original resolv.conf")
+                    os.rename(final_resolv, orig_resolv)
 
-                logging.info("Installing basic packages into root directory.")
-                # install base packages
-                packages = list(BASE_PACKAGES)
-                if releasever >= 21:
-                    packages.append("dnf")
-                else:
-                    packages.append("yum")
-                pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
+            if os.path.islink(final_resolv):
+                os.unlink(final_resolv)
+            _LOGGER.info("Writing temporary resolv.conf")
+            writetext(Path(final_resolv), readtext(Path(j("/etc", "resolv.conf"))))
 
-                chroot_shell(in_chroot, shell_before, "install_packages_in_chroot")
+            if not os.path.exists(p(j("etc", "hostname"))):
+                writetext(Path(p(j("etc", "hostname"))), hostname)
+            if not os.path.exists(p(j("etc", "hostid"))):
+                with open("/dev/urandom", "rb") as rnd:
+                    randomness = rnd.read(4)
+                    with open(p(j("etc", "hostid")), "wb") as hostidf:
+                        hostidf.write(randomness)
+            if not os.path.exists(p(j("etc", "locale.conf"))):
+                writetext(Path(p(j("etc", "locale.conf"))), "LANG=en_US.UTF-8\n")
+            with open(p(j("etc", "hostid")), "rb") as hostidfile:
+                hostid = hostidfile.read().hex()
+            hostid = f"{hostid[6:8]}{hostid[4:6]}{hostid[2:4]}{hostid[0:2]}"
+            _LOGGER.info("Host ID is %s", hostid)
 
-                logging.info("Installing basic packages within chroot.")
-                chroot_packages = list(IN_CHROOT_PACKAGES)
-                if releasever < 37:
-                    chroot_packages.extend(list(IN_CHROOT_PACKAGES_LT_F37))
-                else:
-                    chroot_packages.extend(list(IN_CHROOT_PACKAGES_GTE_F38))
-                # Install packages needed after F36.
-                if releasever >= 36:
-                    chroot_packages.extend(list(IN_CHROOT_PACKAGES_GTE_F36))
-                # install initial boot packages
-                chroot_packages = (
-                    chroot_packages + "grub2 grub2-tools grubby efibootmgr".split()
-                )
-                if releasever >= 27:
-                    chroot_packages = (
-                        chroot_packages
-                        + "shim-x64 grub2-efi-x64 grub2-efi-x64-modules".split()
-                    )
-                else:
-                    chroot_packages = (
-                        chroot_packages + "shim grub2-efi grub2-efi-modules".split()
-                    )
+            if luksuuid:
+                crypttab = f"""{luksuuid} UUID={rootuuid} none discard
+"""
+                writetext(Path(p(j("etc", "crypttab"))), crypttab)
+                os.chmod(p(j("etc", "crypttab")), 0o600)
 
-                pkgmgr.ensure_packages_installed(IN_CHROOT_PACKAGES, method="in_chroot")
+            pkgmgr = get_pkgmgr(rootmountpoint)
 
-                # omit zfs modules when dracutting
-                if not os.path.exists(p("usr/bin/dracut.real")):
-                    check_call(
-                        in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"])
-                    )
-                    writetext(
-                        p("usr/bin/dracut"),
-                        """#!/bin/bash
+            _LOGGER.info("Installing basic packages into root directory.")
+            # install base packages
+            packages = get_base_packages(releasever)
+            pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
+
+            chroot_shell(in_chroot, shell_before, "install_packages_in_chroot")
+            _LOGGER.info("Installing basic packages within chroot.")
+            chroot_packages = get_in_chroot_packages(releasever)
+            pkgmgr.ensure_packages_installed(chroot_packages, method="in_chroot")
+
+            # omit zfs modules when dracutting
+            if not os.path.exists(p("usr/bin/dracut.real")):
+                check_call(in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"]))
+                writetext(
+                    p("usr/bin/dracut"),
+                    """#!/bin/bash
 
 echo This is a fake dracut.
 """,
-                    )
-                    os.chmod(p("usr/bin/dracut"), 0o755)
+                )
+                os.chmod(p("usr/bin/dracut"), 0o755)
 
-                if luksuuid:
-                    luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards" % (rootuuid,)
-                else:
-                    luksstuff = ""
+            if luksuuid:
+                luksstuff = " rd.luks.uuid=%s rd.luks.allow-discards" % (rootuuid,)
+            else:
+                luksstuff = ""
 
-                # write grub config
-                grubconfig = """GRUB_TIMEOUT=0
+            # write grub config
+            grubconfig = f"""GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=3
 GRUB_HIDDEN_TIMEOUT_QUIET=true
 GRUB_DISTRIBUTOR="$(sed 's, release .*$,,g' /etc/system-release)"
 GRUB_DEFAULT=saved
-GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true%s"
+GRUB_CMDLINE_LINUX="rd.md=0 rd.lvm=0 rd.dm=0 $([ -x /usr/sbin/rhcrashkernel-param ] && /usr/sbin/rhcrashkernel-param || :) quiet systemd.show_status=true{luksstuff}"
 GRUB_DISABLE_RECOVERY="true"
 GRUB_GFXPAYLOAD_LINUX="keep"
 GRUB_TERMINAL_OUTPUT="vga_text"
 GRUB_DISABLE_LINUX_UUID=true
 GRUB_PRELOAD_MODULES='part_msdos ext2'
-""" % (luksstuff,)
-                writetext(p(j("etc", "default", "grub")), grubconfig)
+"""
+            writetext(Path(p(j("etc", "default", "grub"))), grubconfig)
 
-                # write kernel command line
-                if not os.path.isdir(p(j("etc", "kernel"))):
-                    os.mkdir(p(j("etc", "kernel")))
-                kernelcmd = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
+            # write kernel command line
+            if not os.path.isdir(p(j("etc", "kernel"))):
+                os.mkdir(p(j("etc", "kernel")))
+            kernelcmd = """root=ZFS=%s/ROOT/os rd.md=0 rd.lvm=0 rd.dm=0 quiet systemd.show_status=true%s
 """ % (
-                    poolname,
-                    luksstuff,
+                poolname,
+                luksstuff,
+            )
+            writetext(p(j("etc", "kernel", "cmdline")), kernelcmd)
+
+            chroot_shell(in_chroot, shell_before, "install_kernel")
+
+            # install kernel packages
+            packages = "kernel kernel-headers kernel-modules kernel-devel dkms grub2 grub2-efi".split()
+            pkgmgr.ensure_packages_installed(
+                packages,
+                method="in_chroot",
+                extra_args=["--setopt=install_weak_deps=true"],
+            )
+
+            # set password
+            shadow = Path(p(j("etc", "shadow")))
+            pwfile = readlines(shadow)
+            pwnotset = bool(
+                [
+                    line
+                    for line in pwfile
+                    if line.startswith("root:*:") or line.startswith("root::")
+                ]
+            )
+            if pwnotset:
+                _LOGGER.info("Setting root password")
+                cmd = ["mkpasswd", "--method=SHA-512", "--stdin"]
+                pwproc = subprocess.run(
+                    cmd, input=rootpassword, capture_output=True, text=True, check=True
                 )
-                writetext(p(j("etc", "kernel", "cmdline")), kernelcmd)
-
-                chroot_shell(in_chroot, shell_before, "install_kernel")
-
-                # install kernel packages
-                packages = "kernel kernel-headers kernel-modules kernel-devel dkms grub2 grub2-efi".split()
-                pkgmgr.ensure_packages_installed(
-                    packages,
-                    method="in_chroot",
-                    extra_args=["--setopt=install_weak_deps=true"],
-                )
-
-                # set password
-                pwfile = readlines(p(j("etc", "shadow")))
-                pwnotset = bool(
-                    [
-                        line
-                        for line in pwfile
-                        if line.startswith("root:*:") or line.startswith("root::")
-                    ]
-                )
-                if pwnotset:
-                    cmd = in_chroot(["passwd", "--stdin", "root"])
-                    pw = Popen(cmd, stdin=subprocess.PIPE)
-                    pw.communicate(rootpassword + "\n")
-                    retcode = pw.wait()
-                    if retcode != 0:
-                        logging.error("Error changing the root password.")
-                        logging.error("PAM module configuration:")
-                        moduleconf = check_output(
-                            in_chroot(["bash", "-c", "grep '.*' /etc/pam.d/*"])
-                        )
-                        for line in moduleconf.splitlines():
-                            logging.error("%s", line)
-                        raise subprocess.CalledProcessError(retcode, cmd)
-                else:
-                    logging.info(
-                        "Not setting password -- first line of /etc/shadow: %s",
-                        pwfile[0].strip(),
-                    )
-
-                chroot_shell(in_chroot, shell_before, "deploy_zfs")
-
-                deploy_zfs_in_machine(
-                    p=p,
-                    in_chroot=in_chroot,
-                    pkgmgr=pkgmgr,
-                    prebuilt_rpms_path=prebuilt_rpms_path,
-                    zfs_repo=zfs_repo,
-                    branch=branch,
-                    break_before=break_before,
-                    install_current_kernel_devel=False,
+                pw = pwproc.stdout[:-1]
+                for n, line in enumerate(pwfile):
+                    if line.startswith("root:"):
+                        fields = line.split(":")
+                        fields[1] = pw
+                        pwfile[n] = ":".join(fields)
+                writetext(shadow, "".join(pwfile))
+            else:
+                _LOGGER.info(
+                    "Not setting root password -- first line of /etc/shadow: %s",
+                    pwfile[0].strip(),
                 )
 
-                # release disk space now that installation is done
-                for pkgm in ("dnf", "yum"):
-                    for directory in ("cache", "lib"):
-                        delete_contents(p(j("var", directory, pkgm)))
+    def deploy_zfs() -> None:
+        _LOGGER.info("Deploying ZFS and dependencies")
 
-    def get_kernel_initrd_kver(p):
+        with blockdev_context(
+            voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
+        ) as (rootpart, bootpart, efipart), filesystem_context(
+            poolname,
+            rootpart,
+            bootpart,
+            efipart,
+            workdir,
+            swapsize,
+            lukspassword,
+            luksoptions,
+            create=True,
+        ) as (
+            rootmountpoint,
+            p,
+            _,
+            in_chroot,
+            rootuuid,
+            luksuuid,
+            bootpartuuid,
+            efipartuuid,
+        ):
+            deploy_zfs_in_machine(
+                p=p,
+                in_chroot=in_chroot,
+                pkgmgr=get_pkgmgr(rootmountpoint),
+                prebuilt_rpms_path=prebuilt_rpms_path,
+                zfs_repo=zfs_repo,
+                branch=branch,
+                break_before=break_before,
+                shell_before=shell_before,
+                install_current_kernel_devel=False,
+            )
+
+    def get_kernel_initrd_kver(p: Callable[[str], str]) -> tuple[Path, Path, Path, str]:
         try:
             kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
             kver = os.path.basename(os.path.dirname(kernel))
             initrd = p(j("boot", "loader", kver, "initrd"))
             hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
-            return kernel, initrd, hostonly, kver
+            return Path(kernel), Path(initrd), Path(hostonly), kver
         except IndexError:
             kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
             kver = os.path.basename(kernel)[len("vmlinuz-") :]
             initrd = p(j("boot", "initramfs-%s.img" % kver))
             hostonly = p(j("boot", "initramfs-hostonly-%s.img" % kver))
-            return kernel, initrd, hostonly, kver
+            return Path(kernel), Path(initrd), Path(hostonly), kver
         except Exception:
-            check_call((["ls", "-lRa", p("boot")]))
+            check_call(["ls", "-lRa", p("boot")])
             raise
 
-    def reload_chroot():
+    def reload_chroot() -> None:  # FIXME should be named finalize_chroot
         # The following reload in a different context scope is a workaround
         # for blkid failing without the reload happening first.
+        _LOGGER.info("Finalizing chroot for image")
+
         with blockdev_context(
             voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
-        ) as (rootpart, bootpart, efipart):
-            with filesystem_context(
+        ) as (rootpart, bootpart, efipart), filesystem_context(
+            poolname,
+            rootpart,
+            bootpart,
+            efipart,
+            workdir,
+            swapsize,
+            lukspassword,
+            luksoptions,
+            create=False,
+        ) as (_, p, q, in_chroot, rootuuid, _, bootpartuuid, _):
+            chroot_shell(in_chroot, shell_before, "reload_chroot")
+
+            if not yum_cachedir:
+                # OS owns the cache directory.
+                # Release disk space now that installation is done.
+                for pkgm in ("dnf", "yum"):
+                    for directory in ("cache", "lib"):
+                        delete_contents(Path(p(j("var", directory, pkgm))))
+
+            if os.path.exists(p("usr/bin/dracut.real")):
+                check_call(in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"]))
+            kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
+            if os.path.isfile(initrd):
+                mayhapszfsko = check_output(["lsinitrd", str(initrd)])
+            else:
+                mayhapszfsko = ""
+            # At this point, we regenerate the initrd, if it does not have zfs.ko.
+            if "zfs.ko" not in mayhapszfsko:
+                check_call(in_chroot(["dracut", "-Nf", q(str(initrd)), kver]))
+                for line in check_output(["lsinitrd", str(initrd)]).splitlines(False):
+                    _LOGGER.debug("initramfs: %s", line)
+            mayhapszfsko = check_output(["lsinitrd", str(initrd)])
+            if "zfs.ko" not in mayhapszfsko:
+                assert 0, (
+                    "ZFS kernel module was not found in the initramfs %s --"
+                    " perhaps it failed to build." % initrd
+                )
+
+            # Kill the resolv.conf file written only to install packages.
+            orig_resolv = p(j("etc", "resolv.conf.orig"))
+            final_resolv = p(j("etc", "resolv.conf"))
+            if os.path.lexists(orig_resolv):
+                _LOGGER.info("Restoring original resolv.conf")
+                if os.path.lexists(final_resolv):
+                    os.unlink(final_resolv)
+                os.rename(orig_resolv, final_resolv)
+
+            # Remove host device files
+            shutil.rmtree(p("dev"))
+            # sync /dev but only itself and /dev/zfs
+            check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/", p("dev/")])
+            check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/zfs", p("dev/zfs")])
+
+            # Snapshot the system as it is, now that it is fully done.
+            try:
+                check_call_silent_stdout(
+                    [
+                        "zfs",
+                        "list",
+                        "-t",
+                        "snapshot",
+                        "-H",
+                        "-o",
+                        "name",
+                        j(poolname, "ROOT", "os@initial"),
+                    ]
+                )
+            except subprocess.CalledProcessError:
+                check_call(["sync"])
+                check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
+
+    def biiq(init: str, hostonly: bool) -> None:
+        def fish_kernel_initrd() -> (
+            tuple[str | None, str | None, Path, Path, Path, Path]
+        ):
+            with blockdev_context(
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
+            ) as (rootpart, bootpart, efipart), filesystem_context(
                 poolname,
                 rootpart,
                 bootpart,
@@ -1349,89 +1431,27 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 lukspassword,
                 luksoptions,
                 create=False,
-            ) as (_, p, q, in_chroot, rootuuid, _, bootpartuuid, _):
-                chroot_shell(in_chroot, shell_before, "reload_chroot")
-
-                if os.path.exists(p("usr/bin/dracut.real")):
-                    check_call(
-                        in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"])
-                    )
-                kernel, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
-                if os.path.isfile(initrd):
-                    mayhapszfsko = check_output(["lsinitrd", initrd])
-                else:
-                    mayhapszfsko = ""
-                # At this point, we regenerate the initrd, if it does not have zfs.ko.
-                if "zfs.ko" not in mayhapszfsko:
-                    check_call(in_chroot(["dracut", "-Nf", q(initrd), kver]))
-                    for line in check_output(["lsinitrd", initrd]).splitlines(False):
-                        logging.debug("initramfs: %s", line)
-                mayhapszfsko = check_output(["lsinitrd", initrd])
-                if "zfs.ko" not in mayhapszfsko:
-                    assert 0, (
-                        "ZFS kernel module was not found in the initramfs %s -- perhaps it failed to build."
-                        % initrd
-                    )
-
-                # Kill the resolv.conf file written only to install packages.
-                if os.path.isfile(p(j("etc", "resolv.conf"))):
-                    os.unlink(p(j("etc", "resolv.conf")))
-
-                # Remove host device files
-                shutil.rmtree(p("dev"))
-                # sync /dev but only itself and /dev/zfs
-                check_call(["rsync", "-ptlgoD", "--numeric-ids", "/dev/", p("dev/")])
-                check_call(
-                    ["rsync", "-ptlgoD", "--numeric-ids", "/dev/zfs", p("dev/zfs")]
+            ) as (_, p, _, _, rootuuid, luksuuid, _, _):
+                kerneltempdir = tempfile.mkdtemp(
+                    prefix="install-fedora-on-zfs-bootbits-"
                 )
-
-                # Snapshot the system as it is, now that it is fully done.
                 try:
-                    check_call_silent_stdout(
-                        [
-                            "zfs",
-                            "list",
-                            "-t",
-                            "snapshot",
-                            "-H",
-                            "-o",
-                            "name",
-                            j(poolname, "ROOT", "os@initial"),
-                        ]
-                    )
-                except subprocess.CalledProcessError:
-                    check_call(["sync"])
-                    check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
-
-    def biiq(init, hostonly):
-        def fish_kernel_initrd():
-            with blockdev_context(
-                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
-            ) as (rootpart, bootpart, efipart):
-                with filesystem_context(
-                    poolname,
-                    rootpart,
-                    bootpart,
-                    efipart,
-                    workdir,
-                    swapsize,
-                    lukspassword,
-                    luksoptions,
-                    create=False,
-                ) as (_, p, _, _, rootuuid, luksuuid, _, _):
-                    kerneltempdir = tempfile.mkdtemp(
-                        prefix="install-fedora-on-zfs-bootbits-"
-                    )
-                    try:
-                        kernel, initrd, hostonly_initrd, _ = get_kernel_initrd_kver(p)
-                        shutil.copy2(kernel, kerneltempdir)
-                        shutil.copy2(initrd, kerneltempdir)
-                        if os.path.isfile(hostonly_initrd):
-                            shutil.copy2(hostonly_initrd, kerneltempdir)
-                    except (KeyboardInterrupt, Exception):
-                        shutil.rmtree(kerneltempdir)
-                        raise
-            return rootuuid, luksuuid, kerneltempdir, kernel, initrd, hostonly_initrd
+                    kernel, initrd, hostonly_initrd, _ = get_kernel_initrd_kver(p)
+                    shutil.copy2(kernel, kerneltempdir)
+                    shutil.copy2(initrd, kerneltempdir)
+                    if os.path.isfile(hostonly_initrd):
+                        shutil.copy2(hostonly_initrd, kerneltempdir)
+                except (KeyboardInterrupt, Exception):
+                    shutil.rmtree(kerneltempdir)
+                    raise
+            return (
+                rootuuid,
+                luksuuid,
+                Path(kerneltempdir),
+                kernel,
+                initrd,
+                hostonly_initrd,
+            )
 
         undoer = Undoer()
         (
@@ -1450,10 +1470,12 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 poolname,
                 original_voldev,
                 original_bootdev,
-                os.path.join(kerneltempdir, os.path.basename(kernel)),
-                os.path.join(
-                    kerneltempdir,
-                    os.path.basename(initrd if not hostonly else hostonly_initrd),
+                Path(os.path.join(kerneltempdir, os.path.basename(kernel))),
+                Path(
+                    os.path.join(
+                        kerneltempdir,
+                        os.path.basename(initrd if not hostonly else hostonly_initrd),
+                    )
                 ),
                 force_kvm,
                 interactive_qemu,
@@ -1464,25 +1486,24 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 qemu_timeout,
             )
 
-    def bootloader_install():
-        logging.info("Installing bootloader.")
+    def bootloader_install() -> None:
+        _LOGGER.info("Installing bootloader.")
         with blockdev_context(
             voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
-        ) as (rootpart, bootpart, efipart):
-            with filesystem_context(
-                poolname,
-                rootpart,
-                bootpart,
-                efipart,
-                workdir,
-                swapsize,
-                lukspassword,
-                luksoptions,
-                create=False,
-            ) as (_, p, q, in_chroot, _, _, _, _):
-                _, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
-                # create bootloader installer
-                bootloadertext = """#!/bin/bash -xe
+        ) as (rootpart, bootpart, efipart), filesystem_context(
+            poolname,
+            rootpart,
+            bootpart,
+            efipart,
+            workdir,
+            swapsize,
+            lukspassword,
+            luksoptions,
+            create=False,
+        ) as (_, p, q, _, _, _, _, _):
+            _, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
+            # create bootloader installer
+            bootloadertext = """#!/bin/bash -xe
 error() {{
     retval=$?
     echo There was an unrecoverable error finishing setup >&2
@@ -1559,34 +1580,35 @@ echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
 """.format(
-                    **{
-                        "poolname": poolname,
-                        "kver": kver,
-                        "hostonly_initrd": q(hostonly_initrd),
-                        "initrd": q(initrd),
-                    }
-                )
-                bootloaderpath = p("installbootloader")
-                writetext(bootloaderpath, bootloadertext)
-                os.chmod(bootloaderpath, 0o755)
+                **{
+                    "poolname": poolname,
+                    "kver": kver,
+                    "hostonly_initrd": q(str(hostonly_initrd)),
+                    "initrd": q(str(initrd)),
+                }
+            )
+            bootloaderpath = Path(p("installbootloader"))
+            writetext(Path(bootloaderpath), bootloadertext)
+            os.chmod(bootloaderpath, 0o755)
 
-        logging.info("Entering sub-phase preparation of bootloader in VM.")
+        _LOGGER.info("Entering sub-phase preparation of bootloader in VM.")
         return biiq("init=/installbootloader", False)
 
-    def boot_to_test_x_hostonly(hostonly):
-        logging.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
-        return biiq("systemd.unit=multi-user.target", hostonly)
+    def boot_to_test_x_hostonly(hostonly: bool) -> None:
+        _LOGGER.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
+        biiq("systemd.unit=multi-user.target", hostonly)
 
-    def boot_to_test_non_hostonly():
-        return boot_to_test_x_hostonly(False)
+    def boot_to_test_non_hostonly() -> None:
+        boot_to_test_x_hostonly(False)
 
-    def boot_to_test_hostonly():
-        return boot_to_test_x_hostonly(True)
+    def boot_to_test_hostonly() -> None:
+        boot_to_test_x_hostonly(True)
 
     try:
         # start main program
         for stage in [
             "beginning",
+            "deploy_zfs",
             "reload_chroot",
             "bootloader_install",
             "boot_to_test_non_hostonly",
@@ -1600,26 +1622,25 @@ echo cannot power off VM.  Please kill qemu.
 
     # tell the user we broke
     except BreakingBefore as e:
-        logging.info("------------------------------------------------")
-        logging.info("Breaking before %s" % break_stages[e.args[0]])
+        _LOGGER.info("------------------------------------------------")
+        _LOGGER.info("Breaking before %s", break_stages[e.args[0]])
         raise
 
     # end operating with the devices
     except BaseException:
-        logging.exception("Unexpected error")
+        _LOGGER.exception("Unexpected error")
         raise
 
 
-def test_cmd(cmdname, expected_ret):
+def test_cmd(cmdname: str, expected_ret: int) -> bool:
     try:
-        with open(os.devnull, "r") as devnull_r:
-            with open(os.devnull, "w") as devnull_w:
-                subprocess.check_call(
-                    [cmdname],
-                    stdin=devnull_r,
-                    stdout=devnull_w,
-                    stderr=devnull_w,
-                )
+        with open(os.devnull) as devnull_r, open(os.devnull, "w") as devnull_w:
+            subprocess.check_call(
+                shlex.split(cmdname),
+                stdin=devnull_r,
+                stdout=devnull_w,
+                stderr=devnull_w,
+            )
     except subprocess.CalledProcessError as e:
         if e.returncode == expected_ret:
             return True
@@ -1631,31 +1652,35 @@ def test_cmd(cmdname, expected_ret):
     return True
 
 
-def test_mkfs_ext4():
+def test_mkfs_ext4() -> bool:
     return test_cmd("mkfs.ext4", 1)
 
 
-def test_mkfs_vfat():
+def test_mkfs_vfat() -> bool:
     return test_cmd("mkfs.vfat", 1)
 
 
-def test_zfs():
+def test_zfs() -> bool:
     return test_cmd("zfs", 2) and os.path.exists("/dev/zfs")
 
 
-def test_rsync():
+def test_rsync() -> bool:
     return test_cmd("rsync", 1)
 
 
-def test_gdisk():
+def test_gdisk() -> bool:
     return test_cmd("gdisk", 5)
 
 
-def test_cryptsetup():
+def test_cryptsetup() -> bool:
     return test_cmd("cryptsetup", 1)
 
 
-def test_yum():
+def test_mkpasswd() -> bool:
+    return test_cmd("mkpasswd --help", 0)
+
+
+def test_yum() -> bool:
     pkgmgrs = {"yum": True, "dnf": True}
     for pkgmgr in pkgmgrs:
         try:
@@ -1671,44 +1696,54 @@ def test_yum():
     return any(pkgmgrs.values())
 
 
-def install_fedora_on_zfs():
-    args = get_parser().parse_args()
+def install_fedora_on_zfs() -> int:
+    args = get_install_fedora_on_zfs_parser().parse_args()
     log_config(args.trace_file)
     if not test_rsync():
-        logging.error(
-            "error: rsync is not available. Please use your package manager to install rsync."
+        _LOGGER.error(
+            "error: rsync is not available. Please use your package manager to install"
+            " rsync."
         )
         return 5
     if not test_zfs():
-        logging.error(
-            "error: ZFS is not installed properly. Please install ZFS with `deploy-zfs` and then modprobe zfs.  If installing from source, pay attention to the --with-udevdir= configure parameter and don't forget to run ldconfig after the install."
+        _LOGGER.error(
+            "error: ZFS is not installed properly. Please install ZFS with `deploy-zfs`"
+            " and then modprobe zfs.  If installing from source, pay attention to the"
+            " --with-udevdir= configure parameter and don't forget to run ldconfig"
+            " after the install."
         )
         return 5
     if not test_mkfs_ext4():
-        logging.error(
+        _LOGGER.error(
             "error: mkfs.ext4 is not installed properly. Please install e2fsprogs."
         )
         return 5
     if not test_mkfs_vfat():
-        logging.error(
+        _LOGGER.error(
             "error: mkfs.vfat is not installed properly. Please install dosfstools."
         )
         return 5
     if not test_cryptsetup():
-        logging.error(
+        _LOGGER.error(
             "error: cryptsetup is not installed properly. Please install cryptsetup."
         )
         return 5
+    if not test_mkpasswd():
+        _LOGGER.error(
+            "error: mkpasswd is not installed properly. Please install mkpasswd."
+        )
+        return 5
     if not test_gdisk():
-        logging.error("error: gdisk is not installed properly. Please install gdisk.")
+        _LOGGER.error("error: gdisk is not installed properly. Please install gdisk.")
         return 5
     if not test_yum():
-        logging.error(
-            "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
+        _LOGGER.error(
+            "error: could not find either yum or DNF. Please use your package manager"
+            " to install yum or DNF."
         )
         return 5
     if not args.break_before and not test_qemu():
-        logging.error(
+        _LOGGER.error(
             "error: QEMU is not installed properly. Please use your package manager"
             " to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or"
             " use --break-before=bootloader_install to create the image but not"
@@ -1718,7 +1753,7 @@ def install_fedora_on_zfs():
         return 5
 
     if not args.volsize:
-        logging.error("error: --vol-size must be a number.")
+        _LOGGER.error("error: --vol-size must be a number.")
         return os.EX_USAGE
     try:
         if args.volsize[-1] == "B":
@@ -1726,7 +1761,7 @@ def install_fedora_on_zfs():
         else:
             volsize = int(args.volsize) * 1024 * 1024
     except Exception as exc:
-        logging.error(
+        _LOGGER.error(
             "error: %s; --vol-size must be a valid number of megabytes, or bytes with a B postfix.",
             exc,
         )
@@ -1734,10 +1769,10 @@ def install_fedora_on_zfs():
 
     try:
         install_fedora(
-            args.voldev[0],
+            Path(args.voldev),
             volsize,
             args.zfs_repo,
-            args.bootdev,
+            Path(args.bootdev) if args.bootdev else None,
             args.bootsize,
             args.poolname,
             args.hostname,
@@ -1748,7 +1783,7 @@ def install_fedora_on_zfs():
             args.interactive_qemu,
             args.luksoptions,
             args.prebuiltrpms,
-            args.yum_cachedir,
+            Path(args.yum_cachedir) if args.yum_cachedir else None,
             args.force_kvm,
             branch=args.branch,
             chown=args.chown,
@@ -1756,13 +1791,13 @@ def install_fedora_on_zfs():
             break_before=args.break_before,
             shell_before=args.shell_before,
             short_circuit=args.short_circuit,
-            workdir=args.workdir,
+            workdir=Path(args.workdir),
         )
     except ImpossiblePassphrase as e:
-        logging.error("error: %s", e)
+        _LOGGER.error("error: %s", e)
         return os.EX_USAGE
     except (ZFSMalfunction, ZFSBuildFailure) as e:
-        logging.error("error: %s", e)
+        _LOGGER.error("error: %s", e)
         return 9
     except BreakingBefore:
         return 120
@@ -1770,57 +1805,62 @@ def install_fedora_on_zfs():
 
 
 def deploy_zfs_in_machine(
-    p,
-    in_chroot,
-    pkgmgr,
-    zfs_repo,
-    branch,
-    prebuilt_rpms_path,
-    break_before,
-    install_current_kernel_devel,
-):
+    p: Callable[[str], str],
+    in_chroot: Callable[[list[str]], list[str]],
+    pkgmgr: BasePackageManager,
+    zfs_repo: str,
+    branch: str,
+    prebuilt_rpms_path: Path | None,
+    break_before: str | None,
+    shell_before: str | None,
+    install_current_kernel_devel: bool,
+) -> None:
     arch = platform.machine()
     stringtoexclude = "debuginfo"
     stringtoexclude2 = "debugsource"
 
-    # check for stage stop
-    if break_before == "install_prebuilt_rpms":
-        raise BreakingBefore(break_before)
+    # check for shell
+    chroot_shell(in_chroot, shell_before, "install_prebuilt_rpms")
 
     undoer = Undoer()
 
     with undoer:
         if prebuilt_rpms_path:
-            target_rpms_path = p(j("tmp", "zfs-fedora-installer-prebuilt-rpms"))
+            target_rpms_path = Path(
+                p(j("tmp", "zfs-fedora-installer-prebuilt-rpms"))
+            )  # FIXME hardcoded! Use workdir instead.
             if not os.path.isdir(target_rpms_path):
                 os.mkdir(target_rpms_path)
             if ismount(target_rpms_path):
-                if os.stat(prebuilt_rpms_path).st_ino != os.stat(target_rpms_path):
+                if (
+                    os.stat(prebuilt_rpms_path).st_ino
+                    != os.stat(target_rpms_path).st_ino
+                ):
                     umount(target_rpms_path)
-                    bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
+                    bindmount(
+                        Path(os.path.abspath(prebuilt_rpms_path)), target_rpms_path
+                    )
             else:
-                bindmount(os.path.abspath(prebuilt_rpms_path), target_rpms_path)
+                bindmount(Path(os.path.abspath(prebuilt_rpms_path)), target_rpms_path)
             if os.path.isdir(target_rpms_path):
                 undoer.to_rmdir.append(target_rpms_path)
             if ismount(target_rpms_path):
                 undoer.to_unmount.append(target_rpms_path)
-            prebuilt_rpms_to_install = glob.glob(
-                j(prebuilt_rpms_path, "*%s.rpm" % (arch,))
-            ) + glob.glob(j(prebuilt_rpms_path, "*%s.rpm" % ("noarch",)))
-            prebuilt_rpms_to_install = set(
-                [
-                    os.path.basename(s)
-                    for s in prebuilt_rpms_to_install
-                    if stringtoexclude not in os.path.basename(s)
-                    and stringtoexclude2 not in os.path.basename(s)
-                ]
-            )
+            prebuilt_rpms_to_install = {
+                os.path.basename(s)
+                for s in (
+                    glob.glob(j(prebuilt_rpms_path, f"*{arch}.rpm"))
+                    + glob.glob(j(prebuilt_rpms_path, "*noarch.rpm"))
+                )
+                if stringtoexclude not in os.path.basename(s)
+                and stringtoexclude2 not in os.path.basename(s)
+            }
         else:
             target_rpms_path = None
             prebuilt_rpms_to_install = set()
 
-        if prebuilt_rpms_to_install:
-            logging.info(
+        if prebuilt_rpms_to_install and target_rpms_path:
+            _LOGGER.info(
                 "Installing available prebuilt RPMs: %s", prebuilt_rpms_to_install
             )
             files_to_install = [
@@ -1831,21 +1871,20 @@ def deploy_zfs_in_machine(
         if target_rpms_path:
             umount(target_rpms_path)
             undoer.to_unmount.remove(target_rpms_path)
-            check_call(["rmdir", target_rpms_path])
+            os.rmdir(target_rpms_path)
             undoer.to_rmdir.remove(target_rpms_path)
-
-        # check for stage stop
-        if break_before == "install_grub_zfs_fixer":
-            raise BreakingBefore(break_before)
 
         # kernel devel
         if install_current_kernel_devel:
             uname_r = check_output(in_chroot("uname -r".split())).strip()
             if "pvops.qubes" in uname_r:
                 assert 0, (
-                    "Installation on non-HVM Qubes AppVMs is unsupported due to the unavailability of kernel-devel packages in-VM (kernel version %s).\n"
-                    "If you want to boot an AppVM as HVM, follow the instructions here: https://www.qubes-os.org/doc/managing-vm-kernel/#using-kernel-installed-in-the-vm ."
-                ) % (uname_r,)
+                    "Installation on non-HVM Qubes AppVMs is unsupported due to the"
+                    " unavailability of kernel-devel packages in-VM (kernel version"
+                    f" {uname_r}).\n"
+                    "If you want to boot an AppVM as HVM, follow the instructions here:"
+                    " https://www.qubes-os.org/doc/managing-vm-kernel/#using-kernel-installed-in-the-vm"
+                )
             pkgs = ["kernel-%s" % uname_r, "kernel-devel-%s" % uname_r]
             pkgmgr.ensure_packages_installed(pkgs)
 
@@ -1858,7 +1897,7 @@ def deploy_zfs_in_machine(
                     "make",
                     "rpm-build",
                 ],
-                "cd /usr/src/%s && make rpm" % ("grub-zfs-fixer",),
+                "cd /usr/src/grub-zfs-fixer && make rpm",
             ),
             (
                 "zfs",
@@ -1897,21 +1936,20 @@ def deploy_zfs_in_machine(
                     "python3-setuptools",
                 ],
                 (
-                    "cd /usr/src/%s && "
+                    "cd /usr/src/zfs && "
                     "./autogen.sh && "
                     "./configure --with-config=user && "
-                    "make -j%s rpm-utils && "
-                    "make -j%s rpm-dkms"
-                    % ("zfs", multiprocessing.cpu_count(), multiprocessing.cpu_count())
+                    f"make -j{multiprocessing.cpu_count()} rpm-utils && "
+                    f"make -j{multiprocessing.cpu_count()} rpm-dkms"
                 ),
             ),
         ):
-            # check for stage stop
-            if break_before == "deploy_%s" % project:
-                raise BreakingBefore(break_before)
+            # check for shell
+            project_under = f"deploy_{project.replace('-', '_')}"
+            chroot_shell(in_chroot, shell_before, project_under)
 
             try:
-                logging.info(
+                _LOGGER.info(
                     "Checking if keystone packages %s are installed",
                     ", ".join(keystonepkgs),
                 )
@@ -1919,10 +1957,10 @@ def deploy_zfs_in_machine(
                     in_chroot(["rpm", "-q"] + list(keystonepkgs)),
                 )
             except subprocess.CalledProcessError:
-                logging.info("Packages %s are not installed, building", keystonepkgs)
-                project_dir = p(j("usr", "src", project))
+                _LOGGER.info("Packages %s are not installed, building", keystonepkgs)
+                project_dir = Path(p(j("usr", "src", project)))
 
-                def getrpms(pats, directory):
+                def getrpms(pats: Sequence[str], directory: Path) -> list[str]:
                     therpms = [
                         rpmfile
                         for pat in pats
@@ -1945,32 +1983,33 @@ def deploy_zfs_in_machine(
                     if mindeps:
                         pkgmgr.ensure_packages_installed(mindeps)
 
-                    logging.info("Building project: %s", project)
+                    _LOGGER.info("Building project: %s", project)
                     cmd = in_chroot(["bash", "-c", buildcmd])
                     check_call(cmd)
                     files_to_install = getrpms(patterns, project_dir)
 
-                logging.info("Installing built RPMs: %s", files_to_install)
+                _LOGGER.info("Installing built RPMs: %s", files_to_install)
                 pkgmgr.install_local_packages(files_to_install)
 
         # Check we have a patched grub2-mkconfig.
-        logging.info("Checking if grub2-mkconfig has been patched")
-        mkconfig_file = p(j("usr", "sbin", "grub2-mkconfig"))
+        _LOGGER.info("Checking if grub2-mkconfig has been patched")
+        mkconfig_file = Path(p(j("usr", "sbin", "grub2-mkconfig")))
         mkconfig_text = readtext(mkconfig_file)
         if "This program was patched by fix-grub-mkconfig" not in mkconfig_text:
             raise ZFSBuildFailure(
-                "expected to find patched %s but could not find it.  Perhaps the grub-zfs-fixer RPM was never installed?"
-                % mkconfig_file
+                f"expected to find patched {mkconfig_file} but could not find it."
+                "  Perhaps the grub-zfs-fixer RPM was never installed?"
             )
 
         # Build ZFS for all kernels that have a kernel-devel.
-        logging.info("Running DKMS install for all kernel-devel packages")
+        _LOGGER.info("Running DKMS install for all kernel-devel packages")
         check_call(
             in_chroot(
                 [
                     "bash",
                     "-xc",
-                    "for kver in $(rpm -q kernel-devel --queryformat='%{version}-%{release}.%{arch} ')"
+                    "for kver in $(rpm -q kernel-devel"
+                    " --queryformat='%{version}-%{release}.%{arch} ')"
                     " ; do dkms autoinstall -k $kver || exit $? ; "
                     "done",
                 ]
@@ -1982,59 +2021,67 @@ def deploy_zfs_in_machine(
         modules_files = glob.glob(modules_dir)
         if not modules_files:
             raise ZFSBuildFailure(
-                "expected to find but could not find module zfs.ko in %s.  Perhaps the ZFS source you used is too old to work with the kernel this program installed?"
-                % modules_dir
+                f"expected to find but could not find module zfs.ko in {modules_dir}."
+                "  Perhaps the ZFS source you used is too old to work with the kernel"
+                " this program installed?"
             )
 
 
-def deploy_zfs():
+def deploy_zfs() -> int:
     args = get_deploy_parser().parse_args()
     log_config(args.trace_file)
     if not test_yum():
-        logging.error(
+        _LOGGER.error(
             "error: could not find either yum or DNF. Please use your package manager to install yum or DNF."
         )
         return 5
 
-    def p(withinchroot):
+    def p(withinchroot: str) -> str:
         return j("/", withinchroot.lstrip(os.path.sep))
 
-    def in_chroot(x):
+    def in_chroot(x: list[str]) -> list[str]:
         return x
-
-    pkgmgr = SystemPackageManager()
 
     try:
         deploy_zfs_in_machine(
             p=p,
             in_chroot=in_chroot,
-            pkgmgr=pkgmgr,
+            pkgmgr=SystemPackageManager(),
             prebuilt_rpms_path=args.prebuiltrpms,
             zfs_repo=args.zfs_repo,
             branch=args.branch,
             break_before=None,
+            shell_before=None,
             install_current_kernel_devel=True,
         )
     except BaseException:
-        logging.exception("Unexpected error")
+        _LOGGER.exception("Unexpected error")
         raise
 
+    return 0
 
-def run_command_in_filesystem_context():
+
+def run_command_in_filesystem_context() -> int:
+    """Run a command in the context of the created image."""
     args = get_run_command_parser().parse_args()
     log_config(args.trace_file)
     with blockdev_context(
-        args.voldev[0], args.bootdev, 0, 0, None, None, create=False
-    ) as (rootpart, bootpart, efipart):
-        with filesystem_context(
-            args.poolname,
-            rootpart,
-            bootpart,
-            efipart,
-            args.workdir,
-            0,
-            "",
-            "",
-            create=False,
-        ) as (_, _, _, in_chroot, _, _, _, _):
-            return subprocess.call(in_chroot(args.args))
+        Path(args.voldev),
+        Path(args.bootdev) if args.bootdev else None,
+        0,
+        0,
+        None,
+        None,
+        create=False,
+    ) as (rootpart, bootpart, efipart), filesystem_context(
+        args.poolname,
+        rootpart,
+        bootpart,
+        efipart,
+        Path(args.workdir),
+        0,
+        "",
+        "",
+        create=False,
+    ) as (_, _, _, in_chroot, _, _, _, _):
+        return subprocess.call(in_chroot(args.args))
