@@ -104,7 +104,7 @@ def get_parser():
         "--vol-size",
         dest="volsize",
         metavar="VOLSIZE",
-        type=int,
+        type=str,
         action="store",
         default=11000,
         help="volume size in MiB (default 11000), or bytes if postfixed with a B",
@@ -1703,9 +1703,10 @@ def install_fedora_on_zfs():
             volsize = int(args.volsize[:-1])
         else:
             volsize = int(args.volsize) * 1024 * 1024
-    except Exception:
+    except Exception as exc:
         logging.error(
-            "error: --vol-size must be a valid number of megabytes, or bytes with a B postfix."
+            "error: %s; --vol-size must be a valid number of megabytes, or bytes with a B postfix.",
+            exc,
         )
         return os.EX_USAGE
 
