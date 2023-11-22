@@ -22,3 +22,14 @@ break_stages[
 break_stages[
     "boot_to_test_hostonly"
 ] = "booting with the host-only initramfs to test it works"
+
+
+shell_stages = collections.OrderedDict()
+shell_stages[
+    "install_packages_in_chroot"
+] = "installing system packages in chroot after bash is available"
+shell_stages[
+    "install_kernel"
+] = "installing kernel, DKMS, and GRUB packages in the chroot"
+shell_stages["deploy_zfs"] = "deploying ZFS to the chroot"
+shell_stages["reload_chroot"] = "preparing the chroot to boot"

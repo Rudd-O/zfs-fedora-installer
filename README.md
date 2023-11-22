@@ -32,7 +32,9 @@ Usage of `install-fedora-on-zfs`
                                 [--pool-name POOLNAME] [--host-name HOSTNAME]
                                 [--root-password ROOTPASSWORD]
                                 [--swap-size SWAPSIZE] [--releasever VER]
-                                [--luks-password LUKSPASSWORD] [--no-cleanup]
+                                [--luks-password LUKSPASSWORD]
+                                [--break-before STAGE]
+                                [--shell-before STAGE]
                                 [--use-prebuilt-rpms DIR] VOLDEV
 
     Install a minimal Fedora system inside a ZFS pool within a disk image or

@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import contextlib
-import sys
 import os
 import argparse
 import subprocess
@@ -15,6 +14,7 @@ import tempfile
 import logging
 import signal  # noqa: F401
 import shlex
+import sys
 import multiprocessing
 
 from installfedoraonzfs.cmd import (
@@ -31,7 +31,7 @@ from installfedoraonzfs.cmd import get_associated_lodev
 from installfedoraonzfs.pm import ChrootPackageManager, SystemPackageManager
 from installfedoraonzfs.vm import boot_image_in_qemu, BootDriver, test_qemu
 import installfedoraonzfs.retry as retrymod
-from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages
+from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages, shell_stages
 
 
 BASE_PACKAGES = (
@@ -106,7 +106,7 @@ def get_parser():
         metavar="VOLSIZE",
         type=str,
         action="store",
-        default=11000,
+        default="11000",
         help="volume size in MiB (default 11000), or bytes if postfixed with a B",
     )
     parser.add_argument(
@@ -233,11 +233,18 @@ def get_parser():
         choices=break_stages,
         action="store",
         default=None,
-        help="break before the specified stage (see below); useful to examine "
-        "the file systems and files at a predetermined build stage; it is "
-        "also useful to combine it with --no-cleanup to prevent the file "
-        "systems and mounts from being undone, leaving you with a system "
-        "ready to inspect",
+        help="break before the specified stage (see below); useful to stop"
+        " the process at a particular stage for debugging",
+    )
+    parser.add_argument(
+        "--shell-before",
+        dest="shell_before",
+        choices=shell_stages,
+        action="store",
+        default=None,
+        help="open a shell inside the chroot before running a specific stage"
+        "; useful to debug issues within the chroot; process continues after"
+        " exiting the shell",
     )
     parser.add_argument(
         "--short-circuit",
@@ -263,6 +270,15 @@ def get_parser():
                 "\n* %s:%s%s"
                 % (k, " " * (max(len(x) for x in break_stages) - len(k) + 1), v)
                 for k, v in list(break_stages.items())
+            ),
+        )
+        + "\n\n"
+        + "Stages for the --shell-before argument:\n%s"
+        % (
+            "".join(
+                "\n* %s:%s%s"
+                % (k, " " * (max(len(x) for x in shell_stages) - len(k) + 1), v)
+                for k, v in list(shell_stages.items())
             ),
         )
     )
@@ -497,126 +513,101 @@ def blockdev_context(voldev, bootdev, volsize, bootsize, chown, chgrp, create):
     volsize is in bytes.  bootsize is in mebibytes.
     """
     undoer = Undoer()
-    logging.info("Entering blockdev context.  Create=%s.", create)
-    voltype = filetype(voldev)
 
-    if (
-        voltype == "doesntexist"
-    ):  # FIXME use truncate directly with python.  no need to dick around.
-        create_file(voldev, volsize, owner=chown, group=chgrp)
-        voltype = "file"
+    with undoer:
+        logging.info("Entering blockdev context.  Create=%s.", create)
+        voltype = filetype(voldev)
 
-    if voltype == "file":
-        if get_associated_lodev(voldev):
-            new_voldev = get_associated_lodev(voldev)
-        else:
-            new_voldev = losetup(voldev)
-        assert new_voldev is not None, (new_voldev, voldev)
-        undoer.to_un_losetup.append(new_voldev)
-        voldev = new_voldev
-        voltype = "blockdev"
+        if (
+            voltype == "doesntexist"
+        ):  # FIXME use truncate directly with python.  no need to dick around.
+            create_file(voldev, volsize, owner=chown, group=chgrp)
+            voltype = "file"
 
-    if bootdev:
-        boottype = filetype(bootdev)
-
-        if boottype == "doesntexist":
-            create_file(bootdev, bootsize * 1024 * 1024, owner=chown, group=chgrp)
-            boottype = "file"
-
-        if boottype == "file":
-            if get_associated_lodev(bootdev):
-                new_bootdev = get_associated_lodev(bootdev)
+        if voltype == "file":
+            if get_associated_lodev(voldev):
+                new_voldev = get_associated_lodev(voldev)
             else:
-                new_bootdev = losetup(bootdev)
-            assert new_bootdev is not None, (new_bootdev, bootdev)
-            undoer.to_un_losetup.append(new_bootdev)
-            bootdev = new_bootdev
-            boottype = "blockdev"
+                new_voldev = losetup(voldev)
+            assert new_voldev is not None, (new_voldev, voldev)
+            undoer.to_un_losetup.append(new_voldev)
+            voldev = new_voldev
+            voltype = "blockdev"
 
-    def get_rootpart(rdev):
-        parts = (
-            [rdev + "p4"]
-            if rdev.startswith("/dev/loop")
-            else [
-                rdev + "-part4",
-                rdev + "4",
-            ]
-        )
-        for rootpart in parts:
-            if os.path.exists(rootpart):
-                return rootpart
+        if bootdev:
+            boottype = filetype(bootdev)
 
-    def get_efipart_bootpart(bdev):
-        parts = (
-            [
-                (bdev + "p2", bdev + "p3"),
-            ]
-            if bdev.startswith("/dev/loop")
-            else [
-                (bdev + "-part2", bdev + "-part3"),
-                (bdev + "2", bdev + "3"),
-            ]
-        )
-        for efipart, bootpart in parts:
-            logging.info(
-                "About to check for the existence of %s and %s.", efipart, bootpart
+            if boottype == "doesntexist":
+                create_file(bootdev, bootsize * 1024 * 1024, owner=chown, group=chgrp)
+                boottype = "file"
+
+            if boottype == "file":
+                if get_associated_lodev(bootdev):
+                    new_bootdev = get_associated_lodev(bootdev)
+                else:
+                    new_bootdev = losetup(bootdev)
+                assert new_bootdev is not None, (new_bootdev, bootdev)
+                undoer.to_un_losetup.append(new_bootdev)
+                bootdev = new_bootdev
+                boottype = "blockdev"
+
+        def get_rootpart(rdev):
+            parts = (
+                [rdev + "p4"]
+                if rdev.startswith("/dev/loop")
+                else [
+                    rdev + "-part4",
+                    rdev + "4",
+                ]
             )
-            if os.path.exists(efipart) and os.path.exists(bootpart):
-                logging.info("Both %s and %s exist.", efipart, bootpart)
-                return efipart, bootpart
-        return None, None
+            for rootpart in parts:
+                if os.path.exists(rootpart):
+                    return rootpart
 
-    efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
-    if None in (bootpart, efipart):
-        if not create:
-            assert 0, (efipart, bootpart)
-            raise Exception(
-                "Wanted to partition boot device %s but create=False"
-                % (bootdev or voldev)
+        def get_efipart_bootpart(bdev):
+            parts = (
+                [
+                    (bdev + "p2", bdev + "p3"),
+                ]
+                if bdev.startswith("/dev/loop")
+                else [
+                    (bdev + "-part2", bdev + "-part3"),
+                    (bdev + "2", bdev + "3"),
+                ]
             )
-        partition_boot(bootdev or voldev, bootsize, not bootdev)
+            for efipart, bootpart in parts:
+                logging.info(
+                    "About to check for the existence of %s and %s.", efipart, bootpart
+                )
+                if os.path.exists(efipart) and os.path.exists(bootpart):
+                    logging.info("Both %s and %s exist.", efipart, bootpart)
+                    return efipart, bootpart
+            return None, None
 
-    efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
-    if None in (efipart, bootpart):
-        assert 0, "partitions 2 or 3 in device %r failed to be created" % (
-            bootdev or voldev
+        efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
+        if None in (bootpart, efipart):
+            if not create:
+                assert 0, (efipart, bootpart)
+                raise Exception(
+                    "Wanted to partition boot device %s but create=False"
+                    % (bootdev or voldev)
+                )
+            partition_boot(bootdev or voldev, bootsize, not bootdev)
+
+        efipart, bootpart = get_efipart_bootpart(bootdev or voldev)
+        if None in (efipart, bootpart):
+            assert 0, "partitions 2 or 3 in device %r failed to be created" % (
+                bootdev or voldev
+            )
+
+        rootpart = voldev if bootdev else get_rootpart(voldev)
+        assert rootpart or voldev, (
+            "partition 4 in device %r failed to be created" % voldev
         )
 
-    rootpart = voldev if bootdev else get_rootpart(voldev)
-    assert rootpart or voldev, "partition 4 in device %r failed to be created" % voldev
+        logging.info("Blockdev context complete.")
 
-    #   # This is debugging code that has been shunted off.
-    #
-    #     if voldev.startswith("/dev/loop"):
-    #         o, r = get_output_exitcode(["losetup", "-l", voldev])
-    #         logging.debug("losetup voldev %s: %s", voldev, o)
-    #         assert r == 0, r
-    #
-    #     if bootdev:
-    #         o, r = get_output_exitcode(["losetup", "-l", bootdev])
-    #         logging.debug("losetup bootdev %s: %s", bootdev, o)
-    #         assert r == 0, r
-    #
-    #     for name, part in (
-    #         ("EFI", efipart),
-    #         ("boot", bootpart),
-    #         ("root", rootpart),
-    #     ):
-    #         o, r = get_output_exitcode(["ls", "-la", part])
-    #         logging.debug("ls %s partition %s: %s", name, part, o)
-    #         assert r == 0, r
-    #         o, r = get_output_exitcode(["blkid", "-c", "/dev/null", part])
-    #         logging.debug("blkid %s partition %s: %s", name, part, o)
-    #         if "root" == name:
-    #             assert r == 0 or o == "", (r, o)
-    #         else:
-    #             assert r == 0, r
-
-    logging.info("Blockdev context complete.")
-    try:
         yield rootpart, bootpart, efipart
-    finally:
-        undoer.undo()
 
 
 def setup_boot_filesystems(bootpart, efipart, label_postfix, create):
@@ -1016,6 +1007,19 @@ class Undoer:
         logging.getLogger("Undoer").info("Rewind complete.")
 
 
+def chroot_shell(in_chroot, current_phase, expected_phase):
+    if current_phase == expected_phase:
+        print(
+            "=== Dropping you into a shell before phase {current_phase}. ===",
+            file=sys.stderr,
+        )
+        print(
+            "=== Exit the shell to continue, or exit 1 to abort. ===",
+            file=sys.stderr,
+        )
+        subprocess.check_call(in_chroot(["/bin/bash"]))
+
+
 def install_fedora(
     voldev,
     volsize,
@@ -1036,6 +1040,7 @@ def install_fedora(
     chown=None,
     chgrp=None,
     break_before=None,
+    shell_before=None,
     short_circuit=None,
     branch="master",
     workdir="/var/lib/zfs-fedora-installer",
@@ -1183,6 +1188,8 @@ UUID=%s /boot/efi vfat noatime 0 1
                     packages.append("yum")
                 pkgmgr.ensure_packages_installed(packages, method="out_of_chroot")
 
+                chroot_shell(in_chroot, shell_before, "install_packages_in_chroot")
+
                 logging.info("Installing basic packages within chroot.")
                 chroot_packages = list(IN_CHROOT_PACKAGES)
                 if releasever < 37:
@@ -1252,6 +1259,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 )
                 writetext(p(j("etc", "kernel", "cmdline")), kernelcmd)
 
+                chroot_shell(in_chroot, shell_before, "install_kernel")
+
                 # install kernel packages
                 packages = "kernel kernel-headers kernel-modules kernel-devel dkms grub2 grub2-efi".split()
                 pkgmgr.ensure_packages_installed(
@@ -1288,6 +1297,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                         "Not setting password -- first line of /etc/shadow: %s",
                         pwfile[0].strip(),
                     )
+
+                chroot_shell(in_chroot, shell_before, "deploy_zfs")
 
                 deploy_zfs_in_machine(
                     p=p,
@@ -1339,6 +1350,8 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 luksoptions,
                 create=False,
             ) as (_, p, q, in_chroot, rootuuid, _, bootpartuuid, _):
+                chroot_shell(in_chroot, shell_before, "reload_chroot")
+
                 if os.path.exists(p("usr/bin/dracut.real")):
                     check_call(
                         in_chroot(["mv", "/usr/bin/dracut.real", "/usr/bin/dracut"])
@@ -1696,7 +1709,11 @@ def install_fedora_on_zfs():
         return 5
     if not args.break_before and not test_qemu():
         logging.error(
-            "error: QEMU is not installed properly. Please use your package manager to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or use --break-before=bootloader_install to create the image but not boot it in a VM (it is likely that the image will not be bootable since the bootloader will not be present)."
+            "error: QEMU is not installed properly. Please use your package manager"
+            " to install QEMU (in Fedora, qemu-system-x86-core or qemu-kvm), or"
+            " use --break-before=bootloader_install to create the image but not"
+            " boot it in a VM (it is likely that the image will not be bootable"
+            " since the bootloader will not be present)."
         )
         return 5
 
@@ -1737,6 +1754,7 @@ def install_fedora_on_zfs():
             chown=args.chown,
             chgrp=args.chgrp,
             break_before=args.break_before,
+            shell_before=args.shell_before,
             short_circuit=args.short_circuit,
             workdir=args.workdir,
         )
