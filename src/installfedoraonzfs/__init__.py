@@ -1186,7 +1186,7 @@ UUID=%s /boot/efi vfat noatime 0 1
                     chroot_packages.extend(list(IN_CHROOT_PACKAGES_GTE_F38))
                 # Install packages needed after F36.
                 if releasever >= 36:
-                    packages.extend(list(IN_CHROOT_PACKAGES_GTE_F36))
+                    chroot_packages.extend(list(IN_CHROOT_PACKAGES_GTE_F36))
                 # install initial boot packages
                 chroot_packages = (
                     chroot_packages + "grub2 grub2-tools grubby efibootmgr".split()
