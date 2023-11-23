@@ -259,8 +259,8 @@ pipeline {
 					stage("Test") {
 						script {
 							def axisList = [
-								"32 37 38 39".split(' '),
-								"RPMs".split(' '),
+								env.RELEASE.split(' '),
+								env.BUILD_FROM.split(' '),
 								params.LUKS.split(' '),
 								params.SEPARATE_BOOT.split(' '),
 							]
