@@ -297,19 +297,20 @@ pipeline {
 								axisList
 							)
 
-							println "Iterating over the map"
-							xes = xes.each{ k, v -> v }
-							println "Done iterating over the map"
-							parallel xes
+							/// the parallel version,
+							//println "Iterating over the map"
+							//xes = xes.each{ k, v -> v }
+							//println "Done iterating over the map"
+							//parallel xes
 
-							// the serialized version.
-							// xes.each {
-							//	 stage(it.key) {
-							//		script {
-							//			it.value
-							//		}
-							//	 }
-							// }
+							/// the serialized version.
+							xes.each {
+								stage(it.key) {
+									script {
+										it.value
+									}
+								}
+							}
 						}
 					}
 				}
