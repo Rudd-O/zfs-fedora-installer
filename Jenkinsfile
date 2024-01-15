@@ -264,31 +264,29 @@ pipeline {
 								params.LUKS.split(' '),
 								params.SEPARATE_BOOT.split(' '),
 							]
-							def xes = funcs.combo(
+							funcs.combo(
 								{
-									{
-										stage("${it[0]} ${it[1]} ${it[2]} ${it[3]}") {
+									stage("${it[0]} ${it[1]} ${it[2]} ${it[3]}") {
+										script {
+											println "Stage ${it[0]} ${it[1]} ${it[2]} ${it[3]}"
+											def myRelease = it[0]
+											def myBuildFrom = it[1]
+											def myLuks = it[2]
+											def mySeparateBoot = it[3]
+											def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
+											def mySourceBranch = ""
+											if (env.SOURCE_BRANCH != "") {
+												mySourceBranch = env.SOURCE_BRANCH
+											}
 											script {
-												println "Stage ${it[0]} ${it[1]} ${it[2]} ${it[3]}"
-												def myRelease = it[0]
-												def myBuildFrom = it[1]
-												def myLuks = it[2]
-												def mySeparateBoot = it[3]
-												def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-												def mySourceBranch = ""
-												if (env.SOURCE_BRANCH != "") {
-													mySourceBranch = env.SOURCE_BRANCH
-												}
-												script {
-													timeout(60) {
-														def program = buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-														def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
-														println "${desc}\n\n" + "Program that will be executed:\n${program}"
-														sh(
-															script: program,
-															label: "Command run"
-														)
-													}
+												timeout(60) {
+													def program = buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
+													def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
+													println "${desc}\n\n" + "Program that will be executed:\n${program}"
+													sh(
+														script: program,
+														label: "Command run"
+													)
 												}
 											}
 										}
@@ -296,20 +294,6 @@ pipeline {
 								},
 								axisList
 							)
-
-							/// the parallel version,
-							//println "Iterating over the map"
-							//xes = xes.each{ k, v -> v }
-							//println "Done iterating over the map"
-							//parallel xes
-
-							/// the serialized version.
-							println(xes);
-							xes.each {
-								stage(it.key) {
-									it.value
-								}
-							}
 						}
 					}
 				}
