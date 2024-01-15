@@ -266,7 +266,7 @@ pipeline {
 							]
 							def xes = funcs.combo(
 								{
-									return {
+									{
 										stage("${it[0]} ${it[1]} ${it[2]} ${it[3]}") {
 											script {
 												println "Stage ${it[0]} ${it[1]} ${it[2]} ${it[3]}"
@@ -307,7 +307,7 @@ pipeline {
 							println(xes);
 							xes.each {
 								stage(it.key) {
-									it.value()
+									it.value
 								}
 							}
 						}
