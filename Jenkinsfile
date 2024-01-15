@@ -304,11 +304,10 @@ pipeline {
 							//parallel xes
 
 							/// the serialized version.
+							println(xes);
 							xes.each {
 								stage(it.key) {
-									script {
-										it.value
-									}
+									it.value()
 								}
 							}
 						}
