@@ -235,7 +235,7 @@ pipeline {
 						script {
 							lock("activatezfs") {
 								if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
-									timeout(time: 10, unit: 'MINUTES') {
+									timeout(time: 20, unit: 'MINUTES') {
 										sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
 										def program = '''
 											deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
