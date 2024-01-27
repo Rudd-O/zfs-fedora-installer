@@ -236,6 +236,7 @@ class BasePackageManager(object):
             debuglevel=2,
             reposdir="/nonexistent",
             include=None,
+            max_parallel_downloads=10,
             keepcache=1 if pkgmgr == "yum" else True,
         )
         if ver >= 37:
