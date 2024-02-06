@@ -338,6 +338,12 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
 def get_deploy_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Install ZFS on a running system")
     add_common_arguments(parser)
+    parser.add_argument(
+        "--no-update-sources",
+        dest="update_sources",
+        action="store_false",
+        help="Update Git repositories if building from sources",
+    )
     return parser
 
 
@@ -1814,6 +1820,7 @@ def deploy_zfs_in_machine(
     break_before: str | None,
     shell_before: str | None,
     install_current_kernel_devel: bool,
+    update_sources: bool = True,
 ) -> None:
     arch = platform.machine()
     stringtoexclude = "debuginfo"
@@ -1978,7 +1985,9 @@ def deploy_zfs_in_machine(
                     )
                     repo_branch = branch if project == "zfs" else "master"
 
-                    checkout_repo_at(repo, project_dir, repo_branch)
+                    checkout_repo_at(
+                        repo, project_dir, repo_branch, update=update_sources
+                    )
 
                     if mindeps:
                         pkgmgr.ensure_packages_installed(mindeps)
@@ -2053,6 +2062,7 @@ def deploy_zfs() -> int:
             break_before=None,
             shell_before=None,
             install_current_kernel_devel=True,
+            update_sources=args.update_sources,
         )
     except BaseException:
         _LOGGER.exception("Unexpected error")

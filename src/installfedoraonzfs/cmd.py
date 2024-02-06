@@ -426,20 +426,23 @@ def cpuinfo() -> str:
     return open("/proc/cpuinfo").read()
 
 
-def checkout_repo_at(repo: str, project_dir: Path, branch: str) -> None:
+def checkout_repo_at(
+    repo: str, project_dir: Path, branch: str, update: bool = True
+) -> None:
     """Checkout a git repository at a specific path."""
     qbranch = shlex.quote(branch)
     if os.path.isdir(project_dir):
-        logger.info("Updating and checking out git repository: %s", repo)
-        check_call("git fetch".split(), cwd=project_dir)
-        check_call(
-            [
-                "bash",
-                "-c",
-                f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
-            ],
-            cwd=project_dir,
-        )
+        if update:
+            logger.info("Updating and checking out git repository: %s", repo)
+            check_call("git fetch".split(), cwd=project_dir)
+            check_call(
+                [
+                    "bash",
+                    "-c",
+                    f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
+                ],
+                cwd=project_dir,
+            )
     else:
         logger.info("Cloning git repository: %s", repo)
         check_call(["git", "clone", repo, str(project_dir)])
