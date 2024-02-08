@@ -4,7 +4,6 @@ import errno
 import logging
 import os
 from pathlib import Path
-import pipes
 import pty
 import subprocess
 import threading
@@ -28,43 +27,33 @@ qemu_full_emulation_factor = 5
 class VMSetupException(Exception):
     """Base class for VM exceptions."""
 
-    pass
-
 
 class OOMed(VMSetupException):
     """Out of memory."""
-
-    pass
 
 
 class Panicked(VMSetupException):
     """Kernel panic."""
 
-    pass
-
 
 class SystemdSegfault(Retryable, VMSetupException):
     """Segfault in systemd."""
-
-    pass
 
 
 class MachineNeverShutoff(VMSetupException):
     """Machine timed out waiting to shut off."""
 
-    pass
+
+class QEMUDied(subprocess.CalledProcessError, VMSetupException):
+    """QEMU died."""
 
 
 class BadPW(VMSetupException):
     """Bad password."""
 
-    pass
-
 
 class Emergency(VMSetupException):
     """System dropped into emergency."""
-
-    pass
 
 
 QemuOpts = tuple[str, list[str]]
@@ -238,9 +227,19 @@ def boot_image_in_qemu(
                         )
                         qemu_process.kill()
                         retcode = qemu_process.wait()
-            driver.join()
+        exception = None
+        if driver:
+            try:
+                driver.join()
+            except Exception as e:
+                exception = e
+
         retcode = qemu_process.wait()
-        if retcode != 0:
+        if isinstance(exception, MachineNeverShutoff) and retcode != 0:
+            raise QEMUDied(retcode, cmd)
+        elif exception:
+            raise exception
+        elif retcode != 0:
             raise subprocess.CalledProcessError(retcode, cmd)
     finally:
         if vmioslave:
