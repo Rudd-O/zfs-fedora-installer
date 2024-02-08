@@ -160,6 +160,7 @@ def add_distro_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def get_install_fedora_on_zfs_parser() -> argparse.ArgumentParser:
+    """Get a parser to configure install-fedora-on-zfs."""
     parser = argparse.ArgumentParser(
         description="Install a minimal Fedora system inside a ZFS pool within"
         " a disk image or device",
@@ -759,7 +760,8 @@ def filesystem_context(
         except subprocess.CalledProcessError as exc:
             if not create:
                 raise Exception(
-                    f"Wanted to create ZFS pool {poolname} on {rootpart} but create=False"
+                    f"Wanted to create ZFS pool {poolname} on {rootpart}"
+                    " but create=False"
                 ) from exc
             _LOGGER.info("Creating pool %s.", poolname)
             check_call(
@@ -806,7 +808,8 @@ def filesystem_context(
     except subprocess.CalledProcessError as exc:
         if not create:
             raise Exception(
-                f"Wanted to create ZFS file system ROOT/os on {poolname} but create=False"
+                f"Wanted to create ZFS file system ROOT/os on {poolname}"
+                " but create=False"
             ) from exc
         check_call(["zfs", "create", "-o", "mountpoint=/", j(poolname, "ROOT", "os")])
     undoer.to_unmount.append(rootmountpoint)
@@ -1580,7 +1583,7 @@ def pay_attention_to_me():
     pass
 
 
-def test_cmd(cmdname: str, expected_ret: int) -> bool:
+def _test_cmd(cmdname: str, expected_ret: int) -> bool:
     try:
         with open(os.devnull) as devnull_r, open(os.devnull, "w") as devnull_w:
             subprocess.check_call(
@@ -1593,39 +1596,37 @@ def test_cmd(cmdname: str, expected_ret: int) -> bool:
         if e.returncode == expected_ret:
             return True
         return False
-    except OSError as e:
-        if e.errno == 2:
-            return False
-        raise
+    except FileNotFoundError:
+        return False
     return True
 
 
 def _test_mkfs_ext4() -> bool:
-    return test_cmd("mkfs.ext4", 1)
+    return _test_cmd("mkfs.ext4", 1)
 
 
 def _test_mkfs_vfat() -> bool:
-    return test_cmd("mkfs.vfat", 1)
+    return _test_cmd("mkfs.vfat", 1)
 
 
 def _test_zfs() -> bool:
-    return test_cmd("zfs", 2) and os.path.exists("/dev/zfs")
+    return _test_cmd("zfs", 2) and os.path.exists("/dev/zfs")
 
 
 def _test_rsync() -> bool:
-    return test_cmd("rsync", 1)
+    return _test_cmd("rsync", 1)
 
 
 def _test_gdisk() -> bool:
-    return test_cmd("gdisk", 5)
+    return _test_cmd("gdisk", 5)
 
 
 def _test_cryptsetup() -> bool:
-    return test_cmd("cryptsetup", 1)
+    return _test_cmd("cryptsetup", 1)
 
 
 def _test_mkpasswd() -> bool:
-    return test_cmd("mkpasswd --help", 0)
+    return _test_cmd("mkpasswd --help", 0)
 
 
 def _test_dnf() -> bool:
