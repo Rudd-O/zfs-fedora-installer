@@ -578,12 +578,14 @@ def blockdev_context(
                 if i > 0:
                     time.sleep(2)
                     continue
-                if not create:
+                if create:
+                    partition_boot(bootdev or voldev, bootsize, not bootdev)
+                else:
                     raise Exception(
                         f"Wanted to partition boot device {bootdev or voldev} but"
                         f" create=False ({(efipart, bootpart)})"
                     )
-                partition_boot(bootdev or voldev, bootsize, not bootdev)
+            break
 
         for i in reversed(range(2)):
             efipart, bootpart = get_efipart_bootpart(bootdev if bootdev else voldev)
@@ -595,6 +597,7 @@ def blockdev_context(
                     f"partitions 2 or 3 in device"
                     f" {bootdev if bootdev else voldev} failed to be created"
                 )
+            break
 
         rootpart = voldev if bootdev else get_rootpart(voldev)
 
