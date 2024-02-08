@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+"""Constants used for breaking/shell before functionality."""
 
 import collections
 
@@ -23,9 +23,6 @@ break_stages[
 
 
 shell_stages = collections.OrderedDict()
-shell_stages[
-    "install_packages_in_chroot"
-] = "installing system packages in chroot after bash is available"
 shell_stages[
     "install_kernel"
 ] = "installing kernel, DKMS, and GRUB packages in the chroot"

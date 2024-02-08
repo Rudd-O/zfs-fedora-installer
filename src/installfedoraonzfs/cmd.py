@@ -1,5 +1,6 @@
 """Commands and utilities."""
 
+import contextlib
 import errno
 import fcntl
 import glob
@@ -9,13 +10,15 @@ from pathlib import Path
 import pipes
 import select
 import shlex
+import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from typing import IO, Any, BinaryIO, Literal, Sequence, TextIO, TypeVar, cast
+from typing import IO, Any, BinaryIO, Literal, Protocol, Sequence, TextIO, TypeVar, cast
 
 logger = logging.getLogger("cmd")
 
@@ -186,7 +189,8 @@ class Tee(threading.Thread):
                     break
         for f in self.filesets:
             for w in f[1:]:
-                w.flush()
+                with contextlib.suppress(ValueError):
+                    w.flush()
 
     def join(self, timeout: float | None = None) -> None:
         """Join the thread."""
@@ -339,8 +343,28 @@ def check_for_open_files(prefix: Path) -> dict[str, list[tuple[str, str]]]:  # n
     return results
 
 
+def _killpids(pidlist: Sequence[int]) -> None:
+    for p in pidlist:
+        if int(p) == os.getpid():
+            continue
+        os.kill(p, signal.SIGKILL)
+
+
+def _printfiles(openfiles: dict[str, list[tuple[str, str]]]) -> Sequence[int]:
+    pids: set[int] = set()
+    for of, procs in list(openfiles.items()):
+        logger.warning("%r:", of)
+        for pid, cmd in procs:
+            logger.warning("  %8s  %s", pid, cmd)
+            with contextlib.suppress(ValueError):
+                pids.add(int(pid))
+    return list(pids)
+
+
 def umount(mountpoint: Path, tries: int = 5) -> None:
     """Unmount a file system, trying `tries` times."""
+
+    sleep = 1
     while True:
         if not ismount(mountpoint):
             return None
@@ -351,16 +375,17 @@ def umount(mountpoint: Path, tries: int = 5) -> None:
             openfiles = check_for_open_files(mountpoint)
             if openfiles:
                 logger.warning("There are open files in %r:", mountpoint)
-                for of, procs in list(openfiles.items()):
-                    logger.warning("%r:", of)
-                    for pid, cmd in procs:
-                        logger.warning("  %7s  %s", pid, cmd)
+                pids = _printfiles(openfiles)
+                if tries <= 1 and pids:
+                    logger.warning("Killing processes with open files: %s:", pids)
+                    _killpids(pids)
             if tries <= 0:
                 raise
-            logger.warning("Syncing and sleeping 1 second")
-            check_call(["sync"])
-            time.sleep(1)
+            logger.warning("Syncing and sleeping %d seconds", sleep)
+            # check_call(["sync"])
+            time.sleep(sleep)
             tries -= 1
+            sleep = sleep * 2
 
 
 def create_file(
@@ -426,15 +451,65 @@ def cpuinfo() -> str:
     return open("/proc/cpuinfo").read()
 
 
-def checkout_repo_at(
-    repo: str, project_dir: Path, branch: str, update: bool = True
-) -> None:
-    """Checkout a git repository at a specific path."""
-    qbranch = shlex.quote(branch)
-    if os.path.isdir(project_dir):
-        if update:
-            logger.info("Updating and checking out git repository: %s", repo)
-            check_call("git fetch".split(), cwd=project_dir)
+class UnsupportedDistribution(Exception):
+    """Distribution is not supported."""
+
+
+class UnsupportedDistributionVersion(Exception):
+    """Distribution version is not supported."""
+
+
+def get_distro_release_info() -> dict[str, str]:
+    """Obtain the distribution's release info as a dictionary."""
+    vars: dict[str, str] = {}
+    try:
+        with open("/etc/os-release") as f:
+            data = f.read()
+            for line in data.splitlines():
+                if not line.strip():
+                    continue
+                k, _, v = line.strip().partition("=")
+                v = shlex.split(v)[0]
+                vars[k] = v
+    except FileNotFoundError as e:
+        raise UnsupportedDistribution("unknown") from e
+    return vars
+
+
+class Gitter(Protocol):
+    """Protocol for a class that can check out a repo."""
+
+    def checkout_repo_at(
+        self, repo: str, project_dir: Path, branch: str, update: bool = True
+    ) -> None:
+        """Check out a repository URL to `project_dir`."""
+        ...
+
+
+class NetworkedGitter:
+    """A Gitter that requires use of the network."""
+
+    def checkout_repo_at(
+        self, repo: str, project_dir: Path, branch: str, update: bool = True
+    ) -> None:
+        """Check out a repository URL to `project_dir`."""
+        qbranch = shlex.quote(branch)
+        if os.path.isdir(project_dir):
+            if update:
+                logger.info("Updating and checking out git repository: %s", repo)
+                check_call("git fetch".split(), cwd=project_dir)
+                check_call(
+                    [
+                        "bash",
+                        "-c",
+                        f"git reset --hard origin/{qbranch}"
+                        f" || git reset --hard {qbranch}",
+                    ],
+                    cwd=project_dir,
+                )
+        else:
+            logger.info("Cloning git repository: %s", repo)
+            check_call(["git", "clone", repo, str(project_dir)])
             check_call(
                 [
                     "bash",
@@ -443,15 +518,74 @@ def checkout_repo_at(
                 ],
                 cwd=project_dir,
             )
-    else:
-        logger.info("Cloning git repository: %s", repo)
-        check_call(["git", "clone", repo, str(project_dir)])
-        check_call(
-            [
-                "bash",
-                "-c",
-                f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
-            ],
-            cwd=project_dir,
-        )
-    check_call(["git", "--no-pager", "show"], cwd=project_dir)
+        check_call(["git", "--no-pager", "show"], cwd=project_dir)
+
+
+class QubesGitter:
+    """A Gitter that requires use of the network."""
+
+    def checkout_repo_at(
+        self, repo: str, project_dir: Path, branch: str, update: bool = True
+    ) -> None:
+        """Check out a repository URL to `project_dir`."""
+        qbranch = shlex.quote(branch)
+        abs_project_dir = os.path.abspath(project_dir)
+        if os.path.isdir(project_dir) and update:
+            logger.info("Update requested — removing existing repo: %s", project_dir)
+            shutil.rmtree(project_dir)
+        if not os.path.isdir(project_dir):
+            logger.info("Cloning git repository: %s", repo)
+            with tempfile.TemporaryDirectory() as tempdir:
+                gitclone = shlex.join(
+                    ["git", "clone", "--", repo, os.path.basename(tempdir)]
+                )
+                tar = f"cd {shlex.quote(os.path.basename(tempdir))} && tar c ."
+                gitcloneandtar = f"{gitclone} && {tar}"
+                # default_dvm = check_output(["qubes-prefs", "default_dispvm"])
+                default_dvm = "fedora-user-tpl-dvm"
+                indvm = shlex.join(
+                    [
+                        "qvm-run",
+                        "-a",
+                        "-p",
+                        "--no-filter-escape-chars",
+                        "--no-color-output",
+                        f"--dispvm={default_dvm}",
+                        "bash",
+                        "-c",
+                        gitcloneandtar,
+                    ]
+                )
+                extract = "tar x"
+                chdirandextract = (
+                    "("
+                    f"cd {shlex.quote(tempdir)} && mkdir -p incoming"
+                    f" && mkdir -p {shlex.quote(os.path.dirname(abs_project_dir))}"
+                    f" && cd incoming && {extract}"
+                    f" && cd .."
+                    f" && mv incoming {shlex.quote(abs_project_dir)}"
+                    ")"
+                )
+                fullcommand = [
+                    "bash",
+                    "-c",
+                    f"set -o pipefail ; {indvm} | {chdirandextract}",
+                ]
+                check_call(fullcommand)
+            check_call(
+                [
+                    "bash",
+                    "-c",
+                    f"git reset --hard origin/{qbranch} || git reset --hard {qbranch}",
+                ],
+                cwd=project_dir,
+            )
+        check_call(["git", "--no-pager", "show"], cwd=project_dir)
+
+
+def gitter_factory() -> Gitter:
+    """Return a Gitter that is compatible with the system."""
+    info = get_distro_release_info()
+    if info.get("ID") == "qubes":
+        return QubesGitter()
+    return NetworkedGitter()
