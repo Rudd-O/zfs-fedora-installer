@@ -22,7 +22,7 @@ def buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myR
 	}
 
 	def program = """
-		yumcache="/var/cache/zfs-fedora-installer/${myRelease}"
+		yumcache="/var/cache/zfs-fedora-installer"
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
 		volsize=10000
