@@ -1486,7 +1486,7 @@ if ! test -f /.autorelabel ; then
     # so let's not redo the work.
     # Useful to save time when iterating on this stage
     # with short-circuiting.
-    echo Setting up GRUB environment block >&2
+    echo Setting up GRUB environment block
     rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
     echo "# GRUB Environment Block" > /boot/grub2/grubenv
     for x in `seq 999`
@@ -1495,30 +1495,30 @@ if ! test -f /.autorelabel ; then
     done
     chmod 644 /boot/grub2/grubenv
 
-    echo Installing BIOS GRUB >&2
+    echo Installing BIOS GRUB
     grub2-install --target=i386-pc /dev/sda
     grub2-mkconfig -o /boot/grub2/grub.cfg
 
-    echo Adjusting ZFS cache file and settings >&2
+    echo Adjusting ZFS cache file and settings
     rm -f /etc/zfs/zpool.cache
     zpool set cachefile=/etc/zfs/zpool.cache "{poolname}"
     ls -la /etc/zfs/zpool.cache
     zfs inherit com.sun:auto-snapshot "{poolname}"
 
-    echo Generating initial RAM disks >&2
+    echo Generating initial RAM disks
     dracut -Nf {initrd} `uname -r`
     lsinitrd {initrd} | grep zfs
     dracut -Hf {hostonly_initrd} `uname -r`
     lsinitrd {hostonly_initrd} | grep zfs
 fi
 
-echo Setting up SELinux autorelabeling >&2
+echo Setting up SELinux autorelabeling
 fixfiles -F onboot
 
 umount /var/tmp
 umount /dev/log
 
-echo Starting autorelabel boot >&2
+echo Starting autorelabel boot
 # systemd will now start and relabel, then reboot.
 exec /sbin/init "$@"
 """.format(
