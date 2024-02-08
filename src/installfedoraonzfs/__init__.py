@@ -1455,7 +1455,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
         ) as (_, p, q, _, _, _, _, _):
             _, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
             # create bootloader installer
-            bootloadertext = """#!/bin/bash -xe
+            bootloadertext = """#!/bin/bash -e
 error() {{
     retval=$?
     echo There was an unrecoverable error finishing setup >&2
@@ -1469,62 +1469,47 @@ mount /boot/efi
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /var/tmp
 mount --bind /dev/stderr /dev/log
-mount
 
 if ! test -f /.autorelabel ; then
     # We have already passed to the fixfiles stage,
     # so let's not redo the work.
     # Useful to save time when iterating on this stage
     # with short-circuiting.
+    echo Setting up GRUB environment block >&2
     rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
     echo "# GRUB Environment Block" > /boot/grub2/grubenv
-    set +x
     for x in `seq 999`
     do
         echo -n "#" >> /boot/grub2/grubenv
     done
     chmod 644 /boot/grub2/grubenv
-    set -x
+
+    echo Installing BIOS GRUB >&2
     grub2-install --target=i386-pc /dev/sda
     grub2-mkconfig -o /boot/grub2/grub.cfg
 
+    echo Adjusting ZFS cache file and settings >&2
     rm -f /etc/zfs/zpool.cache
     zpool set cachefile=/etc/zfs/zpool.cache "{poolname}"
     ls -la /etc/zfs/zpool.cache
     zfs inherit com.sun:auto-snapshot "{poolname}"
 
+    echo Generating initial RAM disks >&2
     dracut -Nf {initrd} `uname -r`
     lsinitrd {initrd} | grep zfs
     dracut -Hf {hostonly_initrd} `uname -r`
     lsinitrd {hostonly_initrd} | grep zfs
 fi
 
+echo Setting up SELinux autorelabeling >&2
 fixfiles -F onboot
 
+umount /var/tmp
 umount /dev/log
+
+echo Starting autorelabel boot >&2
 # systemd will now start and relabel, then reboot.
 exec /sbin/init "$@"
-
-sync
-
-umount /var/tmp || true
-umount /tmp || true
-umount /boot/efi || true
-umount /boot || true
-umount /dev/log || true
-rm -f /installbootloader
-# Very superstitious,
-# writing's on the ROM.
-sync
-# When you believe in things,
-# that you don't understand
-# then you suffer.
-sync
-# Superstition ain't the way.
-echo 1 > /proc/sys/kernel/sysrq
-echo b > /proc/sysrq-trigger
-sleep 5
-echo cannot power off VM.  Please kill qemu.
 """.format(
                 **{
                     "poolname": poolname,
