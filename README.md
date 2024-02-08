@@ -17,7 +17,10 @@ If you specify a path to a device instead of a path to an image file, then the d
 
 `install-fedora-on-zfs` requires a working ZFS install on the machine you are running it.  See below for instructions.
 
-*Program number two* is `deploy-zfs`.  This script will deploy ZFS, ZFS-Dracut and `grub-zfs-fixer` via DKMS RPMs to a running Fedora system.  That system can then be converted to a full ZFS on root system if you so desire.
+*Program number two* is `deploy-zfs`.  This script will deploy ZFS, ZFS-Dracut and `grub-zfs-fixer` via DKMS RPMs to a running Fedora system, and most recently to a Qubes OS 4.2 system.  That system can then be converted to a full ZFS on root system if you so desire.  Here are guides for various OSes:
+
+* [Fedora](https://rudd-o.com/linux-and-free-software/installing-fedora-on-top-of-zfs)
+* [Qubes OS](https://rudd-o.com/linux-and-free-software/how-to-install-zfs-on-qubes-os)
 
 To keep the ZFS packages within the deployed system up-to-date, it's recommended that you use the excellent [ZFS updates](https://github.com/Rudd-O/ansible-samples/tree/master/zfsupdates) Ansible playbook, built specifically for this purpose.
 

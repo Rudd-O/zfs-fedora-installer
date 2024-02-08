@@ -4,7 +4,7 @@ import contextlib
 import errno
 import logging
 import os
-from pathlib import Path, PosixPath  # FIXME change PosixPath to Path
+from pathlib import Path
 import platform
 import re
 import subprocess
@@ -50,7 +50,7 @@ class PackageManager(Protocol):
         """Install a list of packages from the distro.  Download them first."""
         ...
 
-    def install_local_packages(self, package_files: list[PosixPath]) -> None:
+    def install_local_packages(self, package_files: list[Path]) -> None:
         """Install a list of local packages.  Download dependencies first."""
         ...
 
@@ -96,7 +96,7 @@ class LocalFedoraPackageManager:
         """Initialize the package manager."""
         self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
 
-    def install_local_packages(self, package_files: list[PosixPath]) -> None:
+    def install_local_packages(self, package_files: list[Path]) -> None:
         """Install a list of local packages on a Fedora system.  Download them first."""
 
         packages = [os.path.abspath(p) for p in package_files]
@@ -116,6 +116,56 @@ class LocalFedoraPackageManager:
             )
             cmd = (["dnf", "install"]) + ["-y"] + package_names
             _run_with_retries(cmd)
+
+
+class LocalQubesOSPackageManager:
+    """Package manager that can install packages locally on Qubes OS systems."""
+
+    chroot = None
+
+    def __init__(self) -> None:
+        """Initialize the package manager."""
+        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+
+    def install_local_packages(self, package_files: list[Path]) -> None:
+        """Install a list of local packages on a Qubes OS system.
+
+        Installation is two-phase.  First, take all dependencies the package
+        files need, and install these.  Then install the packages themselves.
+        """
+        packages = [os.path.abspath(p) for p in package_files]
+        for package in packages:
+            if not os.path.isfile(package):
+                raise FileNotFoundError(
+                    errno.ENOENT, os.strerror(errno.ENOENT), package
+                )
+
+        deps: set[str] = set()
+        cmd = ["rpm", "-q", "--requires"]
+        for d in cmdmod.check_output(cmd + packages).splitlines():
+            if d and not d.startswith("rpmlib("):
+                deps.add(d)
+        if deps:
+            self._logger.info("First phase: installing dependencies: %s", deps)
+            self.ensure_packages_installed(list(deps))
+
+        self._logger.info(
+            "Second phase: installing package files: %s", ", ".join(packages)
+        )
+        cmd = (["dnf", "install"]) + ["-y"] + packages
+        _run_with_retries(cmd)
+
+    def ensure_packages_installed(self, package_names: list[str]) -> None:
+        """Install a list of packages on a Qubes OS system."""
+
+        self._logger.info("Installing packages: %s", ", ".join(package_names))
+        cmd = [
+            "qubes-dom0-update",
+            "--action=install",
+            "--console",
+            "-y",
+        ] + package_names
+        _run_with_retries(cmd)
 
 
 class ChrootFedoraPackageManagerAndBootstrapper:
@@ -182,7 +232,7 @@ class ChrootFedoraPackageManagerAndBootstrapper:
         """Install packages by name within the chroot."""
         self._ensure_packages_installed(package_names, method="out_of_chroot")
 
-    def install_local_packages(self, package_files: list[PosixPath]) -> None:
+    def install_local_packages(self, package_files: list[Path]) -> None:
         """Install a list of local packages on a Fedora system.  Download them first."""
 
         packages = [os.path.abspath(p) for p in package_files]
@@ -397,10 +447,16 @@ skip_if_unavailable=False
 
 def os_package_manager_factory() -> OSPackageManager:
     """Create a package manager."""
-    release_info = cmdmod.get_distro_release_info()
-    if release_info.get("ID") == "fedora":
+    info = cmdmod.get_distro_release_info()
+    distro = info.get("ID")
+    if distro == "fedora":
         return LocalFedoraPackageManager()
-    raise cmdmod.UnsupportedDistribution(release_info.get("NAME"))
+    elif distro == "qubes":
+        releasever = info.get("VERSION_ID")
+        if releasever and releasever.zfill(5) < "4.2".zfill(5):
+            raise cmdmod.UnsupportedDistributionVersion(info.get("NAME"), releasever)
+        return LocalQubesOSPackageManager()
+    raise cmdmod.UnsupportedDistribution(info.get("NAME"))
 
 
 def _chroot_manager_factory(
@@ -423,9 +479,9 @@ def _chroot_manager_factory(
     assert releasever, f"Your releasever is invalid: {releasever}"
 
     if distro != "fedora":
-        raise cmdmod.UnsupportedDistribution(distro)
+        raise cmdmod.UnsupportedDistribution(info.get("NAME"))
     if releasever and releasever.zfill(5) < "37".zfill(5):
-        raise cmdmod.UnsupportedDistributionVersion(distro, releasever)
+        raise cmdmod.UnsupportedDistributionVersion(info.get("NAME"), releasever)
 
     if kind == "bootstrapper":
         t: ChrootBootstrapper = ChrootFedoraPackageManagerAndBootstrapper(

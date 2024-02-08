@@ -7,7 +7,7 @@ import logging
 import multiprocessing
 import os
 from os.path import join as j
-from pathlib import Path, PosixPath
+from pathlib import Path
 import platform
 import shlex
 import shutil
@@ -1818,7 +1818,7 @@ def deploy_zfs_in_machine(
                 "Installing available prebuilt RPMs: %s", prebuilt_rpms_to_install
             )
             files_to_install = [
-                PosixPath(j(target_rpms_path, s)) for s in prebuilt_rpms_to_install
+                Path(j(target_rpms_path, s)) for s in prebuilt_rpms_to_install
             ]
             pkgmgr.install_local_packages(files_to_install)
 
@@ -1914,9 +1914,9 @@ def deploy_zfs_in_machine(
                 _LOGGER.info("Packages %s are not installed, building", keystonepkgs)
                 project_dir = Path(p(j("usr", "src", project)))
 
-                def getrpms(pats: Sequence[str], directory: Path) -> list[PosixPath]:
+                def getrpms(pats: Sequence[str], directory: Path) -> list[Path]:
                     therpms = [
-                        PosixPath(rpmfile)
+                        Path(rpmfile)
                         for pat in pats
                         for rpmfile in glob.glob(j(directory, pat))
                         if stringtoexclude not in os.path.basename(rpmfile)
