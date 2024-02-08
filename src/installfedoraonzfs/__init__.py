@@ -1540,7 +1540,7 @@ echo cannot power off VM.  Please kill qemu.
         _LOGGER.info(
             "Entering sub-phase preparation of bootloader and SELinux relabeling in VM."
         )
-        return biiq("init=/installbootloader", False, 1.5)
+        return biiq("init=/installbootloader", False, 2.0)
 
     def boot_to_test_x_hostonly(hostonly: bool) -> None:
         _LOGGER.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
