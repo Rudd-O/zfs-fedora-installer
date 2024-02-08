@@ -243,13 +243,16 @@ pipeline {
 										'''.stripIndent().trim()
 										sh program
 										sh '''
-											eval $(cat /etc/os-release)
-											if test -d out/$VERSION_ID/ ; then
-												sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
-											else
-												sudo src/deploy-zfs
-											fi
-											sudo modprobe zfs
+											sudo modprobe zfs || {
+												eval $(cat /etc/os-release)
+												if test -d out/$VERSION_ID/ ; then
+													sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
+												else
+													sudo src/deploy-zfs
+												fi
+												sudo modprobe zfs
+												sudo service systemd-udevd restart
+											}
 										'''
 									}
 								}
