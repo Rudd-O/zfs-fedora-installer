@@ -1367,7 +1367,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # check_call(["sync"])
                 check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
 
-    def biiq(init: str, hostonly: bool) -> None:
+    def biiq(init: str, hostonly: bool, timeout_factor: float = 1.0) -> None:
         def fish_kernel_initrd() -> (
             tuple[str | None, str | None, Path, Path, Path, Path]
         ):
@@ -1435,7 +1435,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 rootpassword,
                 rootuuid,
                 luksuuid,
-                qemu_timeout,
+                int(qemu_timeout * timeout_factor),
             )
 
     def bootloader_install() -> None:
@@ -1463,53 +1463,48 @@ error() {{
 }}
 trap error ERR
 export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+mount / -o remount,rw
 mount /boot
 mount /boot/efi
 mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /var/tmp
 mount --bind /dev/stderr /dev/log
-ln -sf /proc/self/mounts /etc/mtab
 mount
 
-rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
-echo "# GRUB Environment Block" > /boot/grub2/grubenv
-set +x
-for x in `seq 999`
-do
-    echo -n "#" >> /boot/grub2/grubenv
-done
-chmod 644 /boot/grub2/grubenv
-# Copy the grubenv file to the EFI directory.
-# UEFI GRUB manages its grubenv separate from BIOS GRUB.
-# It is recommended for systems that only boot from UEFI
-# to make /boot/grub2/grubenv into a symlink to
-# /boot/efi/EFI/fedora/grubenv -- but we cannot do that
-# ourselves because then GRUB's savedefault feature would
-# not function in BIOS boot scenarios, and this is
-# intended to boot both in BIOS and in UEFI machines.
-cp -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
-set -x
-grub2-install --target=i386-pc /dev/sda
-grub2-mkconfig -o /boot/grub2/grub.cfg
-cat /boot/grub2/grub.cfg > /boot/efi/EFI/fedora/grub.cfg
-sed -i 's/linux16 /linuxefi /' /boot/efi/EFI/fedora/grub.cfg
-sed -i 's/initrd16 /initrdefi /' /boot/efi/EFI/fedora/grub.cfg
+if ! test -f /.autorelabel ; then
+    # We have already passed to the fixfiles stage,
+    # so let's not redo the work.
+    # Useful to save time when iterating on this stage
+    # with short-circuiting.
+    rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
+    echo "# GRUB Environment Block" > /boot/grub2/grubenv
+    set +x
+    for x in `seq 999`
+    do
+        echo -n "#" >> /boot/grub2/grubenv
+    done
+    chmod 644 /boot/grub2/grubenv
+    set -x
+    grub2-install --target=i386-pc /dev/sda
+    grub2-mkconfig -o /boot/grub2/grub.cfg
 
-rm -f /etc/zfs/zpool.cache
-zpool set cachefile=/etc/zfs/zpool.cache "{poolname}"
-ls -la /etc/zfs/zpool.cache
-zfs inherit com.sun:auto-snapshot "{poolname}"
+    rm -f /etc/zfs/zpool.cache
+    zpool set cachefile=/etc/zfs/zpool.cache "{poolname}"
+    ls -la /etc/zfs/zpool.cache
+    zfs inherit com.sun:auto-snapshot "{poolname}"
 
-/usr/sbin/fixfiles -v restore
-/usr/sbin/genhomedircon
-/usr/sbin/restorecon -v -R / -e /sys -e /proc -e /run
+    dracut -Nf {initrd} `uname -r`
+    lsinitrd {initrd} | grep zfs
+    dracut -Hf {hostonly_initrd} `uname -r`
+    lsinitrd {hostonly_initrd} | grep zfs
+fi
 
-dracut -Nf {initrd} `uname -r`
-lsinitrd {initrd}
-restorecon -v {initrd}
-dracut -Hf {hostonly_initrd} `uname -r`
-lsinitrd {hostonly_initrd}
-restorecon -v {hostonly_initrd}
+fixfiles -F onboot
+
+umount /dev/log
+# systemd will now start and relabel, then reboot.
+exec /sbin/init "$@"
+
 sync
 
 umount /var/tmp || true
@@ -1527,8 +1522,6 @@ sync
 sync
 # Superstition ain't the way.
 echo 1 > /proc/sys/kernel/sysrq
-echo o > /proc/sysrq-trigger
-sleep 5
 echo b > /proc/sysrq-trigger
 sleep 5
 echo cannot power off VM.  Please kill qemu.
@@ -1544,8 +1537,10 @@ echo cannot power off VM.  Please kill qemu.
             writetext(Path(bootloaderpath), bootloadertext)
             os.chmod(bootloaderpath, 0o755)
 
-        _LOGGER.info("Entering sub-phase preparation of bootloader in VM.")
-        return biiq("init=/installbootloader", False)
+        _LOGGER.info(
+            "Entering sub-phase preparation of bootloader and SELinux relabeling in VM."
+        )
+        return biiq("init=/installbootloader", False, 3.0)
 
     def boot_to_test_x_hostonly(hostonly: bool) -> None:
         _LOGGER.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
@@ -1583,6 +1578,13 @@ echo cannot power off VM.  Please kill qemu.
     except BaseException:
         _LOGGER.exception("Unexpected error")
         raise
+
+
+def pay_attention_to_me():
+    # FIXME
+    # FIGURE OUT A WAY TO RUN MULTIPLE IN PARALLEL IN JENKINS!
+    # MAYBE THIS CAN ALSO BE RUN SUCCESSFULLY IN FEDORA BUILDSLAVE
+    pass
 
 
 def test_cmd(cmdname: str, expected_ret: int) -> bool:

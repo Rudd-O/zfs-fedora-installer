@@ -194,6 +194,7 @@ def boot_image_in_qemu(
     if interactive_qemu:
         vmiomaster, vmioslave = None, None
         stdin, stdout, stderr = None, None, None
+        driver = None
     else:
         vmiomaster_i, vmioslave_i = pty.openpty()
         vmiomaster, vmioslave = (
@@ -343,6 +344,9 @@ class BootDriver(threading.Thread):
                         # OOM.  Raise non-retryable OOMed.
                         self.error = OOMed("a process appears to have been OOMed.")
                     elif b"end Kernel panic" in s:
+                        # OOM.  Raise non-retryable kernel panic.
+                        self.error = Panicked("kernel has panicked.")
+                    elif b"Kernel panic - not syncing" in s:
                         # OOM.  Raise non-retryable kernel panic.
                         self.error = Panicked("kernel has panicked.")
                     elif b"root password for maintenance" in s:
