@@ -104,6 +104,7 @@ def boot_image_in_qemu(
     rootuuid: str | None,
     luksuuid: str | None,
     qemu_timeout: int,
+    enforcing: bool,
 ) -> None:
     """Fully boot the Linux image inside QEMU."""
     if voldev:
@@ -146,10 +147,11 @@ def boot_image_in_qemu(
         "systemd.log_target=console"
     )
     luks_cmdline = f"rd.luks.uuid={rootuuid} " if luksuuid else ""
+    enforcingparm = "enforcing=1" if enforcing else "enforcing=0"
     cmdline = (
         f"{dracut_cmdline} {luks_cmdline} console=ttyS0"
         f" root=ZFS={poolname}/ROOT/os ro"
-        f" {initparm} enforcing=0 systemd.log_color=0"
+        f" {initparm} {enforcingparm} systemd.log_color=0"
     )
     cmd: list[str] = (
         [

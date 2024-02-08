@@ -1381,7 +1381,9 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 # check_call(["sync"])
                 check_call(["zfs", "snapshot", j(poolname, "ROOT", "os@initial")])
 
-    def biiq(init: str, hostonly: bool, timeout_factor: float = 1.0) -> None:
+    def biiq(
+        init: str, hostonly: bool, enforcing: bool, timeout_factor: float = 1.0
+    ) -> None:
         def fish_kernel_initrd() -> (
             tuple[str | None, str | None, Path, Path, Path, Path]
         ):
@@ -1450,6 +1452,7 @@ GRUB_PRELOAD_MODULES='part_msdos ext2'
                 rootuuid,
                 luksuuid,
                 int(qemu_timeout * timeout_factor),
+                enforcing,
             )
 
     def bootloader_install() -> None:
@@ -1539,11 +1542,11 @@ exec /sbin/init "$@"
         _LOGGER.info(
             "Entering sub-phase preparation of bootloader and SELinux relabeling in VM."
         )
-        return biiq("init=/installbootloader", False, 2.0)
+        return biiq("init=/installbootloader", False, True, 2.0)
 
     def boot_to_test_x_hostonly(hostonly: bool) -> None:
         _LOGGER.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
-        biiq("systemd.unit=multi-user.target", hostonly)
+        biiq("systemd.unit=multi-user.target", hostonly, True)
 
     def boot_to_test_non_hostonly() -> None:
         boot_to_test_x_hostonly(False)
