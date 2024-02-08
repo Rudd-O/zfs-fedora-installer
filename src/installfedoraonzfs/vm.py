@@ -407,7 +407,10 @@ class BootDriver(threading.Thread):
 
             logger.info("Boot driver ended")
             if not self.error:
-                if b"reboot: Power down" not in self.get_output():
+                if (
+                    b"reboot: Power down" not in self.get_output()
+                    and b"reboot: Restarting system" not in self.get_output()
+                ):
                     self.error = MachineNeverShutoff(
                         "The bootable image never shut off."
                     )
