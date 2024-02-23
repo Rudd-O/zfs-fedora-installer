@@ -91,15 +91,13 @@ pipeline {
 		stage('Preparation') {
 			agent { label 'master' }
 			steps {
+				announceBeginning()
 				script{
 					if (params.RELEASE == '') {
 						env.RELEASE = funcs.loadParameter('RELEASE', '30')
 					} else {
 						env.RELEASE = params.RELEASE
 					}
-				}
-				script {
-					announceBeginning()
 				}
 				script {
 					env.GIT_HASH = sh (
@@ -310,9 +308,7 @@ pipeline {
 	post {
 		always {
 			node('master') {
-				script {
-					announceEnd(currentBuild.currentResult)
-				}
+				announceEnd(currentBuild.currentResult)
 			}
 		}
 	}
