@@ -79,6 +79,7 @@ def _check_call_detect_retryable_errors(cmd: list[str]) -> tuple[str, int]:
     out, ret = cmdmod.get_output_exitcode(cmd)
     if ret != 0:
         if "--downloadonly" in cmd:
+            _LOGGER.error("DNF download failed with %s and output: %s", ret, out)
             raise DownloadFailed(ret, cmd, output=out)
         if "error: Plugin selinux" in out:
             raise PluginSelinuxRetryable(ret, cmd, output=out)
