@@ -17,7 +17,7 @@ import installfedoraonzfs.retry as retrymod
 _LOGGER = logging.getLogger(__name__)
 
 DNF_DOWNLOAD_THEN_INSTALL: tuple[list[str], list[str]] = (
-    ["--downloadonly", "-q"],
+    ["--downloadonly"],
     [],
 )
 
