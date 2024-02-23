@@ -181,7 +181,7 @@ pipeline {
 				stash includes: 'src/**', name: 'zfs-fedora-installer'
 				script {
 					env.DETECTED_RELEASES = sh (
-						script: "cd out && ls -1 */zfs-dracut*noarch.rpm | sed 's|/.*||'",
+						script: "cd out && ls -1 */zfs-dracut*noarch.rpm | sed 's|/.*||' | sed 's|fc||'",
 						returnStdout: true
 					).trim().replace("\n", ' ')
 					println "The detected releases are ${env.DETECTED_RELEASES}"
