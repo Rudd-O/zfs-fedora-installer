@@ -198,6 +198,14 @@ pipeline {
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
 			steps {
 				script {
+					stage("Check agent") {
+						sh(
+							script: """#!/bin/sh
+									/bin/true
+									""",
+							label: "Agent is OK"
+						)
+					}
 					stage("Unstash RPMs") {
 						script {
 							timeout(time: 10, unit: 'MINUTES') {
