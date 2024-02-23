@@ -70,6 +70,10 @@ class OSPackageManager(PackageManager, Protocol):
 class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError):
     """Package download failed."""
 
+    def __str__(self) -> str:
+        """Stringify the exception."""
+        return f"DNF download {self.cmd} failed with {self.returncode}: {self.output}"
+
 
 class PluginSelinuxRetryable(retrymod.Retryable, subprocess.CalledProcessError):
     """Retryable SELinux plugin failure."""
@@ -79,7 +83,6 @@ def _check_call_detect_retryable_errors(cmd: list[str]) -> tuple[str, int]:
     out, ret = cmdmod.get_output_exitcode(cmd)
     if ret != 0:
         if "--downloadonly" in cmd:
-            _LOGGER.error("DNF download failed with %s and output: %s", ret, out)
             raise DownloadFailed(ret, cmd, output=out)
         if "error: Plugin selinux" in out:
             raise PluginSelinuxRetryable(ret, cmd, output=out)
