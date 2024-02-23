@@ -8,7 +8,7 @@ def buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myR
 		mySeparateBoot = ""
 	}
 	if (myBuildFrom == "RPMs") {
-		myBuildFrom = "--use-prebuilt-rpms=out/${myRelease}/"
+		myBuildFrom = "--use-prebuilt-rpms=out/fc${myRelease}/"
 	} else {
 		myBuildFrom = ""
 	}
@@ -251,8 +251,8 @@ pipeline {
 										sh '''
 											sudo modprobe zfs || {
 												eval $(cat /etc/os-release)
-												if test -d out/$VERSION_ID/ ; then
-													sudo src/deploy-zfs --use-prebuilt-rpms out/$VERSION_ID/
+												if test -d out/fc$VERSION_ID/ ; then
+													sudo src/deploy-zfs --use-prebuilt-rpms out/fc$VERSION_ID/
 												else
 													sudo src/deploy-zfs
 												fi
