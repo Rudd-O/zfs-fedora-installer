@@ -1,0 +1,16 @@
+include Jenkinsfile
+include build.parameters
+include Makefile
+include tox.ini
+include mypy.ini
+include README.md
+include TODO
+include activate-zfs-in-qubes-vm
+include bootstrap-chroot
+include deploy-packages-in-chroot
+include deploy-zfs
+include install-fedora-on-zfs
+inclde doc/*
+include grub-zfs-fixer/*
+include run-in-fs-context
+global-exclude *.py[cod]
