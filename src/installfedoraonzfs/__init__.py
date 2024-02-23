@@ -79,34 +79,53 @@ def add_volume_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def add_repo_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add arguments pertaining to source and binary ZFS repo selection."""
-    parser.add_argument(
-        "--use-prebuilt-rpms",
-        dest="prebuiltrpms",
-        metavar="DIR",
-        type=str,
-        action="store",
-        default=None,
-        help="also install pre-built ZFS, GRUB and other RPMs in this directory,"
-        " except for debuginfo packages within the directory (default: build ZFS and"
-        " GRUB RPMs, within the system)",
-    )
-    parser.add_argument(
-        "--zfs-repo",
-        dest="zfs_repo",
-        action="store",
-        default="https://github.com/Rudd-O/zfs",
-        help="when building ZFS from source, use this repository instead of master",
-    )
-    parser.add_argument(
-        "--use-branch",
-        dest="branch",
-        action="store",
-        default="master",
-        help="when building ZFS from source, check out this commit, tag or branch from"
-        " the repository instead of master",
-    )
+class UsesRepo(argparse.ArgumentParser):
+    """Validates prebuilt RPMs."""
+
+    def __init__(self, *args, **kwargs) -> None:  # type: ignore
+        """Initialize the parser."""
+        argparse.ArgumentParser.__init__(self, *args, **kwargs)
+        add_common_arguments(self)
+        self.add_repo_arguments()
+
+    def parse_args(self, args=None, namespace=None) -> Any:  # type:ignore
+        """Parse arguments."""
+        args = argparse.ArgumentParser.parse_args(self)
+        if args.prebuiltrpms and not os.path.isdir(args.prebuiltrpms):
+            _LOGGER.error(
+                "error: --prebuilt-rpms-path %r does not exist",
+                args.prebuiltrpms,
+            )
+        return args
+
+    def add_repo_arguments(self) -> None:
+        """Add arguments pertaining to source and binary ZFS repo selection."""
+        self.add_argument(
+            "--use-prebuilt-rpms",
+            dest="prebuiltrpms",
+            metavar="DIR",
+            type=str,
+            action="store",
+            default=None,
+            help="also install pre-built ZFS, GRUB and other RPMs in this directory,"
+            " except for debuginfo packages within the directory (default: build ZFS and"
+            " GRUB RPMs, within the system)",
+        )
+        self.add_argument(
+            "--zfs-repo",
+            dest="zfs_repo",
+            action="store",
+            default="https://github.com/Rudd-O/zfs",
+            help="when building ZFS from source, use this repository instead of master",
+        )
+        self.add_argument(
+            "--use-branch",
+            dest="branch",
+            action="store",
+            default="master",
+            help="when building ZFS from source, check out this commit, tag or branch from"
+            " the repository instead of master",
+        )
 
 
 def add_pm_arguments(parser: argparse.ArgumentParser) -> None:
@@ -159,9 +178,9 @@ def add_distro_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def get_install_fedora_on_zfs_parser() -> argparse.ArgumentParser:
+def get_install_fedora_on_zfs_parser() -> UsesRepo:
     """Get a parser to configure install-fedora-on-zfs."""
-    parser = argparse.ArgumentParser(
+    parser = UsesRepo(
         description="Install a minimal Fedora system inside a ZFS pool within"
         " a disk image or device",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -269,8 +288,6 @@ def get_install_fedora_on_zfs_parser() -> argparse.ArgumentParser:
         default=None,
         help="change the group of the image files upon creation to this group",
     )
-    add_common_arguments(parser)
-    add_repo_arguments(parser)
     parser.add_argument(
         "--break-before",
         dest="break_before",
@@ -323,11 +340,9 @@ def get_install_fedora_on_zfs_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def get_deploy_parser() -> argparse.ArgumentParser:
+def get_deploy_parser() -> UsesRepo:
     """Add arguments for deploy."""
-    parser = argparse.ArgumentParser(description="Install ZFS on a running system")
-    add_common_arguments(parser)
-    add_repo_arguments(parser)
+    parser = UsesRepo(description="Install ZFS on a running system")
     parser.add_argument(
         "--no-update-sources",
         dest="update_sources",
@@ -1580,13 +1595,6 @@ exec /sbin/init "$@"
     except BaseException:
         _LOGGER.exception("Unexpected error")
         raise
-
-
-def pay_attention_to_me():
-    # FIXME
-    # FIGURE OUT A WAY TO RUN MULTIPLE IN PARALLEL IN JENKINS!
-    # MAYBE THIS CAN ALSO BE RUN SUCCESSFULLY IN FEDORA BUILDSLAVE
-    pass
 
 
 def _test_cmd(cmdname: str, expected_ret: int) -> bool:
