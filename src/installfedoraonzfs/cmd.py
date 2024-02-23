@@ -7,7 +7,6 @@ import glob
 import logging
 import os
 from pathlib import Path
-import pipes
 import select
 import shlex
 import shutil
@@ -49,7 +48,7 @@ def readlines(fn: Path) -> list[str]:
 
 def format_cmdline(lst: Sequence[str]) -> str:
     """Format a command line for print()."""
-    return " ".join(pipes.quote(x) for x in lst)
+    return " ".join(shlex.quote(x) for x in lst)
 
 
 def check_call(cmd: list[str], *args: Any, **kwargs: Any) -> None:

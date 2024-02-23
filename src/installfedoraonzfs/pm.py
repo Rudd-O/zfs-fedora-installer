@@ -9,7 +9,7 @@ import platform
 import re
 import subprocess
 import tempfile
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Generator, Literal, Protocol, cast
 
 from installfedoraonzfs import cmd as cmdmod
 import installfedoraonzfs.retry as retrymod
@@ -245,8 +245,10 @@ class ChrootFedoraPackageManagerAndBootstrapper:
             [str(s) for s in packages], method="out_of_chroot"
         )
 
-    @contextlib.contextmanager  # type:ignore
-    def _method(self, method: Literal["in_chroot"] | Literal["out_of_chroot"]) -> Path:
+    @contextlib.contextmanager
+    def _method(
+        self, method: Literal["in_chroot"] | Literal["out_of_chroot"]
+    ) -> Generator[Path, None, None]:
         pkgmgr = "dnf"
         guestver = self.releasever
         if method == "in_chroot":
@@ -274,7 +276,7 @@ class ChrootFedoraPackageManagerAndBootstrapper:
         if not self._cachedir:
             n = self._make_temp_yum_config(sourceconf, dirforconfig, **parms)
             try:
-                yield n.name  # type:ignore
+                yield n.name
             finally:
                 n.close()
                 del n
@@ -319,7 +321,7 @@ class ChrootFedoraPackageManagerAndBootstrapper:
                     cachemount = cmdmod.bindmount(cachedir, cachedir_in_chroot)
                     n = self._make_temp_yum_config(sourceconf, dirforconfig, **parms)
                     self._logger.debug("Created custom dnf configuration %s", n.name)
-                    yield n.name  # type:ignore
+                    yield n.name
                 finally:
                     if n:
                         n.close()
@@ -400,8 +402,7 @@ skip_if_unavailable=False
         def in_chroot(lst: list[str]) -> list[str]:
             return ["chroot", str(self.chroot)] + lst
 
-        with self._method(method) as _config:  # type: ignore
-            config = cast(Path, _config)
+        with self._method(method) as config:
             try:
                 cmdmod.check_call_silent(in_chroot(["rpm", "-q"] + packages))
                 self._logger.info("All required packages are available")
