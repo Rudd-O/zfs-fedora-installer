@@ -20,7 +20,6 @@ from typing import Any, Callable, Generator, Sequence
 from installfedoraonzfs import pm
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages, shell_stages
 from installfedoraonzfs.cmd import (
-    Gitter,
     Popen,
     bindmount,
     check_call,
@@ -32,7 +31,6 @@ from installfedoraonzfs.cmd import (
     filetype,
     get_associated_lodev,
     get_output_exitcode,
-    gitter_factory,
     ismount,
     losetup,
     mount,
@@ -41,6 +39,7 @@ from installfedoraonzfs.cmd import (
     umount,
     writetext,
 )
+from installfedoraonzfs.git import Gitter, gitter_factory
 from installfedoraonzfs.log import log_config
 import installfedoraonzfs.retry as retrymod
 from installfedoraonzfs.vm import BootDriver, boot_image_in_qemu, test_qemu
