@@ -523,6 +523,14 @@ class NetworkedGitter:
 class QubesGitter:
     """A Gitter that requires use of the network."""
 
+    def __init__(self, dispvm_template: str):
+        """Initialize the gitter.
+
+        Args:
+          dispvm_template: mandatory name of disposable VM to use.
+        """
+        self.dispvm_template = dispvm_template
+
     def checkout_repo_at(
         self, repo: str, project_dir: Path, branch: str, update: bool = True
     ) -> None:
@@ -541,7 +549,6 @@ class QubesGitter:
                 tar = f"cd {shlex.quote(os.path.basename(tempdir))} && tar c ."
                 gitcloneandtar = f"{gitclone} && {tar}"
                 # default_dvm = check_output(["qubes-prefs", "default_dispvm"])
-                default_dvm = "fedora-user-tpl-dvm"
                 indvm = shlex.join(
                     [
                         "qvm-run",
@@ -549,7 +556,7 @@ class QubesGitter:
                         "-p",
                         "--no-filter-escape-chars",
                         "--no-color-output",
-                        f"--dispvm={default_dvm}",
+                        f"--dispvm={self.dispvm_template}",
                         "bash",
                         "-c",
                         gitcloneandtar,
@@ -582,9 +589,22 @@ class QubesGitter:
         check_call(["git", "--no-pager", "show"], cwd=project_dir)
 
 
-def gitter_factory() -> Gitter:
+def gitter_factory(dispvm_template: str | None = None) -> Gitter:
     """Return a Gitter that is compatible with the system."""
     info = get_distro_release_info()
     if info.get("ID") == "qubes":
-        return QubesGitter()
+        if not dispvm_template:
+            dispvm_template = check_output(["qubes-prefs", "default_dispvm"]).rstrip()
+            if not dispvm_template:
+                raise ValueError(
+                    "there is no default disposable qube template on this system;"
+                    " you must specify a disposable qube template with --dispvm-template"
+                    " when using this program on this system"
+                )
+        return QubesGitter(dispvm_template)
+    if dispvm_template:
+        raise ValueError(
+            "disposable qube may not be specified when using this"
+            f" program on a {info.get('NAME')} system"
+        )
     return NetworkedGitter()

@@ -349,6 +349,15 @@ def get_deploy_parser() -> UsesRepo:
         action="store_false",
         help="Update Git repositories if building from sources",
     )
+    parser.add_argument(
+        "--dispvm-template",
+        dest="dispvm_template",
+        default=None,
+        help="Disposable qube template for checking out code (e.g. fedora-39-dvm)"
+        " (only applicable to deployment of ZFS in a Qubes OS environment, defaults"
+        " to whatever your system's default disposable qube template is); see"
+        " https://www.qubes-os.org/doc/how-to-use-disposables/ for more information",
+    )
     return parser
 
 
@@ -2009,7 +2018,11 @@ def deploy_zfs() -> int:
         return x
 
     package_manager = pm.os_package_manager_factory()
-    gitter = gitter_factory()
+    try:
+        gitter = gitter_factory(dispvm_template=args.dispvm_template)
+    except ValueError as e:
+        _LOGGER.error("error: %s.", e)
+        return os.EX_USAGE
 
     try:
         deploy_zfs_in_machine(
