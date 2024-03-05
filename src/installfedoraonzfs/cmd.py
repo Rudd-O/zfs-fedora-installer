@@ -535,6 +535,11 @@ class QubesGitter:
         self, repo: str, project_dir: Path, branch: str, update: bool = True
     ) -> None:
         """Check out a repository URL to `project_dir`."""
+        from installfedoraonzfs.pm import LocalQubesOSPackageManager
+
+        local_pkgmgr = LocalQubesOSPackageManager()
+        local_pkgmgr.ensure_packages_installed(["git-core"])
+
         qbranch = shlex.quote(branch)
         abs_project_dir = os.path.abspath(project_dir)
         if os.path.isdir(project_dir) and update:
@@ -543,11 +548,12 @@ class QubesGitter:
         if not os.path.isdir(project_dir):
             logger.info("Cloning git repository: %s", repo)
             with tempfile.TemporaryDirectory() as tempdir:
+                installgit = "(which git || dnf install -y git-core)"
                 gitclone = shlex.join(
                     ["git", "clone", "--", repo, os.path.basename(tempdir)]
                 )
                 tar = f"cd {shlex.quote(os.path.basename(tempdir))} && tar c ."
-                gitcloneandtar = f"{gitclone} && {tar}"
+                gitcloneandtar = f"{installgit} >&2 && {gitclone} >&2 && {tar}"
                 # default_dvm = check_output(["qubes-prefs", "default_dispvm"])
                 indvm = shlex.join(
                     [
