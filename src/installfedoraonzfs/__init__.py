@@ -355,7 +355,8 @@ def get_deploy_parser() -> UsesRepo:
         default=None,
         help="Disposable qube template for checking out code (e.g. fedora-39-dvm)"
         " (only applicable to deployment of ZFS in a Qubes OS environment, defaults"
-        " to whatever your system's default disposable qube template is); see"
+        " to whatever your system's default disposable qube template is, and must"
+        " currently be a Fedora-based or dnf-managed disposable template); see"
         " https://www.qubes-os.org/doc/how-to-use-disposables/ for more information",
     )
     return parser
