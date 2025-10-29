@@ -1259,7 +1259,11 @@ configfile $prefix/grub.cfg
                 "SHA-512" if pm.vercmp(pkgmgr.releasever, "43") == -1 else "yescrypt"
             )
             if pwnotset:
-                _LOGGER.info("Setting root password")
+                _LOGGER.info(
+                    "Setting root password with algorithm %s as this is release %s",
+                    method,
+                    pkgmgr.releasever,
+                )
                 cmd = ["mkpasswd", f"--method={method}", "--stdin"]
                 pwproc = subprocess.run(
                     cmd, input=rootpassword, capture_output=True, text=True, check=True
