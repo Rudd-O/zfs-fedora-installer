@@ -505,9 +505,9 @@ def _chroot_manager_factory(
         distro = info.get("ID")
     if releasever is None:
         if distro != info.get("ID"):
-            assert (
-                0
-            ), "Cannot specify a different distro without specifying a releasever"
+            assert 0, (
+                "Cannot specify a different distro without specifying a releasever"
+            )
         releasever = info.get("VERSION_ID")
     assert releasever, f"Your releasever is invalid: {releasever}"
 

@@ -1081,27 +1081,30 @@ def install_fedora(
     def beginning() -> None:
         _LOGGER.info("Program has begun.")
 
-        with blockdev_context(
-            voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
-        ) as (rootpart, bootpart, efipart), filesystem_context(
-            poolname,
-            rootpart,
-            bootpart,
-            efipart,
-            workdir,
-            swapsize,
-            lukspassword,
-            luksoptions,
-            create=True,
-        ) as (
-            rootmountpoint,
-            p,
-            _,
-            in_chroot,
-            rootuuid,
-            luksuuid,
-            bootpartuuid,
-            efipartuuid,
+        with (
+            blockdev_context(
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
+            ) as (rootpart, bootpart, efipart),
+            filesystem_context(
+                poolname,
+                rootpart,
+                bootpart,
+                efipart,
+                workdir,
+                swapsize,
+                lukspassword,
+                luksoptions,
+                create=True,
+            ) as (
+                rootmountpoint,
+                p,
+                _,
+                in_chroot,
+                rootuuid,
+                luksuuid,
+                bootpartuuid,
+                efipartuuid,
+            ),
         ):
             _LOGGER.info("Adding basic files.")
             # sync device files
@@ -1278,27 +1281,30 @@ configfile $prefix/grub.cfg
 
         gitter = gitter_factory()
 
-        with blockdev_context(
-            voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
-        ) as (rootpart, bootpart, efipart), filesystem_context(
-            poolname,
-            rootpart,
-            bootpart,
-            efipart,
-            workdir,
-            swapsize,
-            lukspassword,
-            luksoptions,
-            create=True,
-        ) as (
-            rootmountpoint,
-            p,
-            _,
-            in_chroot,
-            _rootuuid,
-            _luksuuid,
-            _bootpartuuid,
-            _efipartuuid,
+        with (
+            blockdev_context(
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
+            ) as (rootpart, bootpart, efipart),
+            filesystem_context(
+                poolname,
+                rootpart,
+                bootpart,
+                efipart,
+                workdir,
+                swapsize,
+                lukspassword,
+                luksoptions,
+                create=True,
+            ) as (
+                rootmountpoint,
+                p,
+                _,
+                in_chroot,
+                _rootuuid,
+                _luksuuid,
+                _bootpartuuid,
+                _efipartuuid,
+            ),
         ):
             pkgmgr = pm.chroot_package_manager_factory(
                 rootmountpoint, yum_cachedir, releasever, None
@@ -1346,19 +1352,22 @@ configfile $prefix/grub.cfg
         # for blkid failing without the reload happening first.
         _LOGGER.info("Finalizing chroot for image")
 
-        with blockdev_context(
-            voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
-        ) as (rootpart, bootpart, efipart), filesystem_context(
-            poolname,
-            rootpart,
-            bootpart,
-            efipart,
-            workdir,
-            swapsize,
-            lukspassword,
-            luksoptions,
-            create=False,
-        ) as (_, p, q, in_chroot, rootuuid, _, bootpartuuid, _):
+        with (
+            blockdev_context(
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
+            ) as (rootpart, bootpart, efipart),
+            filesystem_context(
+                poolname,
+                rootpart,
+                bootpart,
+                efipart,
+                workdir,
+                swapsize,
+                lukspassword,
+                luksoptions,
+                create=False,
+            ) as (_, p, q, in_chroot, rootuuid, _, bootpartuuid, _),
+        ):
             chroot_shell(in_chroot, shell_before, "reload_chroot")
 
             # FIXME: package manager should do this.
@@ -1426,22 +1435,25 @@ configfile $prefix/grub.cfg
     def biiq(
         init: str, hostonly: bool, enforcing: bool, timeout_factor: float = 1.0
     ) -> None:
-        def fish_kernel_initrd() -> (
-            tuple[str | None, str | None, Path, Path, Path, Path]
-        ):
-            with blockdev_context(
-                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
-            ) as (rootpart, bootpart, efipart), filesystem_context(
-                poolname,
-                rootpart,
-                bootpart,
-                efipart,
-                workdir,
-                swapsize,
-                lukspassword,
-                luksoptions,
-                create=False,
-            ) as (_, p, _, _, rootuuid, luksuuid, _, _):
+        def fish_kernel_initrd() -> tuple[
+            str | None, str | None, Path, Path, Path, Path
+        ]:
+            with (
+                blockdev_context(
+                    voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
+                ) as (rootpart, bootpart, efipart),
+                filesystem_context(
+                    poolname,
+                    rootpart,
+                    bootpart,
+                    efipart,
+                    workdir,
+                    swapsize,
+                    lukspassword,
+                    luksoptions,
+                    create=False,
+                ) as (_, p, _, _, rootuuid, luksuuid, _, _),
+            ):
                 kerneltempdir = tempfile.mkdtemp(
                     prefix="install-fedora-on-zfs-bootbits-"
                 )
@@ -1499,19 +1511,22 @@ configfile $prefix/grub.cfg
 
     def bootloader_install() -> None:
         _LOGGER.info("Installing bootloader.")
-        with blockdev_context(
-            voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
-        ) as (rootpart, bootpart, efipart), filesystem_context(
-            poolname,
-            rootpart,
-            bootpart,
-            efipart,
-            workdir,
-            swapsize,
-            lukspassword,
-            luksoptions,
-            create=False,
-        ) as (_, p, q, _, _, _, _, _):
+        with (
+            blockdev_context(
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
+            ) as (rootpart, bootpart, efipart),
+            filesystem_context(
+                poolname,
+                rootpart,
+                bootpart,
+                efipart,
+                workdir,
+                swapsize,
+                lukspassword,
+                luksoptions,
+                create=False,
+            ) as (_, p, q, _, _, _, _, _),
+        ):
             _, initrd, hostonly_initrd, kver = get_kernel_initrd_kver(p)
             # create bootloader installer
             bootloadertext = """#!/bin/bash -e
@@ -2085,23 +2100,26 @@ def run_command_in_filesystem_context() -> int:
     """Run a command in the context of the created image."""
     args = get_run_command_parser().parse_args()
     log_config(args.trace_file)
-    with blockdev_context(
-        Path(args.voldev),
-        Path(args.bootdev) if args.bootdev else None,
-        0,
-        0,
-        None,
-        None,
-        create=False,
-    ) as (rootpart, bootpart, efipart), filesystem_context(
-        args.poolname,
-        rootpart,
-        bootpart,
-        efipart,
-        Path(args.workdir),
-        0,
-        "",
-        "",
-        create=False,
-    ) as (_, _, _, in_chroot, _, _, _, _):
+    with (
+        blockdev_context(
+            Path(args.voldev),
+            Path(args.bootdev) if args.bootdev else None,
+            0,
+            0,
+            None,
+            None,
+            create=False,
+        ) as (rootpart, bootpart, efipart),
+        filesystem_context(
+            args.poolname,
+            rootpart,
+            bootpart,
+            efipart,
+            Path(args.workdir),
+            0,
+            "",
+            "",
+            create=False,
+        ) as (_, _, _, in_chroot, _, _, _, _),
+    ):
         return subprocess.call(in_chroot(args.args))
