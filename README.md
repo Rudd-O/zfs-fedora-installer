@@ -10,7 +10,7 @@ This project contains two programs.
 
 *Program number one* is `install-fedora-on-zfs`.  This script will create an image file containing a fresh, minimal Fedora 19+ installation on a ZFS pool.  This pool can:
 
-* be booted on a QEMU / virt-manager virtual machine, or
+* be booted on a QEMU / virt-manager virtual machine (whether in legacy BIOS or UEFI mode with secure boot off), or
 * be written to a block device, after which you can grow the last partition to make ZFS use the extra space.
 
 If you specify a path to a device instead of a path to an image file, then the device will be used instead.  The resulting image is obviously bootable and fully portable between computers, until the next time dracut regenerates the initial RAM disks, after which the initial RAM disks will be tailored to the specific hardware of the machine where it ran.  Make sure that the device is large enough to contain the whole install.
@@ -97,7 +97,7 @@ Details about the `install-fedora-on-zfs` installation process
 3. Essential core packages (`yum`, `bash`, `basesystem`, `vim-minimal`, `nano`, `kernel`, `grub2`) will be installed on the system.
 4. Within the freshly installed OS, my git repositories for ZFS will be cloned and built as RPMs.
 5. The RPMs built will be installed in the OS root file system.
-6. `grub2-mkconfig` will be patched so it works with ZFS on root.  Yum will be configured to ignore grub updates.
+6. `grub2-mkconfig` will be patched so it works with ZFS on root.  EFI GRUB will be configured to chainload to the `/boot` partition (by referring to its UUID).
 7. QEMU will be executed, booting the newly-created image with specific instructions to install the bootloader and perform other janitorial tasks.  At this point, if you requested LUKS encryption, you will be prompted for the LUKS password.
 8. Everything the script did will be cleaned up, leaving the file / block device ready to be booted off a QEMU virtual machine, or whatever device you write the image to.
 
@@ -158,6 +158,44 @@ If you used the boot-on-separate-device mode:
 4. `zpool online -e <pool name> <path to whole disk or encrypted device>` to have ZFS recognize the full partition size.  See above for instructions on how to use `zpool set autoexpand=on` if this does not work.
 
 Of course, you can also extend the pool to other disk devices.  If you do so, make sure to regenerate the initial RAM disks with `dracut -fv` (which will regenerate the RAM disk for the currently booted kernel).
+
+Testing your image with QEMU
+----------------------------
+
+Sometimes it's just faster to validate that the image you created is in fact correct, before you write it to a USB drive.  Here's how to do this.
+
+Run this to boot the image in legacy BIOS mode:
+
+```sh
+IMAGE=<add your image file name here>
+qemu-system-x86_64 -enable-kvm -M pc -no-reboot -m 1536 \
+  -drive file="$IMAGE",if=none,id=drive-ide0-0-0,format=raw \
+  -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
+```
+
+If you created an image with a separate boot drive, run this instead:
+
+```sh
+IMAGE=<add your image file name here>
+BOOTIMAGE=<add your boot image file name here>
+qemu-system-x86_64 -enable-kvm -M pc -no-reboot -m 1536 \
+  -drive file="$BOOT_IMAGE",if=none,id=drive-ide0-0-0,format=raw \
+  -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
+  -drive file="$IMAGE",if=none,id=drive-ide0-0-1,format=raw \
+  -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-1,bootindex=2
+```
+
+To test in UEFI mode (assuming a single image contains boot and pool):
+
+```sh
+qemu-system-x86_64 -enable-kvm -M pc -no-reboot -m 1536 \
+  -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
+  -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd \
+  -drive file=Fedora-41-ZFS.img,if=none,id=drive-ide0-0-0,format=raw \
+  -device ide-hd,bus=ide.0,unit=0,drive=drive-ide0-0-0,id=ide0-0-0,bootindex=1
+```
+
+Both should boot.
 
 Notes / known issues
 --------------------
