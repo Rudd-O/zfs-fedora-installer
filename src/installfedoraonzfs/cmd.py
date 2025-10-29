@@ -120,7 +120,7 @@ def get_associated_lodev(path: Path) -> Path | None:
 
 
 def filetype(
-    dev: Path
+    dev: Path,
 ) -> Literal["file"] | Literal["blockdev"] | Literal["doesntexist"]:
     """Return 'file' or 'blockdev' or 'doesntexist' for dev."""
     try:
@@ -221,8 +221,8 @@ def get_output_exitcode(cmd: list[str], **kwargs: Any) -> tuple[str, int]:
             cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs
         )
         t = Tee(
-            (cast(TextIO, p.stdout), f, stdout),
-            (cast(TextIO, p.stderr), f, stderr),
+            (cast(TextIO, p.stdout), cast(TextIO, f), cast(TextIO, stdout)),
+            (cast(TextIO, p.stderr), cast(TextIO, f), cast(TextIO, stderr)),
         )
         t.start()
         t.join()
@@ -234,7 +234,7 @@ def get_output_exitcode(cmd: list[str], **kwargs: Any) -> tuple[str, int]:
     return output, retval
 
 
-def Popen(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.Popen:
+def Popen(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.Popen[str]:
     """subprocess.Popen with logging."""
     cwd = kwargs.get("cwd", os.getcwd())
     kwargs["universal_newlines"] = True

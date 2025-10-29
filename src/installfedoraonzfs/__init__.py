@@ -1,6 +1,7 @@
-#!/usr/bin/env python
+"""Main package for zfs-fedora-installer."""
 
 import argparse
+from collections.abc import Generator, Sequence
 import contextlib
 import glob
 import logging
@@ -15,7 +16,7 @@ import signal  # noqa: F401
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Generator, Sequence
+from typing import Any, Callable
 
 from installfedoraonzfs import pm
 from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages, shell_stages
@@ -107,8 +108,8 @@ class UsesRepo(argparse.ArgumentParser):
             action="store",
             default=None,
             help="also install pre-built ZFS, GRUB and other RPMs in this directory,"
-            " except for debuginfo packages within the directory (default: build ZFS and"
-            " GRUB RPMs, within the system)",
+            " except for debuginfo packages within the directory (default: build ZFS"
+            " and GRUB RPMs, within the system)",
         )
         self.add_argument(
             "--zfs-repo",
@@ -122,8 +123,8 @@ class UsesRepo(argparse.ArgumentParser):
             dest="branch",
             action="store",
             default="master",
-            help="when building ZFS from source, check out this commit, tag or branch from"
-            " the repository instead of master",
+            help="when building ZFS from source, check out this commit, tag or branch"
+            " from the repository instead of master",
         )
 
 
@@ -147,7 +148,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         action="store",
         default=None,
         help="file name for a detailed trace file of program activity (default no"
-        " trace file)",
+        " trace file, but a fairly commonly used one is /dev/stderr)",
     )
 
 
@@ -260,11 +261,11 @@ def get_install_fedora_on_zfs_parser() -> UsesRepo:
         action="store_true",
         default=False,
         help="QEMU will run interactively, with the console of your Linux system"
-        " connected to your terminal; the normal timeout of %s seconds will not"
-        " apply, and Ctrl+C will interrupt the emulation; this is useful to"
+        f" connected to your terminal; the normal timeout of {qemu_timeout} seconds"
+        " will not apply, and Ctrl+C will interrupt the emulation; this is useful to"
         " manually debug problems installing the bootloader; in this mode you are"
         " responsible for typing the password to any LUKS devices you have requested"
-        " to be created" % qemu_timeout,
+        " to be created",
     )
     add_pm_arguments(parser)
     parser.add_argument(
@@ -318,24 +319,20 @@ def get_install_fedora_on_zfs_parser() -> UsesRepo:
         "combined with --break-before to stop at a later stage",
     )
     add_env_arguments(parser)
+    break_before_stages = "".join(
+        f"\n* {k}:{' ' * (max(len(x) for x in break_stages) - len(k) + 1)}{v}"
+        for k, v in list(break_stages.items())
+    )
+    shell_before_stages = "".join(
+        f"\n* {k}:{' ' * (max(len(x) for x in shell_stages) - len(k) + 1)}{v}"
+        for k, v in list(shell_stages.items())
+    )
     parser.epilog = (
-        "Stages for the --break-before and --short-circuit arguments:\n%s"
-        % (
-            "".join(
-                "\n* %s:%s%s"
-                % (k, " " * (max(len(x) for x in break_stages) - len(k) + 1), v)
-                for k, v in list(break_stages.items())
-            ),
-        )
-        + "\n\n"
-        + "Stages for the --shell-before argument:\n%s"
-        % (
-            "".join(
-                "\n* %s:%s%s"
-                % (k, " " * (max(len(x) for x in shell_stages) - len(k) + 1), v)
-                for k, v in list(shell_stages.items())
-            ),
-        )
+        "Stages for the --break-before and --short-circuit arguments:"
+        f"\n{break_before_stages}"
+        "\n\n"
+        "Stages for the --shell-before argument:"
+        f"\n{shell_before_stages}"
     )
     return parser
 
@@ -401,7 +398,7 @@ def list_pools() -> list[str]:
 # We try the import of the pool 3 times, with a 5-second timeout in between tries.
 import_pool_retryable = retrymod.retry(
     2, timeout=5, retryable_exception=subprocess.CalledProcessError
-)(import_pool)  # type: ignore
+)(import_pool)
 
 
 def partition_boot(bootdev: Path, bootsize: int, rootvol: bool) -> None:
@@ -626,12 +623,12 @@ def blockdev_context(
 
         rootpart = voldev if bootdev else get_rootpart(voldev)
 
-        assert rootpart, "root partition in device %r failed to be created" % voldev
-        assert bootpart, "boot partition in device %r failed to be created" % (
-            bootdev or voldev
+        assert rootpart, f"root partition in device {voldev!r} failed to be created"
+        assert bootpart, (
+            f"boot partition in device {bootdev or voldev!r} failed to be created"
         )
-        assert efipart, "EFI partition in device %r failed to be created" % (
-            bootdev or voldev
+        assert efipart, (
+            f"EFI partition in device {bootdev or voldev!r} failed to be created"
         )
 
         _LOGGER.info("Blockdev context complete.")
@@ -736,7 +733,7 @@ def filesystem_context(
                 ["blkid", "-c", "/dev/null", str(rootpart), "-o", "value", "-s", "UUID"]
             ).strip()
             if not rootuuid:
-                raise IndexError("no UUID for %s" % rootpart)
+                raise IndexError(f"no UUID for {rootpart}")
             luksuuid = "luks-" + rootuuid
         except IndexError:
             needsdoing = True
@@ -764,7 +761,7 @@ def filesystem_context(
                 ["blkid", "-c", "/dev/null", str(rootpart), "-o", "value", "-s", "UUID"]
             ).strip()
             if not rootuuid:
-                raise IndexError("still no UUID for %s" % rootpart)
+                raise IndexError(f"still no UUID for {rootpart}")
             luksuuid = "luks-" + rootuuid
         if not os.path.exists(j("/dev", "mapper", luksuuid)):
             cmd = ["cryptsetup", "-y", "-v", "luksOpen", str(rootpart), luksuuid]
@@ -853,7 +850,7 @@ def filesystem_context(
                 f"Wanted to create ZFS file system swap on {poolname} but create=False"
             ) from exc
         check_call(
-            ["zfs", "create", "-V", "%dM" % swapsize, "-b", "4K", j(poolname, "swap")]
+            ["zfs", "create", "-V", f"{swapsize}M", "-b", "4K", j(poolname, "swap")]
         )
         check_call(["zfs", "set", "compression=gzip-9", j(poolname, "swap")])
         check_call(["zfs", "set", "com.sun:auto-snapshot=false", j(poolname, "swap")])
@@ -1068,12 +1065,12 @@ def install_fedora(
     """Install a bootable Fedora in an image or disk backed by ZFS."""
     if lukspassword and not BootDriver.is_typeable(lukspassword):
         raise ImpossiblePassphrase(
-            "LUKS passphrase %r cannot be typed during boot" % lukspassword
+            f"LUKS passphrase {lukspassword!r} cannot be typed during boot"
         )
 
     if rootpassword and not BootDriver.is_typeable(rootpassword):
         raise ImpossiblePassphrase(
-            "root password %r cannot be typed during boot" % rootpassword
+            f"root password {rootpassword!r} cannot be typed during boot"
         )
 
     original_voldev = voldev
@@ -1193,7 +1190,7 @@ UUID={efipartuuid} /boot/efi vfat noatime 0 1
 echo This is a fake dracut.
 """,
                 )
-                os.chmod(p("usr/bin/dracut"), 0o755)
+                os.chmod(p("usr/bin/dracut"), 0o755)  # noqa: S103
 
             if luksuuid:
                 luksstuff = f" rd.luks.uuid={rootuuid} rd.luks.allow-discards"
@@ -1347,8 +1344,8 @@ configfile $prefix/grub.cfg
             )
             kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
             kver = os.path.basename(kernel)[len("vmlinuz-") :]
-            initrd = p(j("boot", "initramfs-%s.img" % kver))
-            hostonly = p(j("boot", "initramfs-hostonly-%s.img" % kver))
+            initrd = p(j("boot", f"initramfs-{kver}.img"))
+            hostonly = p(j("boot", f"initramfs-hostonly-{kver}.img"))
             return Path(kernel), Path(initrd), Path(hostonly), kver
         except Exception:
             check_call(["ls", "-lRa", p("boot")])
@@ -1402,8 +1399,8 @@ configfile $prefix/grub.cfg
                         _LOGGER.debug("initramfs: %s", line)
                 if "zfs.ko" not in after_recreation:
                     assert 0, (
-                        "ZFS kernel module was not found in the initramfs %s --"
-                        " perhaps it failed to build." % initrd
+                        f"ZFS kernel module was not found in the initramfs {initrd} --"
+                        " perhaps it failed to build."
                     )
 
             # Kill the resolv.conf file written only to install packages.
@@ -1601,7 +1598,7 @@ exec /sbin/init "$@"
             )
             bootloaderpath = Path(p("installbootloader"))
             writetext(Path(bootloaderpath), bootloadertext)
-            os.chmod(bootloaderpath, 0o755)
+            os.chmod(bootloaderpath, 0o755)  # noqa: S103
 
         _LOGGER.info(
             "Entering sub-phase preparation of bootloader and SELinux relabeling in VM."
@@ -1896,7 +1893,7 @@ def deploy_zfs_in_machine(
                     "If you want to boot an AppVM as HVM, follow the instructions here:"
                     " https://www.qubes-os.org/doc/managing-vm-kernel/#using-kernel-installed-in-the-vm"
                 )
-            pkgs = ["kernel-%s" % uname_r, "kernel-devel-%s" % uname_r]
+            pkgs = [f"kernel-{uname_r}", f"kernel-devel-{uname_r}"]
             pkgmgr.ensure_packages_installed(pkgs)
 
         for project, patterns, keystonepkgs, mindeps, buildcmd in (
@@ -1914,12 +1911,12 @@ def deploy_zfs_in_machine(
                 "zfs",
                 (
                     "zfs-dkms-*.noarch.rpm",
-                    "libnvpair*.%s.rpm" % arch,
-                    "libuutil*.%s.rpm" % arch,
-                    "libzfs?-[0123456789]*.%s.rpm" % arch,
-                    "libzfs?-devel-[0123456789]*.%s.rpm" % arch,
-                    "libzpool*.%s.rpm" % arch,
-                    "zfs-[0123456789]*.%s.rpm" % arch,
+                    f"libnvpair*.{arch}.rpm",
+                    f"libuutil*.{arch}.rpm",
+                    f"libzfs?-[0123456789]*.{arch}.rpm",
+                    f"libzfs?-devel-[0123456789]*.{arch}.rpm",
+                    f"libzpool*.{arch}.rpm",
+                    f"zfs-[0123456789]*.{arch}.rpm",
                     "zfs-dracut-*.noarch.rpm",
                 ),
                 ("zfs", "zfs-dkms", "zfs-dracut"),
@@ -1985,7 +1982,7 @@ def deploy_zfs_in_machine(
                     repo = (
                         zfs_repo
                         if project == "zfs"
-                        else ("https://github.com/Rudd-O/%s" % project)
+                        else (f"https://github.com/Rudd-O/{project}")
                     )
                     repo_branch = branch if project == "zfs" else "master"
 

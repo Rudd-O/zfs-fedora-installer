@@ -277,14 +277,11 @@ class BootDriver(threading.Thread):
         threading.Thread.__init__(self)
         self.setDaemon(True)
         assert self.is_typeable(luks_passphrase), (
-            "Cannot handle passphrase %r" % luks_passphrase
+            f"Cannot handle passphrase {luks_passphrase!r}"
         )
+        assert self.is_typeable(login), f"Cannot handle user name {login!r}"
+        assert self.is_typeable(password), f"Cannot handle password {password!r}"
         self.luks_passphrase = luks_passphrase
-        assert self.is_typeable(luks_passphrase), (
-            "Cannot handle passphrase %r" % luks_passphrase
-        )
-        assert self.is_typeable(login), "Cannot handle user name %r" % login
-        assert self.is_typeable(password), "Cannot handle password %r" % password
         self.login = login
         self.password = password
         self.pty = pty

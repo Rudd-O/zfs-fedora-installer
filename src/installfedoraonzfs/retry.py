@@ -1,8 +1,9 @@
 """Retry functionality."""
 
+from collections.abc import Callable
 import logging
 import time
-from typing import Any, Callable
+from typing import Any, cast
 
 
 class Retryable(BaseException):
@@ -37,7 +38,7 @@ class retry:
         self.timeout = timeout
         self.retryable_exception = retryable_exception
 
-    def __call__(self, kallable: Callable[[...], Any]) -> Callable[[...], Any]:
+    def __call__[F: Callable[..., Any]](self, kallable: F) -> F:
         """Return a function that will retry the callable."""
 
         def retryer(*a: Any, **kw: Any) -> Any:
@@ -59,4 +60,4 @@ class retry:
                         raise
                 self.N -= 1
 
-        return retryer
+        return cast(F, retryer)

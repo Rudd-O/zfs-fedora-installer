@@ -1,5 +1,6 @@
 """Package manager utilities."""
 
+from collections.abc import Generator
 import contextlib
 import errno
 import logging
@@ -9,7 +10,7 @@ import platform
 import re
 import subprocess
 import tempfile
-from typing import Any, Generator, Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 from installfedoraonzfs import cmd as cmdmod
 import installfedoraonzfs.retry as retrymod
@@ -24,7 +25,7 @@ DNF_DOWNLOAD_THEN_INSTALL: tuple[list[str], list[str]] = (
 
 def _run_with_retries(cmd: list[str]) -> tuple[str, int]:
     r = retrymod.retry(2)
-    return r(lambda: _check_call_detect_retryable_errors(cmd))()  # type: ignore
+    return r(lambda: _check_call_detect_retryable_errors(cmd))()
 
 
 def vercmp(first: str, second: str) -> int:
@@ -98,7 +99,10 @@ class RpmTransactionFailed(retrymod.Retryable, subprocess.CalledProcessError):
 
     def __str__(self) -> str:
         """Stringify the exception."""
-        return f"RPM transaction failed running command {self.cmd} with {self.returncode}: {self.output}"
+        return (
+            f"RPM transaction failed running command {self.cmd} with"
+            f" {self.returncode}: {self.output}"
+        )
 
 
 class PluginSelinuxRetryable(retrymod.Retryable, subprocess.CalledProcessError):
@@ -278,7 +282,7 @@ class ChrootFedoraPackageManagerAndBootstrapper:
         )
 
     @contextlib.contextmanager
-    def _method(
+    def _method(  # noqa: PLR0915
         self, method: Literal["in_chroot"] | Literal["out_of_chroot"]
     ) -> Generator[Path, None, None]:
         pkgmgr = "dnf"
@@ -465,13 +469,11 @@ skip_if_unavailable=False
                     + option
                     + (
                         [
-                            "--installroot=%s" % self.chroot,
-                            "--releasever=%s" % self.releasever,
+                            f"--installroot={self.chroot}",
+                            f"--releasever={self.releasever}",
                         ]
                         if method == "out_of_chroot"
-                        else [
-                            "--releasever=%s" % self.releasever,
-                        ]
+                        else [f"--releasever={(self.releasever)}"]
                     )
                     + packages
                 )
