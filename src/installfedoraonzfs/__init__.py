@@ -1196,19 +1196,6 @@ echo This is a fake dracut.
             else:
                 luksstuff = ""
 
-            # Generate a chainloaded GRUB configuration for EFI.
-            chaingrub = f"""search --no-floppy --fs-uuid --set=dev {bootpartuuid}
-set prefix=($dev)/grub2
-export $prefix
-configfile $prefix/grub.cfg
-"""
-            # Write the chainloaded GRUB configuration to the folder
-            # containing GRUB EFI.
-            chaingrubcfgpath = check_output(
-                ["find", p(j("boot", "efi")), "-name", "grubx64.efi"]
-            ).splitlines()[0].replace("/grubx64.efi", "/grub.cfg")
-            writetext(Path(chaingrubcfgpath), chaingrub)
-
             # write grub config
             grubconfig = f"""GRUB_TIMEOUT=0
 GRUB_HIDDEN_TIMEOUT=3
@@ -1223,6 +1210,21 @@ GRUB_DISABLE_LINUX_UUID=true
 GRUB_PRELOAD_MODULES='part_msdos ext2'
 """
             writetext(Path(p(j("etc", "default", "grub"))), grubconfig)
+
+            # Generate a chainloaded GRUB configuration for EFI.
+            chaingrub = f"""search --no-floppy --fs-uuid --set=dev {bootpartuuid}
+set prefix=($dev)/grub2
+export $prefix
+configfile $prefix/grub.cfg
+"""
+            # Write the chainloaded GRUB configuration to the folder
+            # containing GRUB EFI.
+            chaingrubcfgpath = (
+                check_output(["find", p(j("boot", "efi")), "-name", "grubx64.efi"])
+                .splitlines()[0]
+                .replace("/grubx64.efi", "/grub.cfg")
+            )
+            writetext(Path(chaingrubcfgpath), chaingrub)
 
             # write kernel command line
             if not os.path.isdir(p(j("etc", "kernel"))):
