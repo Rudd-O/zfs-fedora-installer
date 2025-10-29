@@ -75,6 +75,14 @@ class DownloadFailed(retrymod.Retryable, subprocess.CalledProcessError):
         return f"DNF download {self.cmd} failed with {self.returncode}: {self.output}"
 
 
+class RpmTransactionFailed(retrymod.Retryable, subprocess.CalledProcessError):
+    """Package download failed."""
+
+    def __str__(self) -> str:
+        """Stringify the exception."""
+        return f"RPM transaction failed running command {self.cmd} with {self.returncode}: {self.output}"
+
+
 class PluginSelinuxRetryable(retrymod.Retryable, subprocess.CalledProcessError):
     """Retryable SELinux plugin failure."""
 
@@ -84,6 +92,8 @@ def _check_call_detect_retryable_errors(cmd: list[str]) -> tuple[str, int]:
     if ret != 0:
         if "--downloadonly" in cmd:
             raise DownloadFailed(ret, cmd, output=out)
+        if "Rpm transaction failed" in cmd:
+            raise RpmTransactionFailed(ret, cmd, output=out)
         if "error: Plugin selinux" in out:
             raise PluginSelinuxRetryable(ret, cmd, output=out)
         _LOGGER.error("This is not a retryable error, it should not be retried.")
