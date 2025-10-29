@@ -1529,12 +1529,12 @@ mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /var/tmp
 mount --bind /dev/stderr /dev/log
 
-if ! test -f /.autorelabel ; then
+if ! test -f {hostonly_initrd} ; then
     # We have already passed to the fixfiles stage,
     # so let's not redo the work.
     # Useful to save time when iterating on this stage
     # with short-circuiting.
-    echo Setting up GRUB environment block
+    echo Setting up GRUB environment block >&2
     rm -f /boot/grub2/grubenv /boot/efi/EFI/fedora/grubenv
     echo "# GRUB Environment Block" > /boot/grub2/grubenv
     for x in `seq 999`
@@ -1543,30 +1543,30 @@ if ! test -f /.autorelabel ; then
     done
     chmod 644 /boot/grub2/grubenv
 
-    echo Installing BIOS GRUB
+    echo Installing BIOS GRUB >&2
     grub2-install --target=i386-pc /dev/sda
     grub2-mkconfig -o /boot/grub2/grub.cfg
 
-    echo Adjusting ZFS cache file and settings
+    echo Adjusting ZFS cache file and settings >&2
     rm -f /etc/zfs/zpool.cache
     zpool set cachefile=/etc/zfs/zpool.cache "{poolname}"
     ls -la /etc/zfs/zpool.cache
     zfs inherit com.sun:auto-snapshot "{poolname}"
 
-    echo Generating initial RAM disks
+    echo Generating initial RAM disks >&2
     dracut -Nf {initrd} `uname -r`
     lsinitrd {initrd} | grep zfs
     dracut -Hf {hostonly_initrd} `uname -r`
     lsinitrd {hostonly_initrd} | grep zfs
 fi
 
-echo Setting up SELinux autorelabeling
+echo Setting up SELinux autorelabeling >&2
 fixfiles -F onboot
 
 umount /var/tmp
 umount /dev/log
 
-echo Starting autorelabel boot
+echo Starting autorelabel boot >&2
 # systemd will now start and relabel, then reboot.
 exec /sbin/init "$@"
 """.format(
@@ -1584,7 +1584,7 @@ exec /sbin/init "$@"
         _LOGGER.info(
             "Entering sub-phase preparation of bootloader and SELinux relabeling in VM."
         )
-        return biiq("init=/installbootloader", False, True, 2.0)
+        return biiq("init=/installbootloader", False, False, 2.0)
 
     def boot_to_test_x_hostonly(hostonly: bool) -> None:
         _LOGGER.info("Entering test of hostonly=%s initial RAM disk in VM.", hostonly)
