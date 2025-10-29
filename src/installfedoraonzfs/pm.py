@@ -27,8 +27,26 @@ def _run_with_retries(cmd: list[str]) -> tuple[str, int]:
     return r(lambda: _check_call_detect_retryable_errors(cmd))()  # type: ignore
 
 
+def vercmp(first: str, second: str) -> int:
+    """Return 1 if first is greater than second, -1 if the opposite, 0 if equal."""
+    first_sep = [x.zfill(10) for x in first.split(".")]
+    second_sep = [x.zfill(10) for x in second.split(".")]
+    while len(first_sep) < len(second_sep):
+        first_sep.append("0".zfill(10))
+    while len(second_sep) < len(first_sep):
+        second_sep.append("0".zfill(10))
+    for f, s in zip(first_sep, second_sep):
+        if f > s:
+            return 1
+        elif f < s:
+            return -1
+    return 0
+
+
 class ChrootBootstrapper(Protocol):
     """Protocol for a package manager that supports bootstrap of a chroot."""
+
+    releasever: str
 
     def bootstrap_packages(self) -> None:
         """Install a minimal set of packages for a shell."""
@@ -468,7 +486,7 @@ def os_package_manager_factory() -> OSPackageManager:
         return LocalFedoraPackageManager()
     elif distro == "qubes":
         releasever = info.get("VERSION_ID")
-        if releasever and releasever.zfill(5) < "4.2".zfill(5):
+        if releasever and vercmp(releasever, "4.2"):
             raise cmdmod.UnsupportedDistributionVersion(info.get("NAME"), releasever)
         return LocalQubesOSPackageManager()
     raise cmdmod.UnsupportedDistribution(info.get("NAME"))
