@@ -300,6 +300,7 @@ class BootDriver(threading.Thread):
         pending_write = "pending_write"
         written = "written"
 
+        login_prompt_about_to_appear = "login_prompt_about_to_appear"
         login_prompt_seen = "login_prompt_seen"
         login_written = "login_written"
         password_prompt_seen = "password_prompt_seen"
@@ -380,10 +381,14 @@ class BootDriver(threading.Thread):
 
                 if self.login and self.password:
                     if login_prompt_state == unseen:
+                        if b"(ttyS0)" in s:
+                            # Login prompt.
+                            logger.info("Login prompt about to appear.  Hitting ENTER.")
+                            self.hit_enter()
+                            login_prompt_state = login_prompt_about_to_appear
+                    if login_prompt_state == login_prompt_about_to_appear:
                         if b" login: " in s:
-                            # Please enter passphrase for disk QEMU...
-                            # Enter passphrase for /dev/...
-                            # LUKS passphrase prompt appeared.  Enter it later.
+                            # Login prompt.
                             logger.info("Login prompt begun appearing.")
                             login_prompt_state = login_prompt_seen
                     if login_prompt_state == login_prompt_seen:
@@ -442,6 +447,10 @@ class BootDriver(threading.Thread):
     def write_luks_passphrase(self) -> None:
         """Write the LUKS passphrase to the console."""
         return self._write_stuff(self.luks_passphrase)
+
+    def hit_enter(self) -> None:
+        """Write the login username to the console."""
+        return self._write_stuff("")
 
     def write_login(self) -> None:
         """Write the login username to the console."""
