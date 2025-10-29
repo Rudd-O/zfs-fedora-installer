@@ -185,14 +185,15 @@ def get_install_fedora_on_zfs_parser() -> UsesRepo:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_volume_arguments(parser)
+    defvolsize = str(int(int((8000000000 - 10000000) / 1024 / 1024) / 4) * 4)
     parser.add_argument(
         "--vol-size",
         dest="volsize",
         metavar="VOLSIZE",
         type=str,
         action="store",
-        default="11000",
-        help="volume size in MiB (default 11000), or bytes if postfixed with a B",
+        default=defvolsize,
+        help=f"volume size in MiB (default {defvolsize}), or bytes if postfixed with B",
     )
     parser.add_argument(
         "--boot-size",
@@ -200,9 +201,9 @@ def get_install_fedora_on_zfs_parser() -> UsesRepo:
         metavar="BOOTSIZE",
         type=int,
         action="store",
-        default=1024,
+        default=2048,
         help="boot partition size in MiB, or boot volume size in MiB, when"
-        " --separate-boot is specified (default 1024)",
+        " --separate-boot is specified (default 2048)",
     )
     parser.add_argument(
         "--host-name",
@@ -228,8 +229,8 @@ def get_install_fedora_on_zfs_parser() -> UsesRepo:
         metavar="SWAPSIZE",
         type=int,
         action="store",
-        default=1024,
-        help="swap volume size in MiB (default 1024)",
+        default=256,
+        help="swap volume size in MiB (default 256)",
     )
     add_distro_arguments(parser)
     parser.add_argument(
