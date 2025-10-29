@@ -424,7 +424,7 @@ skip_if_unavailable=False
                 )
                 cmd = (
                     (["dnf"] if method == "out_of_chroot" else in_chroot(["dnf"]))
-                    + ["install", "-y", "--disableplugin=*qubes*"]
+                    + ["install", "-y"]
                     + more_args
                     + (
                         [
