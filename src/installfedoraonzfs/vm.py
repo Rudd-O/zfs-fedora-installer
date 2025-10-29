@@ -215,18 +215,22 @@ def boot_image_in_qemu(
                 try:
                     retcode = qemu_process.wait(t)
                 except subprocess.TimeoutExpired:
-                    if proper_timeout > 0:
-                        if driver.error:
-                            break
+                    if proper_timeout > 0 and driver.is_alive():
                         if proper_timeout % 60 == 0:
                             logger.info(
                                 "Waiting for QEMU.  %s more seconds to go.",
                                 proper_timeout,
                             )
-                    else:
-                        logger.error(
-                            "QEMU did not exit within the timeout.  Killing it."
-                        )
+                    else:  # Either ran out of time or driver is dead.
+                        if driver.is_alive():
+                            logger.error(
+                                "QEMU did not exit within the timeout.  Killing it."
+                            )
+                        else:
+                            logger.error(
+                                "QEMU driver exited fortuitously."
+                                "  Killing QEMU just in case."
+                            )
                         qemu_process.kill()
                         retcode = qemu_process.wait()
         exception = None
@@ -337,7 +341,7 @@ class BootDriver(threading.Thread):
                         self.error = SystemdSegfault(
                             "systemd appears to have segfaulted."
                         )
-                    elif b" authentication failure." in s:
+                    elif b" authentication failure." in s or b"Login incorrect" in s:
                         self.error = BadPW("authentication failed")
                     elif b" Not enough available memory to open a keyslot." in s:
                         # OOM.  Raise non-retryable OOMed.
@@ -411,6 +415,13 @@ class BootDriver(threading.Thread):
                         logger.info("Writing poweroff.")
                         self.write_poweroff()
                         login_prompt_state = poweroff_written
+
+                if self.error:
+                    logger.error(
+                        "An error condition was encountered by the boot driver: %s",
+                        self.error,
+                    )
+                    break
 
             logger.info("Boot driver ended")
             if not self.error:
