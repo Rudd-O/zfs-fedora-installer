@@ -1183,7 +1183,7 @@ UUID={efipartuuid} /boot/efi vfat noatime 0 1
             if not os.path.exists(p("usr/bin/dracut.real")):
                 check_call(in_chroot(["mv", "/usr/bin/dracut", "/usr/bin/dracut.real"]))
                 writetext(
-                    p("usr/bin/dracut"),
+                    Path(p("usr/bin/dracut")),
                     """#!/bin/bash
 
 echo This is a fake dracut.
@@ -1234,7 +1234,7 @@ configfile $prefix/grub.cfg
                 + f""" systemd.show_status=true{luksstuff}
 """
             )
-            writetext(p(j("etc", "kernel", "cmdline")), kernelcmd)
+            writetext(Path(p(j("etc", "kernel", "cmdline"))), kernelcmd)
 
             chroot_shell(in_chroot, shell_before, "install_kernel")
 
