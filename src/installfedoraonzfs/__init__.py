@@ -1252,7 +1252,9 @@ configfile $prefix/grub.cfg
                 [
                     line
                     for line in pwfile
-                    if line.startswith("root:*:") or line.startswith("root::")
+                    if line.startswith("root:*:")
+                    or line.startswith("root::")
+                    or line.startswith("root:!")
                 ]
             )
             method = (
