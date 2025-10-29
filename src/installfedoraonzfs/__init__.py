@@ -1142,6 +1142,19 @@ UUID={efipartuuid} /boot/efi vfat noatime 0 1
 """
             writetext(Path(p(j("etc", "fstab"))), fstab)
 
+            # Generate a chainloaded GRUB configuration for EFI.
+            chaingrub = f"""search --no-floppy --fs-uuid --set=dev {bootpartuuid}
+set prefix=($dev)/grub2
+export $prefix
+configfile $prefix/grub.cfg
+"""
+            # Write the chainloaded GRUB configuration to the folder
+            # containing GRUB EFI.
+            chaingrubcfgpath = check_output(
+                ["find", p(j("boot", "efi")), "-name", "grubx64.efi"]
+            ).splitlines()[0].replace("/grubx64.efi", "/grub.cfg")
+            writetext(Path(chaingrubcfgpath), chaingrub)
+
             orig_resolv = p(j("etc", "resolv.conf.orig"))
             final_resolv = p(j("etc", "resolv.conf"))
 
