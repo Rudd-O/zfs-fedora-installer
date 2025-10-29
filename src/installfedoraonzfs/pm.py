@@ -92,7 +92,7 @@ def _check_call_detect_retryable_errors(cmd: list[str]) -> tuple[str, int]:
     if ret != 0:
         if "--downloadonly" in cmd:
             raise DownloadFailed(ret, cmd, output=out)
-        if "Rpm transaction failed" in cmd:
+        if "Rpm transaction failed" in out:
             raise RpmTransactionFailed(ret, cmd, output=out)
         if "error: Plugin selinux" in out:
             raise PluginSelinuxRetryable(ret, cmd, output=out)
