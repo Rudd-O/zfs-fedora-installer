@@ -203,7 +203,7 @@ pipeline {
 				}
 			}
 		}
-		stage('Parallelize') {
+		stage('Build ZFS on root images') {
 			agent { label 'fedorazfs' }
 			options { skipDefaultCheckout() }
 			when { not { equals expected: 'NOT_BUILT', actual: currentBuild.result } }
