@@ -683,14 +683,16 @@ def setup_boot_filesystems(
     """
     try:
         output = check_output(["blkid", "-c", "/dev/null", str(bootpart)])
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        if not create:
+            raise Exception(f"blkid on {bootpart} failed") from e
         output = ""
 
     if 'TYPE="ext4"' not in output:
         if not create:
             raise Exception(
-                f"Wanted to create boot file system on {bootpart}"
-                f" but create=False (output: {output})"
+                f"blkid on {bootpart} says there is a file system on {bootpart}"
+                " but it's not ext4 (output: {output})"
             )
         # Conservative set of features so older distributions can be
         # tested when built in in newer distributions.
@@ -711,12 +713,16 @@ def setup_boot_filesystems(
 
     try:
         output = check_output(["blkid", "-c", "/dev/null", str(efipart)])
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        if not create:
+            raise Exception(f"blkid on {efipart} failed") from e
         output = ""
+
     if 'TYPE="vfat"' not in output:
         if not create:
             raise Exception(
-                f"Wanted to create EFI file system on {efipart} but create=False"
+                f"blkid on {bootpart} says there is a file system on {efipart}"
+                " but it's not vfat (output: {output})"
             )
         check_call(
             ["mkfs.vfat", "-F", "32", "-n", "efi_" + label_postfix[:7], str(efipart)]
