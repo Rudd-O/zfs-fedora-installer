@@ -1,7 +1,14 @@
 // https://github.com/Rudd-O/shared-jenkins-libraries
 @Library('shared-jenkins-libraries@master') _
 
-def buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease) {
+def buildCmdline(args, short_circuit, break_before) {
+	def pname = args["pname"]
+	def myBuildFrom = args["buildfrom"]
+	def mySourceBranch = args["sourcebranch"]
+	def mySeparateBoot = args["separateboot"]
+	def myRelease = args["release"]
+	def myLuks = args["luks"]
+
 	if (mySeparateBoot == "yes") {
 		mySeparateBoot = "--separate-boot=boot-${pname}.img"
 	} else {
@@ -20,6 +27,8 @@ def buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myR
 	if (mySourceBranch != "") {
 		mySourceBranch = "--use-branch=${env.SOURCE_BRANCH}"
 	}
+	p_short_circuit = short_circuit != null ? "--short-circuit=${short_circuit}" : ""
+	p_break_before = break_before != null ? "--break-before=${break_before}" : ""
 
 	def program = """
 		yumcache="/var/cache/zfs-fedora-installer"
@@ -37,6 +46,8 @@ def buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myR
 			${mySourceBranch} \\
 			${myLuks} \\
 			${mySeparateBoot} \\
+			${p_short_circuit} \\
+			${p_break_before} \\
 			--releasever=${myRelease} \\
 			--trace-file=/dev/stderr \\
 			--workdir="\$mntdir" \\
@@ -81,7 +92,7 @@ pipeline {
 		string defaultValue: 'yes', description: '', name: 'BUILD_FROM_RPMS', trim: true
 		string defaultValue: 'seed', description: '', name: 'POOL_NAME', trim: true
 		string defaultValue: 'seed.dragonfear', description: '', name: 'HOST_NAME', trim: true
-		string defaultValue: 'yes', description: '', name: 'SEPARATE_BOOT', trim: true
+		string defaultValue: 'no', description: '', name: 'SEPARATE_BOOT', trim: true
 		// Having trouble with LUKS being yes on Fedora 25.
 		string defaultValue: 'no', description: '', name: 'LUKS', trim: true
 		string defaultValue: '', description: "Which Fedora releases to build for (empty means the job's default).", name: 'RELEASE', trim: true
@@ -240,26 +251,34 @@ pipeline {
 					stage("Activate ZFS") {
 						script {
 							lock("activatezfs") {
-								if (!sh(script: "lsmod", returnStdout: true).contains("zfs")) {
+								if (!sh(script: "lsmod", label: "Test ZFS is running", returnStdout: true).contains("zfs")) {
 									timeout(time: 20, unit: 'MINUTES') {
-										sh 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi'
-										def program = '''
-											deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
-											rpm -q \$deps || sudo dnf install -qy \$deps
-										'''.stripIndent().trim()
-										sh program
-										sh '''
-											sudo modprobe zfs || {
-												eval $(cat /etc/os-release)
-												if test -d out/fc$VERSION_ID/ ; then
-													sudo src/deploy-zfs --use-prebuilt-rpms out/fc$VERSION_ID/
-												else
-													sudo src/deploy-zfs
-												fi
-												sudo modprobe zfs
-												sudo service systemd-udevd restart
-											}
-										'''
+										sh(
+											script: 'if test -f /usr/sbin/setenforce ; then sudo setenforce 0 || exit $? ; fi',
+											label: "Turn off SELinux"
+										)
+										sh(
+											script: '''
+												deps="rsync rpm-build e2fsprogs dosfstools cryptsetup qemu gdisk python3"
+												rpm -q $deps || sudo dnf install -qy $deps
+											''',
+											label: "Install dependencies"
+										)
+										sh(
+											script: '''
+												sudo modprobe zfs || {
+													eval $(cat /etc/os-release)
+													if test -d out/fc$VERSION_ID/ ; then
+														sudo src/deploy-zfs --use-prebuilt-rpms out/fc$VERSION_ID/
+													else
+														sudo src/deploy-zfs
+													fi
+													sudo modprobe zfs
+													sudo service systemd-udevd restart
+												}
+											''',
+											label: "Install ZFS"
+										)
 									}
 								}
 							}
@@ -277,27 +296,69 @@ pipeline {
 							    {
 							        return {
 										stage("${it[0]} ${it[1]} ${it[2]} ${it[3]}") {
-											script {
-												println "Stage ${it[0]} ${it[1]} ${it[2]} ${it[3]}"
-												def myRelease = it[0]
-												def myBuildFrom = it[1]
-												def myLuks = it[2]
-												def mySeparateBoot = it[3]
-												def pname = "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${myRelease}_${myBuildFrom}_${myLuks}_${mySeparateBoot}"
-												def mySourceBranch = ""
-												if (env.SOURCE_BRANCH != "") {
-													mySourceBranch = env.SOURCE_BRANCH
+											stage("Install OS") {
+												timeout(10) {
+													sh(
+														script: buildCmdline(
+															[release: it[0], buildfrom: it[1], luks: it[2], separateboot: it[3], sourcebranch: env.SOURCE_BRANCH != "" ? env.SOURCE_BRANCH : "", pname: "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${it[0]}_${it[1]}_${it[2]}_${it[3]}"],
+															null, "deploy_zfs"
+														),
+														label: "Command run"
+													)
 												}
-												script {
-													timeout(60) {
-														def program = buildCmdline(pname, myBuildFrom, mySourceBranch, myLuks, mySeparateBoot, myRelease)
-														def desc = "============= REPORT ==============\nPool name: ${pname}\nBranch name: ${env.BRANCH_NAME}\nGit hash: ${env.GIT_HASH}\nRelease: ${myRelease}\nBuild from: ${myBuildFrom}\nLUKS: ${myLuks}\nSeparate boot: ${mySeparateBoot}\nSource branch: ${env.SOURCE_BRANCH}\n============= END REPORT =============="
-														println "${desc}\n\n" + "Program that will be executed:\n${program}"
-														sh(
-															script: program,
-															label: "Command run"
-														)
-													}
+											}
+											stage("Deploy ZFS") {
+												timeout(15) {
+													sh(
+														script: buildCmdline(
+															[release: it[0], buildfrom: it[1], luks: it[2], separateboot: it[3], sourcebranch: env.SOURCE_BRANCH != "" ? env.SOURCE_BRANCH : "", pname: "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${it[0]}_${it[1]}_${it[2]}_${it[3]}"],
+															"deploy_zfs", "reload_chroot"
+														),
+														label: "Command run"
+													)
+												}
+											}
+											stage("Prepare OS for bootloader") {
+												timeout(5) {
+													sh(
+														script: buildCmdline([release: it[0], buildfrom: it[1], luks: it[2], separateboot: it[3], sourcebranch: env.SOURCE_BRANCH != "" ? env.SOURCE_BRANCH : "", pname: "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${it[0]}_${it[1]}_${it[2]}_${it[3]}"],
+															"reload_chroot", "bootloader_install"
+														),
+														label: "Command run"
+													)
+												}
+											}
+											stage("Install bootloader") {
+												timeout(30) {
+													sh(
+														script: buildCmdline(
+															[release: it[0], buildfrom: it[1], luks: it[2], separateboot: it[3], sourcebranch: env.SOURCE_BRANCH != "" ? env.SOURCE_BRANCH : "", pname: "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${it[0]}_${it[1]}_${it[2]}_${it[3]}"],
+															"bootloader_install", "boot_to_test_non_hostonly"
+														),
+														label: "Command run"
+													)
+												}
+											}
+											stage("Test generic initrd") {
+												timeout(20) {
+													sh(
+														script: buildCmdline(
+															[release: it[0], buildfrom: it[1], luks: it[2], separateboot: it[3], sourcebranch: env.SOURCE_BRANCH != "" ? env.SOURCE_BRANCH : "", pname: "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${it[0]}_${it[1]}_${it[2]}_${it[3]}"],
+															"boot_to_test_non_hostonly", "boot_to_test_hostonly"
+														),
+														label: "Command run"
+													)
+												}
+											}
+											stage("Test host-only initrd") {
+												timeout(20) {
+													sh(
+														script: buildCmdline(
+															[release: it[0], buildfrom: it[1], luks: it[2], separateboot: it[3], sourcebranch: env.SOURCE_BRANCH != "" ? env.SOURCE_BRANCH : "", pname: "${env.POOL_NAME}_${env.BRANCH_NAME}_${env.BUILD_NUMBER}_${env.GIT_HASH}_${it[0]}_${it[1]}_${it[2]}_${it[3]}"],
+															"boot_to_test_hostonly", null
+														),
+														label: "Command run"
+													)
 												}
 											}
 										}

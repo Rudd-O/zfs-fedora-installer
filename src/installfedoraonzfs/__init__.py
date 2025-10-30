@@ -597,6 +597,7 @@ def blockdev_context(
             voltype = "file"
 
         if voltype == "file":
+            _LOGGER.debug("Setting up loop device for %s", voldev)
             new_voldev = get_associated_lodev(voldev)
             if not new_voldev:
                 new_voldev = losetup(voldev)
@@ -618,6 +619,7 @@ def blockdev_context(
                 boottype = "file"
 
             if boottype == "file":
+                _LOGGER.debug("Setting up loop device for %s", bootdev)
                 new_bootdev = get_associated_lodev(bootdev)
                 if not new_bootdev:
                     new_bootdev = losetup(bootdev)
@@ -1320,7 +1322,7 @@ configfile $prefix/grub.cfg
 
         with (
             blockdev_context(
-                voldev, bootdev, volsize, bootsize, chown, chgrp, create=True
+                voldev, bootdev, volsize, bootsize, chown, chgrp, create=False
             ) as (rootpart, bootpart, efipart),
             filesystem_context(
                 poolname,
@@ -1331,7 +1333,7 @@ configfile $prefix/grub.cfg
                 swapsize,
                 lukspassword,
                 luksoptions,
-                create=True,
+                create=False,
             ) as (
                 rootmountpoint,
                 p,
@@ -1361,26 +1363,28 @@ configfile $prefix/grub.cfg
 
     def get_kernel_initrd_kver(p: Callable[[str], str]) -> tuple[Path, Path, Path, str]:
         try:
-            _LOGGER.debug(
-                "Fishing out kernel and initial RAM disk from %s",
-                p(j("boot", "loader", "*", "linux")),
-            )
-            kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
-            kver = os.path.basename(os.path.dirname(kernel))
-            initrd = p(j("boot", "loader", kver, "initrd"))
-            hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
-            return Path(kernel), Path(initrd), Path(hostonly), kver
-        except IndexError:
-            _LOGGER.debug(
-                "Fishing out kernel and initial RAM disk from %s",
-                p(j("boot", "vmlinuz-*")),
-            )
-            kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
-            kver = os.path.basename(kernel)[len("vmlinuz-") :]
-            initrd = p(j("boot", f"initramfs-{kver}.img"))
-            hostonly = p(j("boot", f"initramfs-hostonly-{kver}.img"))
-            return Path(kernel), Path(initrd), Path(hostonly), kver
+            try:
+                _LOGGER.debug(
+                    "Fishing out kernel and initial RAM disk from %s",
+                    p(j("boot", "loader", "*", "linux")),
+                )
+                kernel = glob.glob(p(j("boot", "loader", "*", "linux")))[0]
+                kver = os.path.basename(os.path.dirname(kernel))
+                initrd = p(j("boot", "loader", kver, "initrd"))
+                hostonly = p(j("boot", "loader", kver, "initrd-hostonly"))
+                return Path(kernel), Path(initrd), Path(hostonly), kver
+            except IndexError:
+                _LOGGER.debug(
+                    "Fishing out kernel and initial RAM disk from %s",
+                    p(j("boot", "vmlinuz-*")),
+                )
+                kernel = glob.glob(p(j("boot", "vmlinuz-*")))[0]
+                kver = os.path.basename(kernel)[len("vmlinuz-") :]
+                initrd = p(j("boot", f"initramfs-{kver}.img"))
+                hostonly = p(j("boot", f"initramfs-hostonly-{kver}.img"))
+                return Path(kernel), Path(initrd), Path(hostonly), kver
         except Exception:
+            _LOGGER.error("Could not fish initrd or kernel")
             check_call(["ls", "-lRa", p("boot")])
             raise
 
@@ -1805,6 +1809,10 @@ def install_fedora_on_zfs() -> int:
         )
         return os.EX_USAGE
 
+    def simulate_sigint():
+        raise KeyboardInterrupt()
+
+    signal.signal(signal.SIGTERM, lambda *args: simulate_sigint())
     try:
         install_fedora(
             Path(args.workdir),
