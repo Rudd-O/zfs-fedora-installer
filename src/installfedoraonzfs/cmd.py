@@ -359,7 +359,7 @@ def _printfiles(openfiles: dict[str, list[tuple[str, str]]]) -> Sequence[int]:
     return list(pids)
 
 
-def umount(mountpoint: Path, tries: int = 5) -> None:
+def umount(mountpoint: Path, tries: int = 30) -> None:
     """Unmount a file system, trying `tries` times."""
 
     sleep = 1
