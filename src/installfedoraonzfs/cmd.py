@@ -362,7 +362,7 @@ def _printfiles(openfiles: dict[str, list[tuple[str, str]]]) -> Sequence[int]:
 def umount(mountpoint: Path, tries: int = 30) -> None:
     """Unmount a file system, trying `tries` times."""
 
-    sleep = 1
+    sleep = 1.0
     while True:
         if not ismount(mountpoint):
             return None
@@ -379,11 +379,12 @@ def umount(mountpoint: Path, tries: int = 30) -> None:
                     _killpids(pids)
             if tries <= 0:
                 raise
-            logger.warning("Syncing and sleeping %d seconds", sleep)
+            logger.warning("Sleeping %d seconds", sleep)
             # check_call(["sync"])
             time.sleep(sleep)
             tries -= 1
-            sleep = sleep * 2
+            # calibrated to total 90 second waits with 30 tries
+            sleep = sleep * 1.065
 
 
 def create_file(
