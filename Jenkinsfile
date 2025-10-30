@@ -34,7 +34,6 @@ def buildCmdline(args, short_circuit, break_before) {
 		yumcache="/var/cache/zfs-fedora-installer"
 		mntdir="\$PWD/mnt/${pname}"
 		mkdir -p "\$mntdir"
-		volsize=10000
 		cmd=src/install-fedora-on-zfs
 		set -x
 		set +e
@@ -54,8 +53,6 @@ def buildCmdline(args, short_circuit, break_before) {
 			--yum-cachedir="\$yumcache" \\
 			--host-name="\$HOST_NAME" \\
 			--pool-name="${pname}" \\
-			--vol-size=\$volsize \\
-			--swap-size=256 \\
 			--root-password=seed \\
 			--chown="\$USER" \\
 			--chgrp=`groups | cut -d " " -f 1` \\
