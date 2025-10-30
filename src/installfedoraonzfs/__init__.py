@@ -1,6 +1,7 @@
 """Main package for zfs-fedora-installer."""
 
 import argparse
+from collections import OrderedDict
 from collections.abc import Generator, Sequence
 import contextlib
 import glob
@@ -19,7 +20,6 @@ import time
 from typing import Any, Callable
 
 from installfedoraonzfs import pm
-from installfedoraonzfs.breakingbefore import BreakingBefore, break_stages, shell_stages
 from installfedoraonzfs.cmd import (
     Popen,
     bindmount,
@@ -49,6 +49,39 @@ _LOGGER = logging.getLogger()
 
 
 qemu_timeout = 360
+
+
+class BreakingBefore(Exception):
+    """Utility exception used to break at a particular stage."""
+
+    pass
+
+
+break_stages = OrderedDict(
+    (
+        ("beginning", "doing anything"),
+        ("deploy_zfs", "deploying ZFS"),
+        ("reload_chroot", "reloading the final chroot"),
+        ("bootloader_install", "installation of the bootloader"),
+        (
+            "boot_to_test_non_hostonly",
+            "booting with the generic initramfs to test it works",
+        ),
+        (
+            "boot_to_test_hostonly",
+            "booting with the host-only initramfs to test it works",
+        ),
+    )
+)
+shell_stages = OrderedDict(
+    (
+        ("install_kernel", "installing kernel, DKMS, and GRUB packages in the chroot"),
+        ("install_prebuilt_rpms", "deploying ZFS to the chroot"),
+        ("deploy_grub_zfs_fixer", "deploying ZFS to the chroot"),
+        ("deploy_zfs", "deploying ZFS to the chroot"),
+        ("reload_chroot", "preparing the chroot to boot"),
+    )
+)
 
 
 def add_volume_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1618,17 +1651,17 @@ exec /sbin/init "$@"
     try:
         # start main program
         for stage in [
-            "beginning",
-            "deploy_zfs",
-            "reload_chroot",
-            "bootloader_install",
-            "boot_to_test_non_hostonly",
-            "boot_to_test_hostonly",
+            beginning,
+            deploy_zfs,
+            reload_chroot,
+            bootloader_install,
+            boot_to_test_non_hostonly,
+            boot_to_test_hostonly,
         ]:
-            if break_before == stage:
-                raise BreakingBefore(stage)
-            if short_circuit in (stage, None):
-                locals()[stage]()
+            if break_before == stage.__name__:
+                raise BreakingBefore(stage.__name__)
+            if not short_circuit or short_circuit == stage.__name__:
+                stage()
                 short_circuit = None
 
     # tell the user we broke
