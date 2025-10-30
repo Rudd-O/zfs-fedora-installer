@@ -1,5 +1,6 @@
 """Commands and utilities."""
 
+from collections.abc import Sequence
 import contextlib
 import errno
 import fcntl
@@ -16,9 +17,9 @@ import sys
 import tempfile
 import threading
 import time
-from typing import IO, Any, BinaryIO, Literal, Sequence, TextIO, TypeVar, cast
+from typing import IO, Any, BinaryIO, Literal, TextIO, TypeVar, cast
 
-logger = logging.getLogger("cmd")
+_LOGGER = logging.getLogger("cmd")
 
 
 def readtext(fn: Path) -> str:
@@ -56,6 +57,7 @@ def check_call(cmd: list[str], *args: Any, **kwargs: Any) -> None:
     Standard input will be closed and all I/O will proceed with text.
 
     Arguments:
+
       cmd: command and arguments to run
       cwd: current working directory
       *args: positional arguments for check_call
@@ -65,7 +67,7 @@ def check_call(cmd: list[str], *args: Any, **kwargs: Any) -> None:
     kwargs["close_fds"] = True
     kwargs["stdin"] = open(os.devnull)
     kwargs["universal_newlines"] = True
-    logger.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
+    _LOGGER.debug("Check calling %s in cwd %r", format_cmdline(cmd), cwd)
     subprocess.check_call(cmd, *args, **kwargs)
 
 
@@ -96,16 +98,16 @@ def check_output(cmd: list[str], *args: Any, **kwargs: Any) -> str:
     cwd = kwargs.get("cwd", os.getcwd())
     kwargs["universal_newlines"] = True
     kwargs["close_fds"] = True
-    logger.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
+    _LOGGER.debug("Check outputting %s in cwd %r", format_cmdline(cmd), cwd)
     output = cast(str, subprocess.check_output(cmd, *args, **kwargs))
     if output:
         if logall:
-            logger.debug("Output from command: %r", output)
+            _LOGGER.debug("Output from command: %r", output)
         else:
             firstline = output.splitlines()[0].strip()
-            logger.debug("First line of output from command: %s", firstline)
+            _LOGGER.debug("First line of output from command: %s", firstline)
     else:
-        logger.debug("No output from command")
+        _LOGGER.debug("No output from command")
     return output
 
 
@@ -140,6 +142,7 @@ def losetup(path: Path) -> Path:
     """Set up a local loop device for a file."""
     dev = check_output(["losetup", "-P", "--find", "--show", str(path)])[:-1]
     check_output(["blockdev", "--rereadpt", dev])
+    time.sleep(1)
     return Path(dev)
 
 
@@ -216,7 +219,7 @@ def get_output_exitcode(cmd: list[str], **kwargs: Any) -> tuple[str, int]:
 
     f = tempfile.TemporaryFile(mode="w+")
     try:
-        logger.debug("Get output exitcode %s in cwd %r", format_cmdline(cmd), cwd)
+        _LOGGER.debug("Get output exitcode %s in cwd %r", format_cmdline(cmd), cwd)
         p = subprocess.Popen(
             cmd, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs
         )
@@ -238,7 +241,7 @@ def Popen(cmd: list[str], *args: Any, **kwargs: Any) -> subprocess.Popen[str]:
     """subprocess.Popen with logging."""
     cwd = kwargs.get("cwd", os.getcwd())
     kwargs["universal_newlines"] = True
-    logger.debug("Popening %s in cwd %r", format_cmdline(cmd), cwd)
+    _LOGGER.debug("Popening %s in cwd %r", format_cmdline(cmd), cwd)
     return subprocess.Popen(cmd, *args, **kwargs)
 
 
@@ -351,9 +354,9 @@ def _killpids(pidlist: Sequence[int]) -> None:
 def _printfiles(openfiles: dict[str, list[tuple[str, str]]]) -> Sequence[int]:
     pids: set[int] = set()
     for of, procs in list(openfiles.items()):
-        logger.warning("%r:", of)
+        _LOGGER.warning("%r:", of)
         for pid, cmd in procs:
-            logger.warning("  %8s  %s", pid, cmd)
+            _LOGGER.warning("  %8s  %s", pid, cmd)
             with contextlib.suppress(ValueError):
                 pids.add(int(pid))
     return list(pids)
@@ -372,14 +375,14 @@ def umount(mountpoint: Path, tries: int = 30) -> None:
         except subprocess.CalledProcessError:
             openfiles = check_for_open_files(mountpoint)
             if openfiles:
-                logger.warning("There are open files in %r:", mountpoint)
+                _LOGGER.warning("There are open files in %r:", mountpoint)
                 pids = _printfiles(openfiles)
                 if tries <= 1 and pids:
-                    logger.warning("Killing processes with open files: %s:", pids)
+                    _LOGGER.warning("Killing processes with open files: %s:", pids)
                     _killpids(pids)
             if tries <= 0:
                 raise
-            logger.warning("Sleeping %d seconds", sleep)
+            _LOGGER.warning("Sleeping %d seconds", sleep)
             # check_call(["sync"])
             time.sleep(sleep)
             tries -= 1
@@ -430,19 +433,19 @@ class lockfile:
 
     def __enter__(self) -> None:
         """Grab the lock and permit execution of contexted code."""
-        logger.debug("Grabbing lock %s", self.path)
+        _LOGGER.debug("Grabbing lock %s", self.path)
         self.f = open(self.path, "wb")
         _lockf(self.f)
-        logger.debug("Grabbed lock %s", self.path)
+        _LOGGER.debug("Grabbed lock %s", self.path)
 
     def __exit__(self, *unused_args: Any) -> None:
         """Unlock and close lockfile."""
-        logger.debug("Releasing lock %s", self.path)
+        _LOGGER.debug("Releasing lock %s", self.path)
         assert self.f
         _unlockf(self.f)
         self.f.close()
         self.f = None
-        logger.debug("Released lock %s", self.path)
+        _LOGGER.debug("Released lock %s", self.path)
 
 
 def cpuinfo() -> str:
